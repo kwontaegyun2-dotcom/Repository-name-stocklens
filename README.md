@@ -1,7 +1,9 @@
 # 📊 StockLens — 국내 주식 종합 분석 플랫폼
 
 종목을 검색하면 투자지표·재무·차트·뉴스·증권사 리포트를 종합 분석해 **점수화**하고,
-**목표주가와 진입 타이밍**까지 제시하는 로컬 웹 대시보드입니다.
+**목표주가와 진입 타이밍**까지 제시하는 웹 대시보드입니다.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/kwontaegyun2-dotcom/Repository-name-stocklens)
 
 > 기존 `stock-analyzer` 폴더의 Streamlit 분석기와는 별개의 새 프로젝트입니다.
 
