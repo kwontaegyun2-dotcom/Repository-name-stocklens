@@ -1,0 +1,12 @@
+# Render.com 배포 설정 (Blueprint)
+# render.com 에서 이 저장소를 연결하면 자동으로 이 설정을 읽어 배포합니다.
+services:
+  - type: web
+    name: stocklens
+    runtime: docker
+    plan: free
+    region: singapore   # 한국에서 가장 가까운 무료 리전
+    envVars:
+      - key: STOCKLENS_PUBLIC
+        value: "1"
+    healthCheckPath: /

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockLens — 주식 종합 분석</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">📊 Stock<span>Lens</span></div>
+  <div class="search-wrap">
+    <input id="search-input" type="text" placeholder="종목명 또는 종목코드 입력 (예: 삼성전자, 005930)" autocomplete="off">
+    <div id="search-dropdown" class="dropdown hidden"></div>
+  </div>
+  <button id="kis-btn" class="ghost-btn">⚙ 한국투자증권 API</button>
+</header>
+
+<main id="landing" class="landing">
+  <h1>대한민국 주식 <em>종합 분석</em> 플랫폼</h1>
+  <p>종목을 검색하면 PER·PBR·ROE 등 투자지표, 재무제표, 차트 기술적 분석,<br>
+     뉴스 감성, 증권사 리포트 컨센서스를 종합해 <b>점수화</b>하고<br>
+     <b>목표주가와 진입 타이밍</b>까지 한 번에 분석해 드립니다.</p>
+  <div class="quick-picks">
+    <span>바로 분석:</span>
+    <button data-code="005930" data-name="삼성전자">삼성전자</button>
+    <button data-code="000660" data-name="SK하이닉스">SK하이닉스</button>
+    <button data-code="373220" data-name="LG에너지솔루션">LG에너지솔루션</button>
+    <button data-code="005380" data-name="현대차">현대차</button>
+    <button data-code="035420" data-name="NAVER">NAVER</button>
+    <button data-code="035720" data-name="카카오">카카오</button>
+  </div>
+</main>
+
+<div id="loading" class="loading hidden">
+  <div class="spinner"></div>
+  <p id="loading-text">데이터 수집 및 분석 중...</p>
+</div>
+
+<main id="report" class="report hidden">
+  <!-- 종목 헤더 -->
+  <section class="stock-header card">
+    <div class="stock-title">
+      <img id="stock-logo" alt="">
+      <div>
+        <h2><span id="stock-name"></span> <small id="stock-code"></small> <em id="stock-market"></em></h2>
+        <div class="live-row">
+          <span id="live-price" class="live-price"></span>
+          <span id="live-change" class="live-change"></span>
+          <span id="live-badge" class="badge"></span>
+          <span id="source-badge" class="badge src"></span>
+        </div>
+      </div>
+    </div>
+    <div class="header-score">
+      <canvas id="gauge" width="150" height="150"></canvas>
+      <div class="grade-box">
+        <div id="grade" class="grade"></div>
+        <div id="grade-desc" class="grade-desc"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 종합 의견 -->
+  <section class="card">
+    <h3>🧭 종합 평가</h3>
+    <p id="opinion-head" class="opinion-head"></p>
+    <ul id="opinion-points" class="opinion-points"></ul>
+    <div class="radar-row">
+      <canvas id="radar" width="340" height="300"></canvas>
+      <div id="category-bars" class="category-bars"></div>
+    </div>
+  </section>
+
+  <!-- 목표주가 / 진입타이밍 -->
+  <section class="card">
+    <h3>🎯 목표주가 &amp; 진입 타이밍</h3>
+    <div class="target-grid">
+      <div class="target-box">
+        <label>애널리스트 목표주가 평균</label>
+        <div id="target-consensus" class="target-price"></div>
+        <div id="target-consensus-upside" class="target-upside"></div>
+      </div>
+      <div class="target-box">
+        <label>기술적 목표가</label>
+        <div id="target-tech" class="target-price"></div>
+        <div id="target-tech-upside" class="target-upside"></div>
+      </div>
+      <div class="target-box">
+        <label>진입 판단</label>
+        <div id="verdict" class="verdict"></div>
+        <div id="cons-opinion" class="target-upside"></div>
+      </div>
+    </div>
+    <p id="timing-comment" class="timing-comment"></p>
+    <div class="entry-grid" id="entry-grid"></div>
+  </section>
+
+  <!-- 차트 -->
+  <section class="card">
+    <h3>📈 차트 분석 <small class="hint">이동평균선 · 지지/저항 · 목표주가 표시</small></h3>
+    <div id="chart-container"></div>
+    <div class="chart-legend">
+      <span class="lg ma20">SMA20</span><span class="lg ma60">SMA60</span><span class="lg ma120">SMA120</span>
+      <span class="lg target">목표주가</span><span class="lg support">지지선</span><span class="lg resist">저항선</span>
+    </div>
+  </section>
+
+  <!-- 기술적 분석 -->
+  <section class="card">
+    <h3>🔬 기술적 분석</h3>
+    <div id="tech-summary" class="tech-summary"></div>
+    <ul id="tech-signals" class="signal-list"></ul>
+  </section>
+
+  <!-- 투자지표 -->
+  <section class="card">
+    <h3>📐 투자지표</h3>
+    <div id="metrics-grid" class="metrics-grid"></div>
+  </section>
+
+  <!-- 재무 하이라이트 -->
+  <section class="card">
+    <h3>💰 재무 하이라이트 <small class="hint">단위: 억원 · (E)는 컨센서스</small></h3>
+    <canvas id="finance-chart" height="220"></canvas>
+    <div id="finance-table" class="table-wrap"></div>
+  </section>
+
+  <!-- 수급 동향 -->
+  <section class="card">
+    <h3>🌊 투자자 수급 동향 <small class="hint">순매수, 단위: 주</small></h3>
+    <div id="flow-table" class="table-wrap"></div>
+  </section>
+
+  <!-- 증권사 리포트 -->
+  <section class="card">
+    <h3>📑 증권사 리포트 <span id="research-consensus" class="badge"></span></h3>
+    <div id="research-list" class="research-list"></div>
+  </section>
+
+  <!-- 뉴스 -->
+  <section class="card">
+    <h3>📰 최근 뉴스 &amp; 시장 심리 <span id="senti-badge" class="badge"></span></h3>
+    <div id="news-list" class="news-list"></div>
+  </section>
+
+  <!-- 동일업종 -->
+  <section class="card">
+    <h3>🏭 동일업종 비교</h3>
+    <div id="peers-table" class="table-wrap"></div>
+  </section>
+
+  <!-- AI 리포트 -->
+  <section class="card" id="ai-card">
+    <h3>🤖 Claude AI 심층 분석 리포트</h3>
+    <p id="ai-hint" class="hint-p"></p>
+    <button id="ai-btn" class="primary-btn hidden">AI 심층 분석 생성</button>
+    <div id="ai-report" class="ai-report hidden"></div>
+  </section>
+
+  <p class="disclaimer">⚠️ 본 서비스의 모든 분석·점수·목표주가는 공개 데이터 기반의 자동 계산 결과로 투자 참고용입니다.
+     투자 판단과 책임은 투자자 본인에게 있습니다. 시세는 데이터 소스에 따라 지연될 수 있습니다.</p>
+</main>
+
+<!-- KIS 설정 모달 -->
+<div id="kis-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>한국투자증권 오픈API 연동</h3>
+    <p class="hint-p">
+      <a href="https://apiportal.koreainvestment.com" target="_blank">KIS Developers</a>에서 발급받은
+      앱키/앱시크릿을 입력하면 실시간 시세가 한국투자증권 API로 제공됩니다.
+      미설정 시 네이버 시세(준실시간)를 사용합니다. 키는 로컬 PC에만 저장됩니다.
+    </p>
+    <label>APP KEY</label>
+    <input id="kis-key" type="text" placeholder="PS...">
+    <label>APP SECRET</label>
+    <input id="kis-secret" type="password" placeholder="시크릿 입력">
+    <label class="check-row"><input id="kis-paper" type="checkbox"> 모의투자 계정</label>
+    <div id="kis-msg" class="kis-msg"></div>
+    <div class="modal-actions">
+      <button id="kis-save" class="primary-btn">저장 &amp; 연결 테스트</button>
+      <button id="kis-close" class="ghost-btn">닫기</button>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
