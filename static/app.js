@@ -75,10 +75,91 @@ document.querySelectorAll(".quick-picks button").forEach((b) => {
   b.onclick = () => analyze(b.dataset.code);
 });
 
+/* ---------------- navigation ---------------- */
+function goHome() {
+  clearInterval(priceTimer);
+  currentCode = null;
+  $("report").classList.add("hidden");
+  $("loading").classList.add("hidden");
+  $("landing").classList.remove("hidden");
+  window.scrollTo({ top: 0 });
+  loadRanking(currentSector);
+}
+
+/* ---------------- ranking board ---------------- */
+let currentSector = "전체";
+let rankPollTimer = null;
+
+async function loadRanking(sector = "전체") {
+  currentSector = sector;
+  try {
+    const d = await api(`/api/ranking${sector && sector !== "전체" ? `?sector=${encodeURIComponent(sector)}` : ""}`);
+    renderRankFilters(d.sectors);
+    if ((!d.items || d.items.length === 0) && d.computing) {
+      $("rank-list").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분, 자동 갱신)</span></div>`;
+      clearTimeout(rankPollTimer);
+      rankPollTimer = setTimeout(() => loadRanking(currentSector), 5000);
+      return;
+    }
+    renderRanking(d);
+  } catch {
+    $("rank-list").innerHTML = `<div class="rank-loading"><span>랭킹을 불러오지 못했습니다.</span></div>`;
+  }
+}
+
+function renderRankFilters(sectors) {
+  if (!sectors || !sectors.length) return;
+  const all = ["전체", ...sectors];
+  $("rank-filters").innerHTML = all.map((s) =>
+    `<button class="${s === currentSector ? "active" : ""}" data-sector="${s}">${s}</button>`).join("");
+  document.querySelectorAll("#rank-filters button").forEach((b) => {
+    b.onclick = () => loadRanking(b.dataset.sector);
+  });
+}
+
+function renderRanking(d) {
+  if (d.updated_at) {
+    const dt = new Date(d.updated_at * 1000);
+    $("rank-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준`;
+  }
+  if (!d.items.length) {
+    $("rank-list").innerHTML = `<div class="rank-loading"><span>해당 섹터 데이터가 없습니다.</span></div>`;
+    return;
+  }
+  $("rank-list").innerHTML = d.items.map((r, i) => {
+    const rank = r.rank || i + 1;
+    const medal = rank <= 3 ? `top g${rank}` : "";
+    const col = scoreColor(r.score);
+    const up = r.upside != null ? `${sign(r.upside, 0)}%` : "-";
+    return `
+    <div class="rank-row" data-code="${r.code}">
+      <div class="rank-num ${medal}">${rank}</div>
+      <div class="rank-info">
+        <div class="rank-name">${r.name}</div>
+        <div class="rank-sector">${r.sector} · ${r.code}</div>
+      </div>
+      <div class="rank-price">
+        <div class="p">${won(r.price)}</div>
+        <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
+      </div>
+      <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
+      <div class="rank-tail">
+        <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
+        <div class="rank-upside">목표가 ${up}</div>
+        <div class="rank-bar"><i style="width:${r.score}%;background:${col}"></i></div>
+      </div>
+    </div>`;
+  }).join("");
+  document.querySelectorAll("#rank-list .rank-row").forEach((row) => {
+    row.onclick = () => analyze(row.dataset.code);
+  });
+}
+
 /* ---------------- analyze flow ---------------- */
 async function analyze(code) {
   currentCode = code;
   clearInterval(priceTimer);
+  clearTimeout(rankPollTimer);
   $("landing").classList.add("hidden");
   $("report").classList.add("hidden");
   $("loading").classList.remove("hidden");
@@ -512,3 +593,8 @@ $("kis-save").onclick = async () => {
     $("kis-msg").textContent = "오류: " + e.message;
   }
 };
+
+/* ---------------- navigation + init ---------------- */
+$("logo-home").onclick = goHome;
+$("back-btn").onclick = goHome;
+loadRanking();

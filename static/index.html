@@ -4,33 +4,50 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css">
+<link rel="stylesheet" href="/static/style.css?v=2">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
+<div class="bg-orbs"><span></span><span></span><span></span></div>
+
 <header class="topbar">
-  <div class="logo">📊 Stock<span>Lens</span></div>
+  <div class="logo" id="logo-home">📊 Stock<span>Lens</span></div>
   <div class="search-wrap">
-    <input id="search-input" type="text" placeholder="종목명 또는 종목코드 입력 (예: 삼성전자, 005930)" autocomplete="off">
+    <input id="search-input" type="text" placeholder="종목명 또는 종목코드 검색 (예: 삼성전자, 005930)" autocomplete="off">
     <div id="search-dropdown" class="dropdown hidden"></div>
   </div>
-  <button id="kis-btn" class="ghost-btn">⚙ 한국투자증권 API</button>
+  <button id="kis-btn" class="ghost-btn">⚙ 실시간 시세 연동</button>
 </header>
 
 <main id="landing" class="landing">
-  <h1>대한민국 주식 <em>종합 분석</em> 플랫폼</h1>
-  <p>종목을 검색하면 PER·PBR·ROE 등 투자지표, 재무제표, 차트 기술적 분석,<br>
-     뉴스 감성, 증권사 리포트 컨센서스를 종합해 <b>점수화</b>하고<br>
-     <b>목표주가와 진입 타이밍</b>까지 한 번에 분석해 드립니다.</p>
-  <div class="quick-picks">
-    <span>바로 분석:</span>
-    <button data-code="005930" data-name="삼성전자">삼성전자</button>
-    <button data-code="000660" data-name="SK하이닉스">SK하이닉스</button>
-    <button data-code="373220" data-name="LG에너지솔루션">LG에너지솔루션</button>
-    <button data-code="005380" data-name="현대차">현대차</button>
-    <button data-code="035420" data-name="NAVER">NAVER</button>
-    <button data-code="035720" data-name="카카오">카카오</button>
+  <div class="hero">
+    <div class="hero-badge">✨ AI 기반 종목 종합 분석</div>
+    <h1>주식, <em>감</em>이 아니라 <em>데이터</em>로.</h1>
+    <p>PER·PBR·ROE 투자지표부터 차트 기술적 분석, 뉴스 심리, 증권사 컨센서스까지<br>
+       6개 부문을 종합 점수화하고 <b>목표주가와 진입 타이밍</b>을 한눈에.</p>
+    <div class="quick-picks">
+      <button data-code="005930">삼성전자</button>
+      <button data-code="000660">SK하이닉스</button>
+      <button data-code="207940">삼성바이오로직스</button>
+      <button data-code="373220">LG에너지솔루션</button>
+      <button data-code="035420">NAVER</button>
+      <button data-code="259960">크래프톤</button>
+    </div>
   </div>
+
+  <!-- 실시간 랭킹 -->
+  <section class="rank-board">
+    <div class="rank-head">
+      <div>
+        <h2>🏆 실시간 종목 랭킹</h2>
+        <p class="rank-sub">주요 종목을 종합 점수 순으로 정렬 <span id="rank-updated"></span></p>
+      </div>
+      <div class="rank-filters" id="rank-filters"></div>
+    </div>
+    <div id="rank-list" class="rank-list">
+      <div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분)</span></div>
+    </div>
+  </section>
 </main>
 
 <div id="loading" class="loading hidden">
@@ -39,6 +56,7 @@
 </div>
 
 <main id="report" class="report hidden">
+  <button id="back-btn" class="back-btn">← 랭킹·검색으로 돌아가기</button>
   <!-- 종목 헤더 -->
   <section class="stock-header card">
     <div class="stock-title">
@@ -185,6 +203,6 @@
   </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=2"></script>
 </body>
 </html>

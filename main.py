@@ -9,10 +9,15 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai
+from app import naver, kis, analysis, ai, ranking
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
+
+
+@app.on_event("startup")
+def _startup():
+    ranking.start_background()
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
@@ -43,6 +48,13 @@ def api_search(q: str, request: Request):
         return {"items": naver.search(q)}
     except Exception as e:
         raise HTTPException(502, f"검색 실패: {e}")
+
+
+# ---------------------------------------------------------------- ranking
+@app.get("/api/ranking")
+def api_ranking(sector: str = None, request: Request = None):
+    _rate_limit(request, limit=60, window=60)
+    return ranking.get(sector)
 
 
 # ---------------------------------------------------------------- realtime price
