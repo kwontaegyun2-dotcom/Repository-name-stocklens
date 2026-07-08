@@ -34,6 +34,55 @@ async function api(path, opts) {
   return r.json();
 }
 
+/* ---------------- theme ---------------- */
+const THEME_KEY = "stocklens_theme";
+function applyTheme(t) {
+  document.body.classList.toggle("light", t === "light");
+  $("theme-btn").textContent = t === "light" ? "☀️" : "🌙";
+}
+function initTheme() {
+  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+}
+$("theme-btn").onclick = () => {
+  const t = document.body.classList.contains("light") ? "dark" : "light";
+  localStorage.setItem(THEME_KEY, t);
+  applyTheme(t);
+};
+
+/* ---------------- favorites ---------------- */
+const FAV_KEY = "stocklens_favs";
+const getFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; } };
+const setFavs = (a) => localStorage.setItem(FAV_KEY, JSON.stringify(a));
+const isFav = (code) => getFavs().some((f) => f.code === code);
+function toggleFav(code, name) {
+  let a = getFavs();
+  a = isFav(code) ? a.filter((f) => f.code !== code) : [...a, { code, name }];
+  setFavs(a);
+  return isFav(code);
+}
+function removeFav(code) { setFavs(getFavs().filter((f) => f.code !== code)); }
+function renderFavBoard() {
+  const favs = getFavs();
+  const el = $("fav-board");
+  if (!favs.length) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.innerHTML = `<h2>⭐ 관심종목</h2><div class="fav-chips">` +
+    favs.map((f) => `<button class="fav-chip" data-code="${f.code}">${f.name}<span class="x" data-x="${f.code}">✕</span></button>`).join("") +
+    `</div>`;
+  el.querySelectorAll(".fav-chip").forEach((c) => {
+    c.onclick = (e) => {
+      if (e.target.classList.contains("x")) { removeFav(e.target.dataset.x); renderFavBoard(); return; }
+      analyze(c.dataset.code);
+    };
+  });
+}
+function updateFavBtn() {
+  const b = $("fav-btn");
+  const on = isFav(currentCode);
+  b.textContent = on ? "★" : "☆";
+  b.classList.toggle("on", on);
+}
+
 /* ---------------- search ---------------- */
 const input = $("search-input");
 const dropdown = $("search-dropdown");
@@ -83,6 +132,7 @@ function goHome() {
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
+  renderFavBoard();
   loadRanking(currentSector);
 }
 
@@ -208,6 +258,7 @@ function render(d) {
   $("live-badge").textContent = d.market_status === "OPEN" ? "장중" : "장마감";
   $("source-badge").textContent = d.kis_enabled ? "한국투자증권 실시간" : "네이버 시세";
   if (d.public) $("kis-btn").classList.add("hidden");
+  updateFavBtn();
 
   /* score */
   drawGauge(d.total.total_score);
@@ -470,6 +521,29 @@ function renderChart(d) {
   addMA(60, "#2ecc71");
   addMA(120, "#9b59b6");
 
+  // 매수/매도 신호 마커: SMA20 × SMA60 골든/데드 크로스
+  const smaSeries = (n) => {
+    const out = new Array(closes.length).fill(null);
+    let sum = 0;
+    for (let i = 0; i < closes.length; i++) {
+      sum += closes[i];
+      if (i >= n) sum -= closes[i - n];
+      if (i >= n - 1) out[i] = sum / n;
+    }
+    return out;
+  };
+  const s20 = smaSeries(20), s60 = smaSeries(60);
+  const markers = [];
+  for (let i = 1; i < closes.length; i++) {
+    if (s20[i] == null || s60[i] == null || s20[i - 1] == null || s60[i - 1] == null) continue;
+    const prev = s20[i - 1] - s60[i - 1], cur = s20[i] - s60[i];
+    if (prev <= 0 && cur > 0)
+      markers.push({ time: toDate(d.candles[i].date), position: "belowBar", color: "#2ee6a6", shape: "arrowUp", text: "매수" });
+    else if (prev >= 0 && cur < 0)
+      markers.push({ time: toDate(d.candles[i].date), position: "aboveBar", color: "#ff4d6d", shape: "arrowDown", text: "매도" });
+  }
+  if (markers.length) candleSeries.setMarkers(markers);
+
   const addPriceLine = (price, color, title, style) => {
     if (!price) return;
     candleSeries.createPriceLine({
@@ -597,4 +671,12 @@ $("kis-save").onclick = async () => {
 /* ---------------- navigation + init ---------------- */
 $("logo-home").onclick = goHome;
 $("back-btn").onclick = goHome;
+$("fav-btn").onclick = () => {
+  if (!currentCode) return;
+  toggleFav(currentCode, $("stock-name").textContent);
+  updateFavBtn();
+};
+
+initTheme();
+renderFavBoard();
 loadRanking();
