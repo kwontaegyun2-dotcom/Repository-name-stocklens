@@ -8,18 +8,33 @@ import re
 
 # ---------------------------------------------------------------- helpers
 def to_num(v):
-    """'311,500' / '46.76%' / 'N/A' → float | None"""
+    """'311,500' / '46.76%' / '23.08배' / '12,372원' / 'N/A' → float | None"""
     if v is None:
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    s = str(v).replace(",", "").replace("%", "").replace("+", "").strip()
-    if s in ("", "-", "N/A", "―"):
+    s = str(v)
+    for unit in (",", "%", "+", "배", "원", "주", "％", " "):
+        s = s.replace(unit, "")
+    s = s.strip()
+    if s in ("", "-", "N/A", "―", "N/A배"):
         return None
     try:
         return float(s)
     except ValueError:
         return None
+
+
+def parse_eok(v):
+    """'1,669조 1,125억' → 억원 단위 float. 순수 숫자면 그대로 반환."""
+    if v is None:
+        return None
+    s = str(v).replace(",", "").replace(" ", "")
+    jo = re.search(r"([\d.]+)조", s)
+    eok = re.search(r"([\d.]+)억", s)
+    if jo or eok:
+        return (float(jo.group(1)) * 10000 if jo else 0) + (float(eok.group(1)) if eok else 0)
+    return to_num(s)
 
 
 def _clamp(v, lo=0.0, hi=100.0):
@@ -312,7 +327,7 @@ def fundamental_analysis(integration: dict, fin_annual: dict) -> dict:
     eps = to_num(infos.get("eps"))
     bps = to_num(infos.get("bps"))
     dividend_yield = to_num(infos.get("dividendYieldRatio"))
-    market_cap = to_num(infos.get("marketValue"))  # 억원
+    market_cap = parse_eok(infos.get("marketValue"))  # 억원
 
     rows = _finance_rows(fin_annual)
     _, roe_s = _row_match(rows, "ROE")
