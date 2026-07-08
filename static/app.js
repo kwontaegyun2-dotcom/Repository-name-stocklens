@@ -167,6 +167,10 @@ function renderRankFilters(sectors) {
   });
 }
 
+let rankAll = [];
+const RANK_STEP = 10;
+let rankShown = 5;
+
 function renderRanking(d) {
   if (d.updated_at) {
     const dt = new Date(d.updated_at * 1000);
@@ -176,7 +180,14 @@ function renderRanking(d) {
     $("rank-list").innerHTML = `<div class="rank-loading"><span>해당 섹터 데이터가 없습니다.</span></div>`;
     return;
   }
-  $("rank-list").innerHTML = d.items.map((r, i) => {
+  rankAll = d.items;
+  rankShown = 5;
+  paintRanking();
+}
+
+function paintRanking() {
+  const shown = rankAll.slice(0, rankShown);
+  const rowsHtml = shown.map((r, i) => {
     const rank = r.rank || i + 1;
     const medal = rank <= 3 ? `top g${rank}` : "";
     const col = scoreColor(r.score);
@@ -200,9 +211,31 @@ function renderRanking(d) {
       </div>
     </div>`;
   }).join("");
-  document.querySelectorAll("#rank-list .rank-row").forEach((row) => {
+
+  let moreHtml = "";
+  if (rankAll.length > 5) {
+    if (rankShown < rankAll.length) {
+      const remain = rankAll.length - rankShown;
+      moreHtml = `<button class="rank-more-btn" id="rank-more">더보기 <span>${remain}개</span> ▾</button>`;
+    } else {
+      moreHtml = `<button class="rank-more-btn collapse" id="rank-more">접기 ▴</button>`;
+    }
+  }
+  $("rank-list").innerHTML = rowsHtml + moreHtml;
+
+  $("rank-list").querySelectorAll(".rank-row").forEach((row) => {
     row.onclick = () => analyze(row.dataset.code);
   });
+  const moreBtn = $("rank-more");
+  if (moreBtn) moreBtn.onclick = () => {
+    if (rankShown < rankAll.length) {
+      rankShown = Math.min(rankShown + RANK_STEP, rankAll.length);
+    } else {
+      rankShown = 5;
+      document.querySelector(".rank-board").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    paintRanking();
+  };
 }
 
 /* ---------------- analyze flow ---------------- */
