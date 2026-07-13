@@ -503,44 +503,54 @@ function drawRadar(categories) {
 function renderChart(d) {
   const el = $("chart-container");
   el.innerHTML = "";
+  $("chart-controls").innerHTML = "";
   if (!window.LightweightCharts || !d.candles || d.candles.length === 0) {
-    el.innerHTML = "<p class='hint-p'>차트 라이브러리를 불러올 수 없습니다 (인터넷 연결 확인).</p>";
+    el.innerHTML = "<p class='hint-p'>차트 데이터를 불러올 수 없습니다.</p>";
     return;
   }
-  chart = LightweightCharts.createChart(el, {
-    layout: { background: { color: "transparent" }, textColor: "#8a93a6" },
-    grid: { vertLines: { color: "#161c2a" }, horzLines: { color: "#161c2a" } },
-    rightPriceScale: { borderColor: "#1f2635" },
-    timeScale: { borderColor: "#1f2635" },
-    height: 420,
+  const LC = LightweightCharts;
+  const light = document.body.classList.contains("light");
+  const txt = light ? "#5a6377" : "#9aa3ba";
+  const gridC = light ? "rgba(15,22,45,.06)" : "rgba(255,255,255,.045)";
+  const crossC = light ? "#8790a3" : "#66708c";
+  const upC = "#f6465d", downC = "#3e7bfa";       // 빨강 상승 · 파랑 하락
+
+  chart = LC.createChart(el, {
+    layout: { background: { color: "transparent" }, textColor: txt, fontFamily: "Pretendard, sans-serif", fontSize: 11 },
+    grid: { vertLines: { color: gridC }, horzLines: { color: gridC } },
+    rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.26 } },
+    timeScale: { borderVisible: false, rightOffset: 5, minBarSpacing: 2, fixRightEdge: true },
+    crosshair: {
+      mode: LC.CrosshairMode.Normal,
+      vertLine: { color: crossC, width: 1, style: LC.LineStyle.Dashed, labelBackgroundColor: "#6366f1" },
+      horzLine: { color: crossC, width: 1, style: LC.LineStyle.Dashed, labelBackgroundColor: "#6366f1" },
+    },
+    // 마우스휠은 페이지 스크롤로(차트 확대 방해 X) · 드래그로 이동 · 기간버튼/핀치로 확대
+    handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+    handleScale: { axisPressedMouseMove: true, mouseWheel: false, pinch: true },
+    height: 440,
     autoSize: true,
   });
 
   const toDate = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
-  const candles = d.candles.map((c) => ({
-    time: toDate(c.date), open: c.open, high: c.high, low: c.low, close: c.close,
-  }));
-
   const candleSeries = chart.addCandlestickSeries({
-    upColor: "#ff4d4d", downColor: "#4d7cff",
-    borderUpColor: "#ff4d4d", borderDownColor: "#4d7cff",
-    wickUpColor: "#ff4d4d", wickDownColor: "#4d7cff",
+    upColor: upC, downColor: downC, borderUpColor: upC, borderDownColor: downC,
+    wickUpColor: upC, wickDownColor: downC,
+    priceLineColor: crossC,
   });
-  candleSeries.setData(candles);
+  candleSeries.setData(d.candles.map((c) => ({ time: toDate(c.date), open: c.open, high: c.high, low: c.low, close: c.close })));
 
-  const volSeries = chart.addHistogramSeries({
-    priceFormat: { type: "volume" }, priceScaleId: "vol",
-  });
-  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 } });
+  const volSeries = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false });
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
   volSeries.setData(d.candles.map((c) => ({
     time: toDate(c.date), value: c.volume,
-    color: c.close >= c.open ? "rgba(255,77,77,.35)" : "rgba(77,124,255,.35)",
+    color: c.close >= c.open ? "rgba(246,70,93,.35)" : "rgba(62,123,250,.35)",
   })));
 
   const closes = d.candles.map((c) => c.close);
   const addMA = (n, color) => {
     if (closes.length < n) return;
-    const line = chart.addLineSeries({ color, lineWidth: 1.5, priceLineVisible: false, lastValueVisible: false });
+    const line = chart.addLineSeries({ color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
     const data = [];
     let sum = 0;
     for (let i = 0; i < closes.length; i++) {
@@ -550,22 +560,18 @@ function renderChart(d) {
     }
     line.setData(data);
   };
-  addMA(20, "#f5a623");
-  addMA(60, "#2ecc71");
-  addMA(120, "#9b59b6");
+  addMA(20, "#ffb020");
+  addMA(60, "#2ee6a6");
+  addMA(120, "#a855f7");
 
   // 매수/매도 신호 마커: SMA20 × SMA60 골든/데드 크로스
-  const smaSeries = (n) => {
+  const sma = (n) => {
     const out = new Array(closes.length).fill(null);
     let sum = 0;
-    for (let i = 0; i < closes.length; i++) {
-      sum += closes[i];
-      if (i >= n) sum -= closes[i - n];
-      if (i >= n - 1) out[i] = sum / n;
-    }
+    for (let i = 0; i < closes.length; i++) { sum += closes[i]; if (i >= n) sum -= closes[i - n]; if (i >= n - 1) out[i] = sum / n; }
     return out;
   };
-  const s20 = smaSeries(20), s60 = smaSeries(60);
+  const s20 = sma(20), s60 = sma(60);
   const markers = [];
   for (let i = 1; i < closes.length; i++) {
     if (s20[i] == null || s60[i] == null || s20[i - 1] == null || s60[i - 1] == null) continue;
@@ -573,24 +579,37 @@ function renderChart(d) {
     if (prev <= 0 && cur > 0)
       markers.push({ time: toDate(d.candles[i].date), position: "belowBar", color: "#2ee6a6", shape: "arrowUp", text: "매수" });
     else if (prev >= 0 && cur < 0)
-      markers.push({ time: toDate(d.candles[i].date), position: "aboveBar", color: "#ff4d6d", shape: "arrowDown", text: "매도" });
+      markers.push({ time: toDate(d.candles[i].date), position: "aboveBar", color: "#f6465d", shape: "arrowDown", text: "매도" });
   }
   if (markers.length) candleSeries.setMarkers(markers);
 
-  const addPriceLine = (price, color, title, style) => {
+  const addPriceLine = (price, color, title) => {
     if (!price) return;
-    candleSeries.createPriceLine({
-      price, color, lineWidth: 1,
-      lineStyle: style ?? LightweightCharts.LineStyle.Dashed,
-      axisLabelVisible: true, title,
-    });
+    candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: LC.LineStyle.Dashed, axisLabelVisible: true, title });
   };
-  addPriceLine(d.targets.consensus, "#ff4d4d", "목표주가(컨센서스)");
+  addPriceLine(d.targets.consensus, "#f6465d", "목표주가");
   if (d.technical.available) {
-    addPriceLine(d.technical.support, "#4d7cff", "지지");
-    addPriceLine(d.technical.resistance, "#8a93a6", "저항");
+    addPriceLine(d.technical.support, "#3e7bfa", "지지");
+    addPriceLine(d.technical.resistance, "#9aa3ba", "저항");
   }
-  chart.timeScale().fitContent();
+
+  // 기간 선택 (스크롤/줌 대신 클릭 한 번으로 보기)
+  const len = d.candles.length;
+  const setRange = (bars) => {
+    if (!bars || bars >= len) chart.timeScale().fitContent();
+    else chart.timeScale().setVisibleLogicalRange({ from: len - bars, to: len - 1 });
+  };
+  const periods = [["3개월", 66], ["6개월", 125], ["1년", 250], ["전체", 0]];
+  $("chart-controls").innerHTML = periods.map(([label, bars], i) =>
+    `<button data-bars="${bars}" class="${i === 1 ? "active" : ""}">${label}</button>`).join("");
+  $("chart-controls").querySelectorAll("button").forEach((b) => {
+    b.onclick = () => {
+      $("chart-controls").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      setRange(+b.dataset.bars);
+    };
+  });
+  setRange(125);
 }
 
 /* ---------------- finance ---------------- */

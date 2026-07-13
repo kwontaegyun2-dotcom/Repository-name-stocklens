@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -130,7 +130,8 @@
 
   <!-- 차트 -->
   <section class="card">
-    <h3>📈 차트 분석 <small class="hint">이동평균선 · 지지/저항 · 목표주가 · 매수/매도 신호</small></h3>
+    <h3>📈 차트 분석 <small class="hint">드래그로 이동 · 기간 버튼으로 확대 · 마우스휠은 페이지 스크롤</small></h3>
+    <div id="chart-controls" class="chart-controls"></div>
     <div id="chart-container"></div>
     <div class="chart-legend">
       <span class="lg ma20">SMA20</span><span class="lg ma60">SMA60</span><span class="lg ma120">SMA120</span>
@@ -217,6 +218,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 </body>
 </html>

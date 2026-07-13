@@ -51,6 +51,19 @@ def _scale(value, worst, best):
     return _clamp(t * 100.0)
 
 
+def _score_low(value, best, worst, floor=15.0, top=96.0):
+    """낮을수록 좋은 지표(PER·PBR): best 이하→top점, worst 이상→floor점, 사이는 완만하게.
+    극단값도 0점으로 떨어지지 않도록 하한(floor)을 둔다."""
+    if value is None or value <= 0:
+        return None
+    if value <= best:
+        return top
+    if value >= worst:
+        return floor
+    t = (value - best) / (worst - best)  # 0..1
+    return top - t * (top - floor)
+
+
 # ---------------------------------------------------------------- indicators
 def sma(closes, n):
     if len(closes) < n:
@@ -358,12 +371,26 @@ def fundamental_analysis(integration: dict, fin_annual: dict) -> dict:
     op_growth_fwd = _growth(op_cns, op_cur)
 
     # ---- 점수 계산
-    # 가치평가: PER 낮을수록, PBR 낮을수록, 배당 높을수록
-    per_score = _scale(per, 40, 5) if per and per > 0 else (20 if per is not None else None)
-    pbr_score = _scale(pbr, 5, 0.5) if pbr and pbr > 0 else None
-    div_score = _scale(dividend_yield, 0, 4) if dividend_yield is not None else None
-    value_parts = [s for s in (per_score, pbr_score, div_score) if s is not None]
-    value_score = sum(value_parts) / len(value_parts) if value_parts else 50
+    # 가치평가: PER·PBR 낮을수록, 배당 높을수록. 성장주는 선행(추정) PER을 반영.
+    if per and per > 0 and cns_per and cns_per > 0:
+        per_eval = per * 0.4 + cns_per * 0.6   # 선행 실적 기대를 더 크게 반영
+    elif per and per > 0:
+        per_eval = per
+    elif cns_per and cns_per > 0:
+        per_eval = cns_per
+    else:
+        per_eval = None
+    per_score = _score_low(per_eval, best=8, worst=60)
+    if per_score is None and eps is not None and eps < 0:
+        per_score = 28.0  # 적자: 저평가 아님(리스크), 다만 0은 아님
+    pbr_score = _score_low(pbr, best=0.8, worst=8)
+    div_score = _scale(dividend_yield, 0, 4.5) if dividend_yield is not None else None
+    # 가중 평균(PER·PBR 비중 크게, 배당은 보조)
+    vw = []
+    if per_score is not None: vw.append((per_score, 0.45))
+    if pbr_score is not None: vw.append((pbr_score, 0.40))
+    if div_score is not None: vw.append((div_score, 0.15))
+    value_score = (sum(s * w for s, w in vw) / sum(w for _, w in vw)) if vw else 50
 
     # 수익성
     roe_score = _scale(roe, 0, 20)
