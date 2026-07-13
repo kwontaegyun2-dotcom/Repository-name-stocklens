@@ -258,6 +258,10 @@ button { cursor: pointer; font-family: inherit; }
 .entry-item { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; text-align: center; }
 .entry-item label { color: var(--muted); font-size: 11px; display: block; }
 .entry-item div { font-size: 16px; font-weight: 700; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.entry-item.buy { background: rgba(46,230,166,.09); border-color: rgba(46,230,166,.3); }
+.entry-item.buy div { color: var(--green); }
+.entry-item.sell { background: rgba(255,77,109,.09); border-color: rgba(255,77,109,.3); }
+.entry-item.sell div { color: var(--up); }
 
 /* ---------- chart ---------- */
 .chart-controls { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }

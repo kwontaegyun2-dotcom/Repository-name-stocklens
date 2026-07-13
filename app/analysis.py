@@ -128,6 +128,46 @@ def bollinger(closes, n=20, k=2.0):
     return {"upper": upper, "mid": mid, "lower": lower, "pct_b": pos}
 
 
+def _support_resistance(highs, lows, price, lookback=140, span=4):
+    """스윙 고점/저점 기반 지지·저항.
+    현재가 아래에서 가장 가까운(=가장 높은) 스윙 저점 = 지지,
+    현재가 위에서 가장 가까운(=가장 낮은) 스윙 고점 = 저항.
+    근접 레벨은 군집화해 여러 번 눌린 강한 레벨을 우선한다."""
+    n = len(highs)
+    start = max(0, n - lookback)
+    swing_hi, swing_lo = [], []
+    for i in range(start + span, n - span):
+        if highs[i] >= max(highs[i - span:i + span + 1]):
+            swing_hi.append(highs[i])
+        if lows[i] <= min(lows[i - span:i + span + 1]):
+            swing_lo.append(lows[i])
+
+    def cluster(levels):
+        clusters = []
+        for lv in sorted(levels):
+            if clusters and abs(lv - clusters[-1]["level"]) / clusters[-1]["level"] < 0.015:
+                c = clusters[-1]
+                c["touches"] += 1
+                c["level"] = (c["level"] * (c["touches"] - 1) + lv) / c["touches"]
+            else:
+                clusters.append({"level": lv, "touches": 1})
+        return clusters
+
+    lo_c = cluster(swing_lo)
+    hi_c = cluster(swing_hi)
+    below = [c["level"] for c in lo_c if c["level"] < price * 0.997]
+    above = [c["level"] for c in hi_c if c["level"] > price * 1.003]
+
+    support = max(below) if below else min(lows[start:])
+    resistance = min(above) if above else max(highs[start:])
+    # 안전장치: 지지<현재가<저항 강제
+    if support >= price:
+        support = min(lows[start:])
+    if resistance <= price:
+        resistance = max(price * 1.05, max(highs[start:]))
+    return support, resistance
+
+
 # ---------------------------------------------------------------- technical
 def technical_analysis(candles: list) -> dict:
     if not candles or len(candles) < 30:
@@ -152,11 +192,8 @@ def technical_analysis(candles: list) -> dict:
     lo52 = min(lows[-lookback:])
     pos52 = (price - lo52) / (hi52 - lo52) * 100 if hi52 != lo52 else 50
 
-    # 지지/저항: 최근 60일 피벗 근사
-    recent_h = highs[-60:]
-    recent_l = lows[-60:]
-    resistance = max(recent_h)
-    support = min(recent_l)
+    # 지지/저항: 스윙 고점·저점 기반 (현재가에 가장 가까운 유효 레벨)
+    support, resistance = _support_resistance(highs, lows, price)
 
     # 골든/데드 크로스 (SMA20 vs SMA60, 최근 15일 내)
     cross = None
@@ -255,16 +292,22 @@ def technical_analysis(candles: list) -> dict:
         verdict, verdict_cls = "보수적 접근", "avoid"
         timing = "하락 추세가 우세합니다. 신규 진입은 추세 전환 신호(골든크로스, RSI 반등) 확인 후 고려하세요."
 
-    entry_low = mas[20] if mas[20] and mas[20] < price else support
+    # 매수 관심 구간: 지지선 ~ 현재가 아래 가장 가까운 지지(스윙 지지·20일선·60일선)
+    anchors = [x for x in (support, mas.get(20), mas.get(60)) if x and x < price * 0.999]
+    buy_anchor = max(anchors) if anchors else support
     entry = {
-        "buy_zone_low": round(min(entry_low, price) * 0.99),
-        "buy_zone_high": round(price * 1.005) if score >= 55 else round(min(entry_low, price) * 1.02),
-        "stop_loss": round(support * 0.97),
-        "resistance": round(resistance),
         "support": round(support),
+        "resistance": round(resistance),
+        "buy_zone_low": round(support),
+        "buy_zone_high": round(buy_anchor * 1.01),
+        "sell_zone_low": round(resistance * 0.98),
+        "sell_zone_high": round(resistance),
+        "stop_loss": round(support * 0.96),
     }
 
-    tech_target = round(max(resistance, price + (price - support) * 0.618))
+    # 1차 목표가 = 가장 가까운 저항(현실적 도달선)
+    tech_target = round(resistance if resistance > price * 1.015
+                        else price + max(price - support, price * 0.04))
 
     return {
         "available": True,

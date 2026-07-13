@@ -324,11 +324,13 @@ function render(d) {
     $("verdict").className = "verdict " + tech.verdict_class;
     $("timing-comment").textContent = tech.timing_comment;
     $("cons-opinion").textContent = d.consensus.opinion ? `애널리스트: ${d.consensus.opinion} (${d.consensus.recomm_mean}/5)` : "";
+    const e = tech.entry;
     $("entry-grid").innerHTML = `
-      <div class="entry-item"><label>매수 관심 구간</label><div>${fmt(tech.entry.buy_zone_low)}~${fmt(tech.entry.buy_zone_high)}</div></div>
-      <div class="entry-item"><label>지지선</label><div class="down">${won(tech.entry.support)}</div></div>
-      <div class="entry-item"><label>저항선</label><div>${won(tech.entry.resistance)}</div></div>
-      <div class="entry-item"><label>손절 참고가</label><div class="down">${won(tech.entry.stop_loss)}</div></div>`;
+      <div class="entry-item buy"><label>🟢 매수 관심 구간</label><div>${fmt(e.buy_zone_low)}~${fmt(e.buy_zone_high)}</div></div>
+      <div class="entry-item sell"><label>🔴 매도·차익실현 구간</label><div>${fmt(e.sell_zone_low)}~${fmt(e.sell_zone_high)}</div></div>
+      <div class="entry-item"><label>지지선</label><div class="up">${won(e.support)}</div></div>
+      <div class="entry-item"><label>저항선</label><div class="down">${won(e.resistance)}</div></div>
+      <div class="entry-item"><label>손절 참고가</label><div class="down">${won(e.stop_loss)}</div></div>`;
   }
 
   /* chart */
