@@ -42,26 +42,26 @@ def _rate_limit(request, limit: int = 30, window: int = 60):
 
 # ---------------------------------------------------------------- search
 @app.get("/api/search")
-def api_search(q: str, request: Request):
+def api_search(q: str, request: Request, market: str = None):
     _rate_limit(request, limit=60, window=60)
     try:
-        return {"items": naver.search(q)}
+        return {"items": naver.search(q, market)}
     except Exception as e:
         raise HTTPException(502, f"검색 실패: {e}")
 
 
 # ---------------------------------------------------------------- ranking
 @app.get("/api/ranking")
-def api_ranking(sector: str = None, request: Request = None):
+def api_ranking(market: str = "KR", sector: str = None, request: Request = None):
     _rate_limit(request, limit=60, window=60)
-    return ranking.get(sector)
+    return ranking.get(market, sector)
 
 
 # ---------------------------------------------------------------- realtime price
 @app.get("/api/price/{code}")
 def api_price(code: str):
-    # 1순위: 한국투자증권 API (설정 시)
-    if kis.is_configured():
+    # 1순위: 한국투자증권 API (국내·설정 시)
+    if not naver.is_us(code) and kis.is_configured():
         try:
             return kis.current_price(code)
         except Exception:
@@ -75,6 +75,7 @@ def api_price(code: str):
             "rate": analysis.to_num(b.get("fluctuationsRatio")),
             "direction": (b.get("compareToPreviousPrice") or {}).get("name"),
             "market_status": b.get("marketStatus"),
+            "currency": (b.get("currencyType") or {}).get("code") or "KRW",
             "traded_at": b.get("localTradedAt"),
         }
     except Exception as e:
@@ -90,8 +91,10 @@ def api_analyze(code: str, request: Request = None):
     except Exception as e:
         raise HTTPException(404, f"종목을 찾을 수 없습니다: {e}")
 
+    us = naver.is_us(code)
     name = b.get("stockName", code)
     price = analysis.to_num(b.get("closePrice"))
+    currency = (b.get("currencyType") or {}).get("code") or "KRW"
 
     def safe(fn, default):
         try:
@@ -101,14 +104,17 @@ def api_analyze(code: str, request: Request = None):
 
     integ = safe(lambda: naver.integration(code), {})
     fin_annual = safe(lambda: naver.finance(code, "annual"), {})
-    fin_quarter = safe(lambda: naver.finance(code, "quarter"), {})
     news_items = safe(lambda: naver.news(code, 20), [])
     research_items = safe(lambda: naver.research(code, 10), [])
     deal_trend = safe(lambda: naver.trend(code), [])
     candle_data = safe(lambda: naver.candles(code, 260), [])
 
+    # 지표 소스: 미국=basic.stockItemTotalInfos, 국내=integration.totalInfos
+    src = (b.get("stockItemTotalInfos") if us else integ.get("totalInfos")) or []
+    infos = {i.get("code"): i.get("value") for i in src}
+
     tech = analysis.technical_analysis(candle_data)
-    fund = analysis.fundamental_analysis(integ, fin_annual)
+    fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
     senti = analysis.news_sentiment(news_items)
     cons = analysis.consensus_info(integ, price)
     total = analysis.total_evaluation(fund, tech, senti, cons, deal_trend)
@@ -123,15 +129,18 @@ def api_analyze(code: str, request: Request = None):
     if targets["technical"] and price:
         targets["technical_upside"] = round((targets["technical"] - price) / price * 100, 1)
 
-    # 동일업종 비교 (상위 5개)
+    # 동일업종 비교 (상위 5개) — 미국은 industryCompareInfo.globalStocks
+    raw_peers = integ.get("industryCompareInfo")
+    if isinstance(raw_peers, dict):
+        raw_peers = raw_peers.get("globalStocks") or raw_peers.get("domesticStocks") or []
     peers = []
-    for p in (integ.get("industryCompareInfo") or [])[:6]:
+    for p in (raw_peers or [])[:6]:
         peers.append({
             "name": p.get("stockName"),
-            "code": p.get("itemCode"),
+            "code": p.get("itemCode") or p.get("reutersCode"),
             "price": analysis.to_num(p.get("closePrice")),
             "rate": analysis.to_num(p.get("fluctuationsRatio")),
-            "market_cap": analysis.to_num(p.get("marketValue")),
+            "market_cap": analysis.parse_eok(p.get("marketValue")) if us else analysis.to_num(p.get("marketValue")),
         })
 
     # 수급 요약 테이블 (최근 10일)
@@ -149,6 +158,8 @@ def api_analyze(code: str, request: Request = None):
     return {
         "code": code,
         "name": name,
+        "nation": "US" if us else "KR",
+        "currency": currency,
         "market": b.get("stockExchangeName") or (b.get("stockExchangeType") or {}).get("nameKor"),
         "logo": b.get("itemLogoPngUrl"),
         "price": price,

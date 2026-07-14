@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=8">
+<link rel="stylesheet" href="/static/style.css?v=9">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -47,8 +47,12 @@
         <h2>🏆 실시간 종목 랭킹</h2>
         <p class="rank-sub">주요 종목을 종합 점수 순으로 정렬 <span id="rank-updated"></span></p>
       </div>
-      <div class="rank-filters" id="rank-filters"></div>
+      <div class="rank-market" id="rank-market">
+        <button data-market="KR" class="active">🇰🇷 국내</button>
+        <button data-market="US">🇺🇸 미국</button>
+      </div>
     </div>
+    <div class="rank-filters" id="rank-filters"></div>
     <div id="rank-list" class="rank-list">
       <div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분)</span></div>
     </div>
@@ -218,6 +222,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=9"></script>
 </body>
 </html>

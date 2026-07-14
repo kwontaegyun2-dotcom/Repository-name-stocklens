@@ -93,39 +93,84 @@ UNIVERSE = [
     ("000880", "한화", "지주·기타"),
 ]
 
+# 미국 주요 종목 (reutersCode, 표시명, 섹터)
+US_UNIVERSE = [
+    ("NVDA.O", "엔비디아", "반도체"), ("AVGO.O", "브로드컴", "반도체"),
+    ("AMD.O", "AMD", "반도체"), ("QCOM.O", "퀄컴", "반도체"),
+    ("TXN.O", "텍사스인스트루먼트", "반도체"), ("AMAT.O", "어플라이드머티어리얼즈", "반도체"),
+    ("MU.O", "마이크론", "반도체"), ("INTC.O", "인텔", "반도체"),
+    ("ARM.O", "암 홀딩스", "반도체"), ("SMCI.O", "슈퍼마이크로컴퓨터", "반도체"),
+    ("AAPL.O", "애플", "빅테크·인터넷"), ("MSFT.O", "마이크로소프트", "빅테크·인터넷"),
+    ("GOOGL.O", "알파벳", "빅테크·인터넷"), ("AMZN.O", "아마존", "빅테크·인터넷"),
+    ("META.O", "메타", "빅테크·인터넷"), ("NFLX.O", "넷플릭스", "빅테크·인터넷"),
+    ("ORCL.K", "오라클", "빅테크·인터넷"), ("CRM", "세일즈포스", "빅테크·인터넷"),
+    ("ADBE.O", "어도비", "빅테크·인터넷"), ("PLTR.O", "팔란티어", "빅테크·인터넷"),
+    ("SHOP.O", "쇼피파이", "빅테크·인터넷"), ("IBM", "IBM", "빅테크·인터넷"),
+    ("CSCO.O", "시스코", "빅테크·인터넷"), ("ACN", "액센추어", "빅테크·인터넷"),
+    ("V", "비자", "금융·핀테크"), ("MA", "마스터카드", "금융·핀테크"),
+    ("JPM", "JP모간체이스", "금융·핀테크"), ("BAC", "뱅크오브아메리카", "금융·핀테크"),
+    ("GS", "골드만삭스", "금융·핀테크"), ("AXP", "아메리칸익스프레스", "금융·핀테크"),
+    ("PYPL.O", "페이팔", "금융·핀테크"), ("COIN.O", "코인베이스", "금융·핀테크"),
+    ("TSLA.O", "테슬라", "전기차·소비"), ("HD", "홈디포", "전기차·소비"),
+    ("MCD", "맥도날드", "전기차·소비"), ("NKE", "나이키", "전기차·소비"),
+    ("WMT.O", "월마트", "전기차·소비"), ("COST.O", "코스트코", "전기차·소비"),
+    ("KO", "코카콜라", "전기차·소비"), ("PEP.O", "펩시코", "전기차·소비"),
+    ("PG", "P&G", "전기차·소비"), ("DIS", "월트디즈니", "전기차·소비"),
+    ("UBER.K", "우버", "전기차·소비"), ("ABNB.O", "에어비앤비", "전기차·소비"),
+    ("LLY", "일라이릴리", "헬스케어"), ("JNJ", "존슨앤드존슨", "헬스케어"),
+    ("UNH", "유나이티드헬스", "헬스케어"), ("MRK", "머크", "헬스케어"),
+    ("PFE", "화이자", "헬스케어"), ("ABBV.K", "애브비", "헬스케어"),
+    ("MRNA.O", "모더나", "헬스케어"),
+    ("XOM", "엑슨모빌", "에너지·산업"), ("CVX", "셰브론", "에너지·산업"),
+    ("BA", "보잉", "에너지·산업"), ("CAT", "캐터필러", "에너지·산업"),
+    ("GE", "GE에어로스페이스", "에너지·산업"), ("DELL.K", "델테크놀로지", "에너지·산업"),
+    ("T", "AT&T", "통신"), ("VZ", "버라이존", "통신"),
+]
+
+UNIVERSES = {"KR": UNIVERSE, "US": US_UNIVERSE}
 _lock = threading.Lock()
-_state = {"items": [], "updated_at": 0, "computing": False}
+_state = {
+    "KR": {"items": [], "updated_at": 0, "computing": False},
+    "US": {"items": [], "updated_at": 0, "computing": False},
+}
+_us_started = False
 REFRESH_SEC = 1800  # 30분마다 갱신
 
 
-def _score(entry):
+def _safe(fn, d):
+    try:
+        return fn()
+    except Exception:
+        return d
+
+
+def _score(entry, market):
     code, disp, sector = entry
     try:
+        us = market == "US"
         b = naver.basic(code)
         name = b.get("stockName", disp)
         price = analysis.to_num(b.get("closePrice"))
         rate = analysis.to_num(b.get("fluctuationsRatio"))
+        currency = (b.get("currencyType") or {}).get("code") or "KRW"
 
-        def safe(fn, d):
-            try:
-                return fn()
-            except Exception:
-                return d
+        integ = _safe(lambda: naver.integration(code), {})
+        fin_a = _safe(lambda: naver.finance(code, "annual"), {})
+        news = _safe(lambda: naver.news(code, 15), [])
+        trend = _safe(lambda: naver.trend(code), [])
+        candles = _safe(lambda: naver.candles(code, 150), [])
 
-        integ = safe(lambda: naver.integration(code), {})
-        fin_a = safe(lambda: naver.finance(code, "annual"), {})
-        news = safe(lambda: naver.news(code, 15), [])
-        trend = safe(lambda: naver.trend(code), [])
-        candles = safe(lambda: naver.candles(code, 150), [])
+        src = (b.get("stockItemTotalInfos") if us else integ.get("totalInfos")) or []
+        infos = {i.get("code"): i.get("value") for i in src}
 
         tech = analysis.technical_analysis(candles)
-        fund = analysis.fundamental_analysis(integ, fin_a)
+        fund = analysis.fundamental_analysis(infos, fin_a, market=market)
         senti = analysis.news_sentiment(news)
         cons = analysis.consensus_info(integ, price)
         total = analysis.total_evaluation(fund, tech, senti, cons, trend)
         return {
             "code": code, "name": name, "sector": sector,
-            "price": price, "rate": rate,
+            "price": price, "rate": rate, "currency": currency,
             "score": total["total_score"], "grade": total["grade"],
             "grade_desc": total["grade_desc"],
             "categories": total["categories"],
@@ -136,46 +181,55 @@ def _score(entry):
         return None
 
 
-def _compute():
+def _compute(market):
+    st = _state[market]
     with _lock:
-        if _state["computing"]:
+        if st["computing"]:
             return
-        _state["computing"] = True
+        st["computing"] = True
     try:
         out = []
         with ThreadPoolExecutor(max_workers=6) as ex:
-            for r in ex.map(_score, UNIVERSE):
+            for r in ex.map(lambda e: _score(e, market), UNIVERSES[market]):
                 if r:
                     out.append(r)
         out.sort(key=lambda x: x["score"], reverse=True)
         for i, r in enumerate(out, 1):
             r["rank"] = i
         with _lock:
-            _state["items"] = out
-            _state["updated_at"] = time.time()
+            st["items"] = out
+            st["updated_at"] = time.time()
     finally:
         with _lock:
-            _state["computing"] = False
+            st["computing"] = False
 
 
-def _loop():
+def _loop(market):
     while True:
-        _compute()
+        _compute(market)
         time.sleep(REFRESH_SEC)
 
 
 def start_background():
-    t = threading.Thread(target=_loop, daemon=True)
-    t.start()
+    # 국내는 즉시 백그라운드 집계, 미국은 첫 요청 시 지연 시작(부하 분산)
+    threading.Thread(target=_loop, args=("KR",), daemon=True).start()
 
 
-def get(sector: str = None):
+def get(market: str = "KR", sector: str = None):
+    global _us_started
+    market = "US" if str(market).upper() == "US" else "KR"
+    if market == "US" and not _us_started:
+        _us_started = True
+        threading.Thread(target=_loop, args=("US",), daemon=True).start()
+
+    st = _state[market]
     with _lock:
-        items = list(_state["items"])
-        meta = {"updated_at": _state["updated_at"], "computing": _state["computing"]}
+        items = list(st["items"])
+        meta = {"updated_at": st["updated_at"], "computing": st["computing"]}
+    # 미국 첫 로드: 아직 비어 있으면 집계중으로 표시(프론트가 폴링)
+    if market == "US" and not items:
+        meta["computing"] = True
     sectors = sorted({r["sector"] for r in items})
     if sector and sector != "전체":
         items = [r for r in items if r["sector"] == sector]
-        for i, r in enumerate(items, 1):
-            r = dict(r)
-    return {"items": items, "sectors": sectors, **meta}
+    return {"items": items, "sectors": sectors, "market": market, **meta}

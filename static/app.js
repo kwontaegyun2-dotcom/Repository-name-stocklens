@@ -9,6 +9,26 @@ const fmt = (n, digits = 0) =>
   n == null || isNaN(n) ? "-" : Number(n).toLocaleString("ko-KR", { maximumFractionDigits: digits, minimumFractionDigits: 0 });
 const won = (n) => (n == null ? "-" : fmt(n) + "원");
 
+/* 통화 대응 가격 포맷 (현재 분석 종목 기준) */
+let curCur = "KRW";
+function pw(n, cur) {
+  cur = cur || curCur;
+  if (n == null || isNaN(n)) return "-";
+  return cur === "USD"
+    ? "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : fmt(n) + "원";
+}
+function pwRange(a, b) {
+  return curCur === "USD" ? `$${fmt(a)}~$${fmt(b)}` : `${fmt(a)}~${fmt(b)}`;
+}
+function changeStr(chg, rate) {
+  if (chg == null) return `${sign(rate, 2)}%`;
+  const money = curCur === "USD"
+    ? (chg >= 0 ? "+$" : "-$") + Math.abs(chg).toFixed(2)
+    : sign(chg) + "원";
+  return `${money} (${sign(rate, 2)}%)`;
+}
+
 function updownClass(v) {
   if (v == null || v === 0) return "flat";
   return v > 0 ? "up" : "down";
@@ -98,7 +118,8 @@ input.addEventListener("input", () => {
       dropdown.innerHTML = "";
       items.forEach((it) => {
         const d = document.createElement("div");
-        d.innerHTML = `<b>${it.name}</b><small>${it.code} · ${it.market}</small>`;
+        const flag = it.nation === "US" ? "🇺🇸" : "🇰🇷";
+        d.innerHTML = `<b>${flag} ${it.name}</b><small>${it.code} · ${it.market}</small>`;
         d.onclick = () => { dropdown.classList.add("hidden"); input.value = it.name; analyze(it.code); };
         dropdown.appendChild(d);
       });
@@ -138,12 +159,14 @@ function goHome() {
 
 /* ---------------- ranking board ---------------- */
 let currentSector = "전체";
+let currentMarket = "KR";
 let rankPollTimer = null;
 
 async function loadRanking(sector = "전체") {
   currentSector = sector;
   try {
-    const d = await api(`/api/ranking${sector && sector !== "전체" ? `?sector=${encodeURIComponent(sector)}` : ""}`);
+    const qs = `?market=${currentMarket}` + (sector && sector !== "전체" ? `&sector=${encodeURIComponent(sector)}` : "");
+    const d = await api(`/api/ranking${qs}`);
     renderRankFilters(d.sectors);
     if ((!d.items || d.items.length === 0) && d.computing) {
       $("rank-list").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분, 자동 갱신)</span></div>`;
@@ -200,7 +223,7 @@ function paintRanking() {
         <div class="rank-sector">${r.sector} · ${r.code}</div>
       </div>
       <div class="rank-price">
-        <div class="p">${won(r.price)}</div>
+        <div class="p">${pw(r.price, r.currency)}</div>
         <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
       </div>
       <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
@@ -265,11 +288,12 @@ async function refreshPrice() {
   try {
     const p = await api(`/api/price/${currentCode}`);
     if (p.price != null) {
-      $("live-price").textContent = won(p.price);
+      if (p.currency) curCur = p.currency;
+      $("live-price").textContent = pw(p.price);
       const cls = updownClass(p.change);
       $("live-price").className = "live-price " + cls;
       $("live-change").className = "live-change " + cls;
-      $("live-change").textContent = `${sign(p.change)}원 (${sign(p.rate, 2)}%)`;
+      $("live-change").textContent = changeStr(p.change, p.rate);
       $("source-badge").textContent = p.source === "KIS" ? "한국투자증권 실시간" : "네이버 시세";
     }
   } catch {}
@@ -277,17 +301,18 @@ async function refreshPrice() {
 
 /* ---------------- render ---------------- */
 function render(d) {
+  curCur = d.currency || "KRW";
   /* header */
   $("stock-logo").src = d.logo || "";
   $("stock-logo").style.display = d.logo ? "" : "none";
   $("stock-name").textContent = d.name;
   $("stock-code").textContent = d.code;
   $("stock-market").textContent = d.market || "";
-  $("live-price").textContent = won(d.price);
+  $("live-price").textContent = pw(d.price);
   const cls = updownClass(d.change);
   $("live-price").className = "live-price " + cls;
   $("live-change").className = "live-change " + cls;
-  $("live-change").textContent = `${sign(d.change)}원 (${sign(d.rate, 2)}%)`;
+  $("live-change").textContent = changeStr(d.change, d.rate);
   $("live-badge").textContent = d.market_status === "OPEN" ? "장중" : "장마감";
   $("source-badge").textContent = d.kis_enabled ? "한국투자증권 실시간" : "네이버 시세";
   if (d.public) $("kis-btn").classList.add("hidden");
@@ -311,10 +336,10 @@ function render(d) {
 
   /* targets */
   const t = d.targets;
-  $("target-consensus").textContent = t.consensus ? won(t.consensus) : "데이터 없음";
+  $("target-consensus").textContent = t.consensus ? pw(t.consensus) : "데이터 없음";
   $("target-consensus-upside").textContent = t.consensus_upside != null ? `상승여력 ${sign(t.consensus_upside, 1)}%` : "";
   $("target-consensus-upside").className = "target-upside " + updownClass(t.consensus_upside);
-  $("target-tech").textContent = t.technical ? won(t.technical) : "-";
+  $("target-tech").textContent = t.technical ? pw(t.technical) : "-";
   $("target-tech-upside").textContent = t.technical_upside != null ? `상승여력 ${sign(t.technical_upside, 1)}%` : "";
   $("target-tech-upside").className = "target-upside " + updownClass(t.technical_upside);
 
@@ -326,11 +351,11 @@ function render(d) {
     $("cons-opinion").textContent = d.consensus.opinion ? `애널리스트: ${d.consensus.opinion} (${d.consensus.recomm_mean}/5)` : "";
     const e = tech.entry;
     $("entry-grid").innerHTML = `
-      <div class="entry-item buy"><label>🟢 매수 관심 구간</label><div>${fmt(e.buy_zone_low)}~${fmt(e.buy_zone_high)}</div></div>
-      <div class="entry-item sell"><label>🔴 매도·차익실현 구간</label><div>${fmt(e.sell_zone_low)}~${fmt(e.sell_zone_high)}</div></div>
-      <div class="entry-item"><label>지지선</label><div class="up">${won(e.support)}</div></div>
-      <div class="entry-item"><label>저항선</label><div class="down">${won(e.resistance)}</div></div>
-      <div class="entry-item"><label>손절 참고가</label><div class="down">${won(e.stop_loss)}</div></div>`;
+      <div class="entry-item buy"><label>🟢 매수 관심 구간</label><div>${pwRange(e.buy_zone_low, e.buy_zone_high)}</div></div>
+      <div class="entry-item sell"><label>🔴 매도·차익실현 구간</label><div>${pwRange(e.sell_zone_low, e.sell_zone_high)}</div></div>
+      <div class="entry-item"><label>지지선</label><div class="up">${pw(e.support)}</div></div>
+      <div class="entry-item"><label>저항선</label><div class="down">${pw(e.resistance)}</div></div>
+      <div class="entry-item"><label>손절 참고가</label><div class="down">${pw(e.stop_loss)}</div></div>`;
   }
 
   /* chart */
@@ -367,28 +392,36 @@ function render(d) {
     ["매출성장률", m.rev_growth, "%", "전년 대비"],
     ["영업이익성장률(E)", m.op_growth_fwd, "%", "컨센서스 내년"],
   ];
-  $("metrics-grid").innerHTML = metricDefs.map(([label, v, unit, sub]) => `
-    <div class="metric"><label>${label}</label>
-      <div>${v != null ? fmt(v, 2) + unit : "-"} ${sub ? `<br><small>${sub}</small>` : ""}</div>
-    </div>`).join("") +
-    `<div class="metric"><label>시가총액</label><div>${m.market_cap ? fmt(m.market_cap / 10000, 1) + "조원" : "-"}</div></div>`;
+  $("metrics-grid").innerHTML = metricDefs.map(([label, v, unit, sub]) => {
+    let disp = "-";
+    if (v != null) disp = unit === "원" ? pw(v) : fmt(v, 2) + unit;  // EPS/BPS는 통화 대응
+    return `<div class="metric"><label>${label}</label>
+      <div>${disp} ${sub ? `<br><small>${sub}</small>` : ""}</div></div>`;
+  }).join("") +
+    `<div class="metric"><label>시가총액</label><div>${m.market_cap ? fmt(m.market_cap / 10000, 1) + (curCur === "USD" ? "조 달러" : "조원") : "-"}</div></div>`;
 
   /* finance */
   renderFinance(d.finance_rows);
 
-  /* flows */
-  $("flow-table").innerHTML = tableHTML(
-    ["일자", "종가", "외국인", "기관", "개인", "외국인 보유율"],
-    d.flows.map((f) => [
-      f.date ? `${f.date.slice(4, 6)}/${f.date.slice(6, 8)}` : "-",
-      fmt(f.close),
-      numCell(f.foreigner), numCell(f.organ), numCell(f.individual),
-      f.foreigner_ratio || "-",
-    ]));
+  /* flows (미국은 수급 데이터 없음) */
+  const flowCard = $("flow-table").closest(".card");
+  if (!d.flows.length) {
+    flowCard.classList.add("hidden");
+  } else {
+    flowCard.classList.remove("hidden");
+    $("flow-table").innerHTML = tableHTML(
+      ["일자", "종가", "외국인", "기관", "개인", "외국인 보유율"],
+      d.flows.map((f) => [
+        f.date ? `${f.date.slice(4, 6)}/${f.date.slice(6, 8)}` : "-",
+        fmt(f.close),
+        numCell(f.foreigner), numCell(f.organ), numCell(f.individual),
+        f.foreigner_ratio || "-",
+      ]));
+  }
 
   /* research */
   $("research-consensus").textContent = d.consensus.opinion
-    ? `컨센서스: ${d.consensus.opinion} · 목표가 ${won(d.consensus.target_price)}` : "컨센서스 없음";
+    ? `컨센서스: ${d.consensus.opinion} · 목표가 ${pw(d.consensus.target_price)}` : "컨센서스 없음";
   $("research-list").innerHTML = d.research.length
     ? d.research.map((r) => `
       <div class="research-item">
@@ -410,10 +443,11 @@ function render(d) {
     </div>`).join("");
 
   /* peers */
+  const mcapUnit = curCur === "USD" ? "억 달러" : "억원";
   $("peers-table").innerHTML = tableHTML(
-    ["종목명", "현재가", "등락률", "시가총액(억원)"],
+    ["종목명", "현재가", "등락률", `시가총액(${mcapUnit})`],
     d.peers.map((p) => [
-      p.name, fmt(p.price),
+      p.name, pw(p.price),
       `<span class="${updownClass(p.rate)}">${sign(p.rate, 2)}%</span>`,
       fmt(p.market_cap),
     ]));
@@ -730,6 +764,19 @@ $("fav-btn").onclick = () => {
   toggleFav(currentCode, $("stock-name").textContent);
   updateFavBtn();
 };
+
+// 국내/미국 랭킹 토글
+document.querySelectorAll("#rank-market button").forEach((b) => {
+  b.onclick = () => {
+    if (b.dataset.market === currentMarket) return;
+    currentMarket = b.dataset.market;
+    document.querySelectorAll("#rank-market button").forEach((x) => x.classList.toggle("active", x === b));
+    clearTimeout(rankPollTimer);
+    $("rank-list").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>${currentMarket === "US" ? "미국" : "국내"} 랭킹 집계 중…</span></div>`;
+    $("rank-filters").innerHTML = "";
+    loadRanking("전체");
+  };
+});
 
 initTheme();
 renderFavBoard();
