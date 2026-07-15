@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking
+from app import naver, kis, analysis, ai, ranking, screener
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -55,6 +55,13 @@ def api_search(q: str, request: Request, market: str = None):
 def api_ranking(market: str = "KR", sector: str = None, request: Request = None):
     _rate_limit(request, limit=60, window=60)
     return ranking.get(market, sector)
+
+
+# ---------------------------------------------------------------- screener
+@app.get("/api/screener")
+def api_screener(request: Request = None):
+    _rate_limit(request, limit=60, window=60)
+    return screener.get()
 
 
 # ---------------------------------------------------------------- realtime price

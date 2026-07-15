@@ -312,6 +312,21 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .signal-list li.warn::before { content: "🟡"; }
 .signal-list li.neutral::before, .signal-list li.info::before { content: "⚪"; }
 
+/* ---------- screener ---------- */
+.scr-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.scr-presets button { background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 20px; padding: 8px 15px; font-size: 13.5px; font-weight: 600; transition: .15s; }
+.scr-presets button:hover { color: var(--text); }
+.scr-presets button.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(99,102,241,.4); }
+.scr-filters { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; }
+.scr-filters label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.scr-filters label small { color: var(--dim); }
+.scr-filters input[type=number] { width: 72px; padding: 6px 9px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 13px; }
+.scr-filters .chk { cursor: pointer; }
+.scr-count { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+.scr-name { cursor: pointer; color: var(--text); }
+.scr-name:hover { color: var(--accent2); }
+#scr-table td .up { font-weight: 700; }
+
 /* ---------- backtest ---------- */
 .backtest-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .bt-strat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 15px 16px; }

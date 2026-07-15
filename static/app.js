@@ -151,6 +151,7 @@ function goHome() {
   currentCode = null;
   $("report").classList.add("hidden");
   $("compare-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
@@ -751,6 +752,100 @@ function renderCompareTable() {
   $("cmp-table").innerHTML = h;
 }
 
+/* ---------------- screener ---------------- */
+let screenerRows = [];
+let scrPreset = "value";
+let scrPollTimer = null;
+const PRESETS = {
+  value:    { pbr: 1.0, per: 15, roe: 8, div: 0, mcap: 3000, flow: false, sort: "pbr" },
+  rerating: { pbr: 2.0, per: 40, roe: 5, div: 0, mcap: 2000, flow: true, sort: "rerating" },
+  sector:   { pbr: 10, per: 100, roe: 0, div: 0, mcap: 2000, flow: false, sort: "roe_pct", sectorMode: true },
+  dividend: { pbr: 1.5, per: 20, roe: 0, div: 3, mcap: 3000, flow: false, sort: "div" },
+};
+
+function openScreener() {
+  clearInterval(priceTimer);
+  $("landing").classList.add("hidden");
+  $("report").classList.add("hidden");
+  $("compare-view").classList.add("hidden");
+  $("screener-view").classList.remove("hidden");
+  window.scrollTo({ top: 0 });
+  fetchScreener();
+}
+async function fetchScreener() {
+  try {
+    const d = await api("/api/screener");
+    if ((!d.rows || !d.rows.length) && d.computing) {
+      $("scr-table").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>스크리너 집계 중… (최초 1~2분 소요, 자동 갱신)</span></div>`;
+      clearTimeout(scrPollTimer);
+      scrPollTimer = setTimeout(fetchScreener, 6000);
+      return;
+    }
+    screenerRows = d.rows || [];
+    if (d.updated_at) {
+      const dt = new Date(d.updated_at * 1000);
+      $("scr-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준 · ${d.count}종목 스캔`;
+    }
+    applyPreset(scrPreset, false);
+  } catch {
+    $("scr-table").innerHTML = `<div class="rank-loading"><span>스크리너를 불러오지 못했습니다.</span></div>`;
+  }
+}
+function applyPreset(name, setInputs = true) {
+  scrPreset = name;
+  document.querySelectorAll("#scr-presets button").forEach((b) => b.classList.toggle("active", b.dataset.preset === name));
+  const p = PRESETS[name];
+  if (setInputs) {
+    $("f-pbr").value = p.pbr; $("f-per").value = p.per; $("f-roe").value = p.roe;
+    $("f-div").value = p.div; $("f-mcap").value = p.mcap; $("f-flow").checked = p.flow;
+  }
+  renderScreener();
+}
+function renderScreener() {
+  const pbr = parseFloat($("f-pbr").value) || 999;
+  const per = parseFloat($("f-per").value) || 9999;
+  const roe = parseFloat($("f-roe").value) || -999;
+  const div = parseFloat($("f-div").value) || 0;
+  const mcap = parseFloat($("f-mcap").value) || 0;
+  const flowOnly = $("f-flow").checked;
+  const p = PRESETS[scrPreset];
+
+  let rows = screenerRows.filter((r) =>
+    r.pbr != null && r.pbr <= pbr &&
+    r.per != null && r.per > 0 && r.per <= per &&
+    (r.roe == null ? roe <= 0 : r.roe >= roe) &&
+    (r.div == null ? div <= 0 : r.div >= div) &&
+    (r.mcap == null || r.mcap >= mcap) &&
+    (!flowOnly || (r.foreign20 > 0 && r.inst20 > 0)));
+  if (p.sectorMode) rows = rows.filter((r) => r.pbr_pct != null && r.pbr_pct < 0.3 && r.roe_pct != null && r.roe_pct > 0.7);
+
+  rows.sort((a, b) => {
+    if (p.sort === "pbr") return (a.pbr ?? 99) - (b.pbr ?? 99);
+    if (p.sort === "div") return (b.div ?? 0) - (a.div ?? 0);
+    if (p.sort === "roe_pct") return (b.roe_pct ?? 0) - (a.roe_pct ?? 0);
+    return (b.rerating ?? -99) - (a.rerating ?? -99);
+  });
+  rows = rows.slice(0, 60);
+  $("scr-count").textContent = `조건 부합 ${rows.length}종목 (상위 60 표시)`;
+
+  const flowCell = (r) =>
+    `${r.foreign20 > 0 ? '<span class="up">외인▲</span>' : '<span class="down">외인▽</span>'} ${r.inst20 > 0 ? '<span class="up">기관▲</span>' : '<span class="down">기관▽</span>'}`;
+  $("scr-table").innerHTML = rows.length ? tableHTML(
+    ["종목명", "현재가", "PBR", "PER", "ROE", "배당", "시총(억)", "20일 수급", "리레이팅"],
+    rows.map((r) => [
+      `<b class="scr-name" data-code="${r.code}">${r.name}</b>`,
+      fmt(r.price),
+      r.pbr != null ? r.pbr.toFixed(2) : "-",
+      r.per != null ? r.per.toFixed(1) : "-",
+      r.roe != null ? `<span class="${r.roe >= 10 ? "up" : ""}">${r.roe.toFixed(1)}%</span>` : "-",
+      r.div != null ? r.div.toFixed(2) + "%" : "-",
+      fmt(r.mcap),
+      flowCell(r),
+      `<b>${r.rerating != null ? r.rerating.toFixed(2) : "-"}</b>`,
+    ])) : "<p class='hint-p'>조건에 맞는 종목이 없습니다. 필터를 완화해 보세요.</p>";
+  $("scr-table").querySelectorAll(".scr-name").forEach((el) => el.onclick = () => analyze(el.dataset.code));
+}
+
 /* ---------------- backtest ---------------- */
 function renderBacktest(bt) {
   const card = $("backtest-card");
@@ -916,6 +1011,13 @@ $("compare-btn").onclick = () => { if (lastAnalysis) addCompare(lastAnalysis); }
 $("cmp-go").onclick = showCompare;
 $("cmp-clear").onclick = () => { compareList = []; renderCompareTray(); if (!$("compare-view").classList.contains("hidden")) goHome(); };
 $("cmp-back").onclick = goHome;
+
+// 스크리너
+$("screener-btn").onclick = openScreener;
+$("scr-back").onclick = goHome;
+document.querySelectorAll("#scr-presets button").forEach((b) => (b.onclick = () => applyPreset(b.dataset.preset)));
+["f-pbr", "f-per", "f-roe", "f-div", "f-mcap"].forEach((id) => ($(id).oninput = renderScreener));
+$("f-flow").onchange = renderScreener;
 
 initTheme();
 renderFavBoard();
