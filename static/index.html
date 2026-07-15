@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=9">
+<link rel="stylesheet" href="/static/style.css?v=10">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -74,6 +74,7 @@
         <h2>
           <span id="stock-name"></span> <small id="stock-code"></small> <em id="stock-market"></em>
           <button id="fav-btn" class="fav-btn" title="관심종목 추가/해제">☆</button>
+          <button id="compare-btn" class="cmp-btn" title="비교에 담기">⚖️ 비교담기</button>
         </h2>
         <div class="live-row">
           <span id="live-price" class="live-price"></span>
@@ -151,6 +152,13 @@
     <ul id="tech-signals" class="signal-list"></ul>
   </section>
 
+  <!-- 매매 신호 백테스트 -->
+  <section class="card" id="backtest-card">
+    <h3>🧪 매매 신호 백테스트 <small class="hint" id="bt-period"></small></h3>
+    <p class="hint-p">과거 데이터로 각 신호대로 매매했을 때의 성과입니다. 표본이 적을 수 있어 참고용입니다.</p>
+    <div id="backtest-body" class="backtest-body"></div>
+  </section>
+
   <!-- 투자지표 -->
   <section class="card">
     <h3>📐 투자지표</h3>
@@ -200,6 +208,31 @@
      투자 판단과 책임은 투자자 본인에게 있습니다. 시세는 데이터 소스에 따라 지연될 수 있습니다.</p>
 </main>
 
+<!-- 종목 비교 화면 -->
+<main id="compare-view" class="report hidden">
+  <button id="cmp-back" class="back-btn">← 돌아가기</button>
+  <section class="card">
+    <h3>⚖️ 종목 비교 <small class="hint">부문별 점수 겹쳐보기</small></h3>
+    <div class="cmp-radar-row">
+      <canvas id="cmp-radar" width="360" height="330"></canvas>
+      <div id="cmp-legend" class="cmp-legend"></div>
+    </div>
+  </section>
+  <section class="card">
+    <h3>📊 지표 비교 <small class="hint">각 항목 최우수는 강조</small></h3>
+    <div class="table-wrap" id="cmp-table"></div>
+  </section>
+</main>
+
+<!-- 비교 트레이 -->
+<div id="compare-tray" class="compare-tray hidden">
+  <div class="cmp-chips" id="cmp-chips"></div>
+  <div class="cmp-actions">
+    <button id="cmp-go" class="primary-btn">비교하기</button>
+    <button id="cmp-clear" class="ghost-btn">비우기</button>
+  </div>
+</div>
+
 <!-- KIS 설정 모달 -->
 <div id="kis-modal" class="modal hidden">
   <div class="modal-box">
@@ -222,6 +255,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=10"></script>
 </body>
 </html>

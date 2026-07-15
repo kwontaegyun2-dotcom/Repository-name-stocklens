@@ -150,6 +150,7 @@ function goHome() {
   clearInterval(priceTimer);
   currentCode = null;
   $("report").classList.add("hidden");
+  $("compare-view").classList.add("hidden");
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
@@ -301,6 +302,7 @@ async function refreshPrice() {
 
 /* ---------------- render ---------------- */
 function render(d) {
+  lastAnalysis = d;
   curCur = d.currency || "KRW";
   /* header */
   $("stock-logo").src = d.logo || "";
@@ -360,6 +362,9 @@ function render(d) {
 
   /* chart */
   renderChart(d);
+
+  /* backtest */
+  renderBacktest(d.backtest);
 
   /* tech summary */
   if (tech.available) {
@@ -648,6 +653,134 @@ function renderChart(d) {
   setRange(125);
 }
 
+/* ---------------- compare ---------------- */
+let compareList = [];
+let lastAnalysis = null;
+const CMP_COLORS = ["#6366f1", "#22d3ee", "#ff6b9d"];
+
+function addCompare(d) {
+  if (!compareList.some((x) => x.code === d.code)) {
+    if (compareList.length >= 3) { alert("비교는 최대 3종목까지 가능합니다."); return; }
+    compareList.push({
+      code: d.code, name: d.name, currency: d.currency, market: d.nation,
+      price: d.price, grade: d.total.grade, score: d.total.total_score,
+      categories: d.total.categories, metrics: d.metrics, upside: d.targets.consensus_upside,
+    });
+    const btn = $("compare-btn");
+    btn.textContent = "✓ 담김"; setTimeout(() => (btn.textContent = "⚖️ 비교담기"), 1200);
+  }
+  renderCompareTray();
+}
+function removeCompare(code) {
+  compareList = compareList.filter((x) => x.code !== code);
+  renderCompareTray();
+  if (!$("compare-view").classList.contains("hidden")) {
+    compareList.length >= 2 ? showCompare() : goHome();
+  }
+}
+function renderCompareTray() {
+  const tray = $("compare-tray");
+  if (!compareList.length) { tray.classList.add("hidden"); return; }
+  tray.classList.remove("hidden");
+  $("cmp-chips").innerHTML = compareList.map((x, i) =>
+    `<span class="cmp-chip"><i style="background:${CMP_COLORS[i]}"></i>${x.name}<b data-rm="${x.code}">✕</b></span>`).join("");
+  $("cmp-chips").querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => removeCompare(b.dataset.rm));
+  $("cmp-go").textContent = `비교하기 (${compareList.length})`;
+  $("cmp-go").disabled = compareList.length < 2;
+}
+function showCompare() {
+  if (compareList.length < 2) { alert("2종목 이상 담아주세요."); return; }
+  clearInterval(priceTimer);
+  $("landing").classList.add("hidden");
+  $("report").classList.add("hidden");
+  $("compare-view").classList.remove("hidden");
+  window.scrollTo({ top: 0 });
+  drawCompareRadar();
+  renderCompareTable();
+}
+function drawCompareRadar() {
+  const c = $("cmp-radar"), ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  const labels = Object.keys(compareList[0].categories);
+  const n = labels.length, cx = 180, cy = 160, R = 105;
+  const angle = (i) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  const grid = "rgba(150,160,190,.18)";
+  for (let ring = 1; ring <= 4; ring++) {
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) { const a = angle(i % n), rr = R * ring / 4; const x = cx + rr * Math.cos(a), y = cy + rr * Math.sin(a); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); }
+    ctx.strokeStyle = grid; ctx.stroke();
+  }
+  for (let i = 0; i < n; i++) { const a = angle(i); ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + R * Math.cos(a), cy + R * Math.sin(a)); ctx.strokeStyle = grid; ctx.stroke(); }
+  compareList.forEach((x, idx) => {
+    const vals = labels.map((l) => x.categories[l]);
+    ctx.beginPath();
+    for (let i = 0; i <= n; i++) { const a = angle(i % n), rr = R * vals[i % n] / 100; const px = cx + rr * Math.cos(a), py = cy + rr * Math.sin(a); i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py); }
+    ctx.fillStyle = CMP_COLORS[idx] + "22"; ctx.fill();
+    ctx.strokeStyle = CMP_COLORS[idx]; ctx.lineWidth = 2; ctx.stroke(); ctx.lineWidth = 1;
+  });
+  ctx.fillStyle = getComputedStyle(document.body).getPropertyValue("--muted") || "#9aa3ba";
+  ctx.font = "12px Pretendard, sans-serif"; ctx.textAlign = "center";
+  for (let i = 0; i < n; i++) { const a = angle(i); ctx.fillText(labels[i], cx + (R + 26) * Math.cos(a), cy + (R + 20) * Math.sin(a) + 4); }
+  $("cmp-legend").innerHTML = compareList.map((x, i) =>
+    `<div class="cmp-leg"><i style="background:${CMP_COLORS[i]}"></i><span>${x.name}</span><b style="color:${scoreColor(x.score)}">${x.score}점 ${x.grade}</b></div>`).join("");
+}
+function renderCompareTable() {
+  const L = compareList;
+  const cats = Object.keys(L[0].categories);
+  const row = (label, vals, fmtFn, best) => {
+    let bi = -1;
+    if (best) {
+      const nums = vals.map((v) => (typeof v === "number" ? v : NaN));
+      const valid = nums.filter((v) => !isNaN(v));
+      if (valid.length) { const t = best === "max" ? Math.max(...valid) : Math.min(...valid); bi = nums.indexOf(t); }
+    }
+    return `<tr><th>${label}</th>${vals.map((v, i) => `<td class="${i === bi ? "cmp-best" : ""}">${fmtFn(v, i)}</td>`).join("")}</tr>`;
+  };
+  const u = (v, s) => (v == null ? "-" : v + s);
+  let h = `<table><thead><tr><th>항목</th>${L.map((x, i) => `<th style="color:${CMP_COLORS[i]}">${x.name}</th>`).join("")}</tr></thead><tbody>`;
+  h += row("종합점수", L.map((x) => x.score), (v) => `${v}점`, "max");
+  h += row("등급", L.map((x) => x.grade), (v) => v, null);
+  h += row("현재가", L.map((x) => x.price), (v, i) => pw(v, L[i].currency), null);
+  cats.forEach((c) => (h += row(c, L.map((x) => x.categories[c]), (v) => (v == null ? "-" : v), "max")));
+  h += row("PER", L.map((x) => x.metrics.per), (v) => u(v, "배"), "min");
+  h += row("PBR", L.map((x) => x.metrics.pbr), (v) => u(v, "배"), "min");
+  h += row("ROE", L.map((x) => x.metrics.roe), (v) => u(v, "%"), "max");
+  h += row("배당수익률", L.map((x) => x.metrics.dividend_yield), (v) => u(v, "%"), "max");
+  h += row("목표가 상승여력", L.map((x) => x.upside), (v) => (v == null ? "-" : sign(v, 1) + "%"), "max");
+  h += "</tbody></table>";
+  $("cmp-table").innerHTML = h;
+}
+
+/* ---------------- backtest ---------------- */
+function renderBacktest(bt) {
+  const card = $("backtest-card");
+  if (!bt || !bt.available) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+  const months = Math.max(1, Math.round(bt.period_days / 21));
+  $("bt-period").textContent = `최근 약 ${months}개월 · 단순보유 시 ${sign(bt.buy_hold, 1)}%`;
+
+  const strat = (title, desc, s) => {
+    if (!s) return `<div class="bt-strat"><div class="bt-name">${title}</div><div class="bt-empty">해당 기간 신호 발생 없음</div></div>`;
+    if (!s.trades) {
+      const op = s.open_return != null ? `미청산 포지션 평가손익 <b class="${s.open_return >= 0 ? "up" : "down"}">${sign(s.open_return, 1)}%</b>` : "완료된 매매 없음";
+      return `<div class="bt-strat"><div class="bt-name">${title} <small>${desc}</small></div><div class="bt-empty">${op} · 추세 지속 중</div></div>`;
+    }
+    const wrColor = s.win_rate >= 60 ? "var(--green)" : s.win_rate >= 40 ? "var(--amber)" : "var(--up)";
+    return `<div class="bt-strat">
+      <div class="bt-name">${title} <small>${desc}</small></div>
+      <div class="bt-stats">
+        <div><label>매매</label><span>${s.trades}회</span></div>
+        <div><label>승률</label><span style="color:${wrColor};font-weight:800">${s.win_rate}%</span></div>
+        <div><label>평균수익</label><span class="${s.avg_return >= 0 ? "up" : "down"}">${sign(s.avg_return, 1)}%</span></div>
+        <div><label>최고/최저</label><span><span class="up">${sign(s.best, 0)}%</span> <span class="down">${sign(s.worst, 0)}%</span></span></div>
+      </div>
+    </div>`;
+  };
+  $("backtest-body").innerHTML =
+    strat("골든/데드크로스", "20·60일선 교차", bt.ma_cross) +
+    strat("RSI 과매도·과매수", "RSI 30 매수 · 70 매도", bt.rsi);
+}
+
 /* ---------------- finance ---------------- */
 function renderFinance(rows) {
   const rev = rows["매출액"] || [], op = rows["영업이익"] || [];
@@ -777,6 +910,12 @@ document.querySelectorAll("#rank-market button").forEach((b) => {
     loadRanking("전체");
   };
 });
+
+// 종목 비교
+$("compare-btn").onclick = () => { if (lastAnalysis) addCompare(lastAnalysis); };
+$("cmp-go").onclick = showCompare;
+$("cmp-clear").onclick = () => { compareList = []; renderCompareTray(); if (!$("compare-view").classList.contains("hidden")) goHome(); };
+$("cmp-back").onclick = goHome;
 
 initTheme();
 renderFavBoard();

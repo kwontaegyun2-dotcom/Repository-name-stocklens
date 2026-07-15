@@ -114,6 +114,7 @@ def api_analyze(code: str, request: Request = None):
     infos = {i.get("code"): i.get("value") for i in src}
 
     tech = analysis.technical_analysis(candle_data)
+    bt = analysis.backtest(candle_data)
     fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
     senti = analysis.news_sentiment(news_items)
     cons = analysis.consensus_info(integ, price)
@@ -172,6 +173,7 @@ def api_analyze(code: str, request: Request = None):
         "metrics": fund["metrics"],
         "finance_rows": fund["finance_rows"],
         "technical": tech,
+        "backtest": bt,
         "targets": targets,
         "consensus": cons,
         "sentiment": {"score": senti["score"], "label": senti["label"]},
