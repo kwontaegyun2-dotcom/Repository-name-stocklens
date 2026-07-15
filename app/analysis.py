@@ -400,14 +400,16 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     op_s = _exact_row(rows, "영업이익", "EBIT")
     # 순이익: 국내 '당기순이익' / 미국 '당기순이익','세후손익'
     ni_s = _exact_row(rows, "당기순이익", "세후손익", "순이익")
-    # 수익성 지표: ROE(국내). 미국은 ROE 미제공 → 마진으로 대체(아래)
+    # 수익성 지표: ROE(국내). 미국은 ROE 미제공 → 마진/ROA로 대체(아래)
     _, roe_s = _row_match(rows, "ROE")
+    _, roa_s = _row_match(rows, "ROA")
     _, opm_s = _row_match(rows, "영업이익률")
     _, npm_s = _row_match(rows, "순이익률")
     _, debt_s = _row_match(rows, "부채비율")
     _, retain_s = _row_match(rows, "유보율")
 
     roe = _last_actual(roe_s)
+    roa = _last_actual(roa_s)
     opm = _last_actual(opm_s)
     npm = _last_actual(npm_s)
     debt = _last_actual(debt_s)
@@ -452,6 +454,14 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     if div_score is not None: vw.append((div_score, 0.15))
     value_score = (sum(s * w for s, w in vw) / sum(w for _, w in vw)) if vw else 50
 
+    # PEG 보정: 성장 대비 밸류. 고성장주는 높은 PER이 정당화됨(성장주 저평가 반영)
+    growths = [g for g in (op_growth, rev_growth, op_growth_fwd) if g is not None]
+    best_growth = max(growths) if growths else None
+    if per_eval and per_eval > 0 and best_growth and best_growth > 5:
+        peg = per_eval / best_growth
+        peg_score = _score_low(peg, best=0.6, worst=3.0)  # PEG 0.6이하 최고·3이상 최저
+        value_score = value_score * 0.5 + peg_score * 0.5
+
     # 수익성
     roe_score = _scale(roe, 0, 20)
     opm_score = _scale(opm, 0, 25)
@@ -468,11 +478,19 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     ) if s is not None]
     growth_score = sum(g_parts) / len(g_parts) if g_parts else 50
 
-    # 안정성
+    # 안정성: 국내는 부채비율·유보율, 미국(부채 데이터 없음)은 흑자·자산효율 프록시
     debt_score = _scale(debt, 250, 30)
     retain_score = _scale(retain, 0, 3000)
     st_parts = [s for s in (debt_score, retain_score) if s is not None]
-    stability_score = sum(st_parts) / len(st_parts) if st_parts else 50
+    if st_parts:
+        stability_score = sum(st_parts) / len(st_parts)
+    else:
+        proxy = []
+        if npm is not None:
+            proxy.append(_clamp(45 + npm * 1.6))   # 순이익률 0→45, 34%→100
+        if roa is not None:
+            proxy.append(_clamp(40 + roa * 2.2))   # ROA 0→40, 27%→100
+        stability_score = sum(proxy) / len(proxy) if proxy else 62
 
     return {
         "metrics": {
