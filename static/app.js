@@ -369,16 +369,30 @@ function render(d) {
 
   /* tech summary */
   if (tech.available) {
+    const slopeTxt = (v) => v == null ? "-" :
+      `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "▲" : v < 0 ? "▼" : ""}${Math.abs(v).toFixed(1)}%</span>`;
     $("tech-summary").innerHTML = `
       <div class="tech-item"><label>기술 점수</label><div style="color:${scoreColor(tech.score)}">${tech.score}점</div></div>
       <div class="tech-item"><label>RSI(14)</label><div>${tech.rsi ?? "-"}</div></div>
-      <div class="tech-item"><label>SMA20</label><div>${fmt(tech.sma["20"])}</div></div>
-      <div class="tech-item"><label>SMA60</label><div>${fmt(tech.sma["60"])}</div></div>
+      <div class="tech-item"><label>20일선 방향</label><div>${slopeTxt(tech.ma20_slope)}</div></div>
+      <div class="tech-item"><label>60일선 방향</label><div>${slopeTxt(tech.ma60_slope)}</div></div>
       <div class="tech-item"><label>52주 위치</label><div>${tech.pos_52w}%</div></div>
       <div class="tech-item"><label>거래량(5d/20d)</label><div>${tech.volume_ratio ?? "-"}배</div></div>`;
+    /* 기술 점수 4축 분해 */
+    if (tech.score_parts) {
+      const p = tech.score_parts;
+      $("tech-parts").innerHTML = ["추세", "모멘텀", "위치", "거래량"].map((k) =>
+        `<div class="tp-bar"><span class="tp-label">${k}</span>
+           <span class="tp-track"><i style="width:${p[k]}%;background:${scoreColor(p[k])}"></i></span>
+           <span class="tp-val">${p[k]}</span></div>`).join("");
+      $("tech-parts").classList.remove("hidden");
+    } else {
+      $("tech-parts").classList.add("hidden");
+    }
     $("tech-signals").innerHTML = tech.signals.map((s) => `<li class="${s.type}">${s.text}</li>`).join("");
   } else {
     $("tech-summary").innerHTML = "<p class='hint-p'>차트 데이터가 부족합니다.</p>";
+    $("tech-parts").classList.add("hidden");
     $("tech-signals").innerHTML = "";
   }
 

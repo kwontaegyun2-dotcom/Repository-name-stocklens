@@ -96,6 +96,18 @@ def rsi(closes, n=14):
     return 100.0 - 100.0 / (1.0 + rs)
 
 
+def _slope_pct(series, lookback=10):
+    """이동평균선의 최근 기울기를 % 로 반환 (양수=상승 중, 음수=하락 중).
+    series: sma() 결과(오름차순, 마지막이 최신). 데이터 부족 시 None."""
+    if not series or len(series) < lookback + 1:
+        return None
+    old = series[-lookback - 1]
+    new = series[-1]
+    if not old:
+        return None
+    return (new - old) / abs(old) * 100.0
+
+
 def _ema_series(values, n):
     k = 2.0 / (n + 1)
     out = [values[0]]
@@ -179,9 +191,15 @@ def technical_analysis(candles: list) -> dict:
     price = closes[-1]
 
     mas = {}
+    ma_series = {}
     for n in (5, 20, 60, 120):
         s = sma(closes, n)
+        ma_series[n] = s
         mas[n] = s[-1] if s else None
+
+    # 이동평균 기울기(추세 방향): 20일선·60일선의 최근 10봉 변화율
+    slope20 = _slope_pct(ma_series[20], 10)
+    slope60 = _slope_pct(ma_series[60], 10)
 
     r = rsi(closes)
     m = macd(closes)
@@ -217,66 +235,132 @@ def technical_analysis(candles: list) -> dict:
         vol_ratio = v5 / v20 if v20 else None
 
     # ---- 신호 및 점수
+    # 4개 축을 별도로 산출(각 0~100) 후 가중 결합한다:
+    #   추세(45%)·모멘텀(30%)·변동성/위치(15%)·거래량(10%)
+    # 단순 가감산이 아니라 축별 정규화라, 한쪽 신호가 과도하게 쌓이는 걸 막는다.
     signals = []
-    score = 50.0
+    vol_confirm = bool(vol_ratio and vol_ratio >= 1.2)   # 거래량 동반 여부(신호 신뢰도)
 
+    # ── 1) 추세 축: 이평 배열 + 기울기 + 장기(120)선 ──────────────
+    trend = 50.0
     if mas[20] and mas[60]:
         if price > mas[20] > mas[60]:
-            score += 12
-            signals.append(("bull", "주가가 20·60일 이동평균선 위 — 정배열 상승 추세"))
+            trend += 18
+            signals.append(("bull", "주가가 20·60일선 위 — 정배열 상승 추세"))
+            if mas[120] and mas[60] > mas[120]:
+                trend += 8
+                signals.append(("bull", "20>60>120일선 완전 정배열 — 장기 상승 구조"))
         elif price < mas[20] < mas[60]:
-            score -= 12
-            signals.append(("bear", "주가가 20·60일 이동평균선 아래 — 역배열 하락 추세"))
+            trend -= 18
+            signals.append(("bear", "주가가 20·60일선 아래 — 역배열 하락 추세"))
+            if mas[120] and mas[60] < mas[120]:
+                trend -= 8
+                signals.append(("bear", "20<60<120일선 완전 역배열 — 장기 하락 구조"))
         elif price > mas[20]:
-            score += 5
+            trend += 7
             signals.append(("bull", "주가가 20일선 위 — 단기 추세 양호"))
         else:
-            score -= 5
+            trend -= 7
             signals.append(("bear", "주가가 20일선 아래 — 단기 추세 약화"))
-
+    # 이동평균 기울기(방향) — 위/아래보다 '지금 올라가는 중인가'가 핵심
+    if slope20 is not None:
+        if slope20 > 1.0:
+            trend += 8
+            signals.append(("bull", f"20일선이 우상향(+{slope20:.1f}%) — 상승 추세 강화"))
+        elif slope20 < -1.0:
+            trend -= 8
+            signals.append(("bear", f"20일선이 우하향({slope20:.1f}%) — 하락 추세 지속"))
+    if slope60 is not None:
+        if slope60 > 0.5:
+            trend += 5
+        elif slope60 < -0.5:
+            trend -= 5
     if cross == "golden":
-        score += 8
-        signals.append(("bull", "최근 골든크로스(20일선이 60일선 상향 돌파) 발생"))
+        bonus = 10 if vol_confirm else 6
+        trend += bonus
+        signals.append(("bull", "최근 골든크로스(20일선 상향 돌파)"
+                        + (" — 거래량 동반으로 신뢰도 높음" if vol_confirm else "")))
     elif cross == "dead":
-        score -= 8
-        signals.append(("bear", "최근 데드크로스(20일선이 60일선 하향 이탈) 발생"))
+        trend -= 10
+        signals.append(("bear", "최근 데드크로스(20일선 하향 이탈) 발생"))
+    trend = _clamp(trend)
 
-    if r is not None:
-        if r >= 70:
-            score -= 8
-            signals.append(("warn", f"RSI {r:.0f} — 단기 과열 구간, 추격 매수 주의"))
-        elif r <= 30:
-            score += 8
-            signals.append(("bull", f"RSI {r:.0f} — 과매도 구간, 기술적 반등 가능성"))
-        else:
-            signals.append(("neutral", f"RSI {r:.0f} — 중립 구간"))
-
+    # ── 2) 모멘텀 축: MACD + RSI ─────────────────────────────────
+    momentum = 50.0
     if m:
         if m["hist"] > 0 and m["hist_prev"] <= 0:
-            score += 8
+            momentum += 20
             signals.append(("bull", "MACD 히스토그램 양전환 — 상승 모멘텀 발생"))
         elif m["hist"] < 0 and m["hist_prev"] >= 0:
-            score -= 8
+            momentum -= 20
             signals.append(("bear", "MACD 히스토그램 음전환 — 하락 모멘텀 발생"))
         elif m["hist"] > 0:
-            score += 4
+            momentum += 10
             signals.append(("bull", "MACD 상승 모멘텀 유지 중"))
         else:
-            score -= 4
+            momentum -= 10
             signals.append(("bear", "MACD 하락 모멘텀 유지 중"))
+    if r is not None:
+        if r >= 75:
+            momentum -= 16
+            signals.append(("warn", f"RSI {r:.0f} — 과열 구간, 추격 매수 주의"))
+        elif r >= 70:
+            momentum -= 8
+            signals.append(("warn", f"RSI {r:.0f} — 과열 진입, 단기 조정 가능"))
+        elif r <= 25:
+            momentum += 16
+            signals.append(("bull", f"RSI {r:.0f} — 과매도, 기술적 반등 가능성"))
+        elif r <= 30:
+            momentum += 8
+            signals.append(("bull", f"RSI {r:.0f} — 과매도 진입, 반등 관찰"))
+        elif 50 <= r < 70:
+            momentum += 5     # 중립 상단: 건강한 상승 모멘텀
+            signals.append(("neutral", f"RSI {r:.0f} — 상승 우위의 중립 구간"))
+        else:
+            signals.append(("neutral", f"RSI {r:.0f} — 중립 구간"))
+    momentum = _clamp(momentum)
 
+    # ── 3) 변동성·위치 축: 볼린저 + 52주 위치 ────────────────────
+    posn = 50.0
     if bb:
         if bb["pct_b"] >= 1.0:
-            score -= 4
+            posn -= 12
             signals.append(("warn", "볼린저밴드 상단 돌파 — 변동성 확대·과열 주의"))
         elif bb["pct_b"] <= 0.0:
-            score += 4
+            posn += 12
             signals.append(("bull", "볼린저밴드 하단 이탈 — 낙폭 과대 반등 관찰"))
+        elif bb["pct_b"] >= 0.8:
+            posn -= 4
+        elif bb["pct_b"] <= 0.2:
+            posn += 4
+    # 52주 위치: 신고가권(모멘텀) vs 신저가권(약세). 극단 과열은 소폭 감점
+    if pos52 >= 90:
+        posn += 6
+        signals.append(("bull", f"52주 최고가 근접({pos52:.0f}%) — 강한 상승 모멘텀"))
+    elif pos52 >= 65:
+        posn += 10
+    elif pos52 <= 15:
+        posn -= 10
+        signals.append(("bear", f"52주 최저가 근접({pos52:.0f}%) — 약세 흐름"))
+    posn = _clamp(posn)
 
-    if vol_ratio and vol_ratio > 1.5:
-        signals.append(("info", f"최근 거래량이 20일 평균 대비 {vol_ratio:.1f}배 — 시장 관심 증가"))
+    # ── 4) 거래량 축: 추세 방향으로의 거래량 확인 ────────────────
+    vol_axis = 50.0
+    if vol_ratio:
+        rising = price > (mas[20] or price)
+        if vol_ratio >= 1.5 and rising:
+            vol_axis += 22
+            signals.append(("info", f"거래량 20일 평균 {vol_ratio:.1f}배 + 상승 — 매수세 유입"))
+        elif vol_ratio >= 1.5 and not rising:
+            vol_axis -= 18
+            signals.append(("warn", f"거래량 {vol_ratio:.1f}배 + 하락 — 매도 물량 출회"))
+        elif vol_ratio >= 1.2:
+            vol_axis += 8 if rising else -6
+        elif vol_ratio < 0.6:
+            signals.append(("neutral", "거래량 위축 — 관망세, 방향성 대기"))
+    vol_axis = _clamp(vol_axis)
 
-    score = _clamp(score)
+    score = _clamp(trend * 0.45 + momentum * 0.30 + posn * 0.15 + vol_axis * 0.10)
 
     # ---- 진입 타이밍 판단
     if score >= 70:
@@ -320,7 +404,13 @@ def technical_analysis(candles: list) -> dict:
         "support": round(support), "resistance": round(resistance),
         "cross": cross,
         "volume_ratio": round(vol_ratio, 2) if vol_ratio else None,
+        "ma20_slope": round(slope20, 2) if slope20 is not None else None,
+        "ma60_slope": round(slope60, 2) if slope60 is not None else None,
         "score": round(score, 1),
+        "score_parts": {
+            "추세": round(trend, 1), "모멘텀": round(momentum, 1),
+            "위치": round(posn, 1), "거래량": round(vol_axis, 1),
+        },
         "signals": [{"type": t, "text": s} for t, s in signals],
         "verdict": verdict, "verdict_class": verdict_cls,
         "timing_comment": timing,
@@ -543,13 +633,20 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     if div_score is not None: vw.append((div_score, 0.15))
     value_score = (sum(s * w for s, w in vw) / sum(w for _, w in vw)) if vw else 50
 
-    # PEG 보정: 성장 대비 밸류. 고성장주는 높은 PER이 정당화됨(성장주 저평가 반영)
-    growths = [g for g in (op_growth, rev_growth, op_growth_fwd) if g is not None]
-    best_growth = max(growths) if growths else None
-    if per_eval and per_eval > 0 and best_growth and best_growth > 5:
-        peg = per_eval / best_growth
-        peg_score = _score_low(peg, best=0.6, worst=3.0)  # PEG 0.6이하 최고·3이상 최저
-        value_score = value_score * 0.5 + peg_score * 0.5
+    # PEG 보정: 성장 대비 밸류. 고성장주의 높은 PER을 일부 정당화하되,
+    # 저기반(적자→흑자·회복 구간)에서 나온 폭발적 성장률이 밸류를 부풀리지 않도록
+    # ① 실적 성장을 우선하고 ② 전망 성장률은 40%로 상한 ③ 보정 강도도 완화한다.
+    peg_cands = [g for g in (op_growth, rev_growth) if g is not None and g > 0]
+    if op_growth_fwd is not None and op_growth_fwd > 0:
+        peg_cands.append(min(op_growth_fwd, 40.0))       # 전망치는 상한
+    growth_for_peg = None
+    if peg_cands:
+        peg_cands.sort()
+        growth_for_peg = min(40.0, peg_cands[len(peg_cands) // 2])   # 중앙값·40 상한
+    if per_eval and per_eval > 0 and growth_for_peg and growth_for_peg > 5:
+        peg = per_eval / growth_for_peg
+        peg_score = _score_low(peg, best=0.8, worst=3.0)  # PEG 0.8이하 최고·3이상 최저
+        value_score = value_score * 0.65 + peg_score * 0.35  # 보정 완화(0.5→0.35)
 
     # 수익성
     roe_score = _scale(roe, 0, 20)
@@ -559,20 +656,33 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     prof_score = sum(prof_parts) / len(prof_parts) if prof_parts else 50
 
     # 성장성 (과거 + 컨센서스 전망 모두 반영)
+    # 상한을 높여(25→30, 50→60) 저기반 회복성 폭증이 손쉽게 만점을 받지 않게 한다.
     g_parts = [s for s in (
-        _scale(rev_growth, -10, 25),
-        _scale(op_growth, -20, 50),
-        _scale(rev_growth_fwd, -10, 25),
-        _scale(op_growth_fwd, -20, 50),
+        _scale(rev_growth, -10, 30),
+        _scale(op_growth, -25, 60),
+        _scale(rev_growth_fwd, -10, 30),
+        _scale(op_growth_fwd, -25, 60),
     ) if s is not None]
     growth_score = sum(g_parts) / len(g_parts) if g_parts else 50
 
     # 안정성: 국내는 부채비율·유보율, 미국(부채 데이터 없음)은 흑자·자산효율 프록시
-    debt_score = _scale(debt, 250, 30)
+    # ⚠️ 은행·보험·지주는 부채비율이 구조적으로 1000%+ 라 이를 '위험'으로 보면 안 된다.
+    #    → 극단적 고부채(>500%)는 금융업 추정으로 중립(45) 처리하고,
+    #      일반 기업은 완만한 척도(≤50%→우수, ≥300%→하한)로 평가한다.
+    if debt is None:
+        debt_score = None
+    elif debt > 500:
+        debt_score = 45.0
+    else:
+        debt_score = _score_low(debt, best=50, worst=300, floor=20, top=100)
     retain_score = _scale(retain, 0, 3000)
     st_parts = [s for s in (debt_score, retain_score) if s is not None]
     if st_parts:
         stability_score = sum(st_parts) / len(st_parts)
+        # 수익성 쿠션: 꾸준한 흑자·양호한 ROE는 상환능력의 방증 → 안정성 하한을 올린다.
+        # (약점 기업을 끌어올리는 '바닥'이지, 이미 높은 점수를 더 올리진 않는다 — 상한 60)
+        if roe is not None and roe > 0:
+            stability_score = max(stability_score, min(60.0, _clamp(35 + roe * 1.5)))
     else:
         proxy = []
         if npm is not None:

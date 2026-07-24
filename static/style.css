@@ -332,6 +332,15 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
   border: 1px solid rgba(46,230,166,.3); vertical-align: middle;
 }
 
+/* 기술 점수 4축 분해 바 */
+.tech-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin: 4px 0 14px; }
+.tp-bar { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
+.tp-label { flex: 0 0 44px; color: var(--muted); }
+.tp-track { flex: 1; height: 7px; border-radius: 4px; background: var(--surface2); overflow: hidden; }
+.tp-track i { display: block; height: 100%; border-radius: 4px; transition: width .5s ease; }
+.tp-val { flex: 0 0 30px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .tech-parts { grid-template-columns: 1fr; } }
+
 /* ---------- backtest ---------- */
 .backtest-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .bt-strat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 15px 16px; }
