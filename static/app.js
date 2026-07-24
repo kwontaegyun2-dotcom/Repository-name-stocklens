@@ -756,9 +756,13 @@ function renderCompareTable() {
 let screenerRows = [];
 let scrPreset = "value";
 let scrPollTimer = null;
+let scrDart = false;          // DART 축2(영업이익 YoY) 사용 가능 여부
 const PRESETS = {
   value:    { pbr: 1.0, per: 15, roe: 8, div: 0, mcap: 3000, flow: false, sort: "pbr" },
   rerating: { pbr: 2.0, per: 40, roe: 5, div: 0, mcap: 2000, flow: true, sort: "rerating" },
+  // 적자기업이 곧 턴어라운드 후보라 PER·ROE 하한을 두지 않는다(allowLoss)
+  turnaround: { pbr: 3.0, per: 999, roe: -999, div: 0, mcap: 1000, flow: false,
+                sort: "op_yoy", allowLoss: true, inflection: true },
   sector:   { pbr: 10, per: 100, roe: 0, div: 0, mcap: 2000, flow: false, sort: "roe_pct", sectorMode: true },
   dividend: { pbr: 1.5, per: 20, roe: 0, div: 3, mcap: 3000, flow: false, sort: "div" },
 };
@@ -782,9 +786,12 @@ async function fetchScreener() {
       return;
     }
     screenerRows = d.rows || [];
+    scrDart = !!d.dart;
+    $("preset-turnaround").classList.toggle("hidden", !scrDart);
     if (d.updated_at) {
       const dt = new Date(d.updated_at * 1000);
-      $("scr-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준 · ${d.count}종목 스캔`;
+      const dartTag = scrDart && d.period ? ` · 실적 ${d.period} 기준` : "";
+      $("scr-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준 · ${d.count}종목 스캔${dartTag}`;
     }
     applyPreset(scrPreset, false);
   } catch {
@@ -810,19 +817,29 @@ function renderScreener() {
   const flowOnly = $("f-flow").checked;
   const p = PRESETS[scrPreset];
 
-  let rows = screenerRows.filter((r) =>
-    r.pbr != null && r.pbr <= pbr &&
-    r.per != null && r.per > 0 && r.per <= per &&
-    (r.roe == null ? roe <= 0 : r.roe >= roe) &&
-    (r.div == null ? div <= 0 : r.div >= div) &&
-    (r.mcap == null || r.mcap >= mcap) &&
-    (!flowOnly || (r.foreign20 > 0 && r.inst20 > 0)));
+  let rows = screenerRows.filter((r) => {
+    if (r.pbr == null || r.pbr > pbr) return false;
+    if (r.mcap != null && r.mcap < mcap) return false;
+    if (r.div == null ? div > 0 : r.div < div) return false;
+    if (flowOnly && !(r.foreign20 > 0 && r.inst20 > 0)) return false;
+    // 적자기업(PER 없음)은 PER·ROE 하한을 적용하지 않고, allowLoss 프리셋에서만 통과시킨다
+    if (r.per == null || r.per <= 0) return !!p.allowLoss;
+    if (r.per > per) return false;
+    if (r.roe == null ? roe > 0 : r.roe < roe) return false;
+    return true;
+  });
   if (p.sectorMode) rows = rows.filter((r) => r.pbr_pct != null && r.pbr_pct < 0.3 && r.roe_pct != null && r.roe_pct > 0.7);
+  // 실적 변곡: 흑자전환이거나 영업이익이 뚜렷하게 증가한 종목만
+  if (p.inflection) rows = rows.filter((r) => r.op_yoy != null && (r.turnaround || r.op_yoy >= 20));
 
   rows.sort((a, b) => {
     if (p.sort === "pbr") return (a.pbr ?? 99) - (b.pbr ?? 99);
     if (p.sort === "div") return (b.div ?? 0) - (a.div ?? 0);
     if (p.sort === "roe_pct") return (b.roe_pct ?? 0) - (a.roe_pct ?? 0);
+    if (p.sort === "op_yoy") {
+      if (a.turnaround !== b.turnaround) return a.turnaround ? -1 : 1;  // 흑자전환 최우선
+      return (b.op_yoy ?? -999) - (a.op_yoy ?? -999);
+    }
     return (b.rerating ?? -99) - (a.rerating ?? -99);
   });
   rows = rows.slice(0, 60);
@@ -830,19 +847,30 @@ function renderScreener() {
 
   const flowCell = (r) =>
     `${r.foreign20 > 0 ? '<span class="up">외인▲</span>' : '<span class="down">외인▽</span>'} ${r.inst20 > 0 ? '<span class="up">기관▲</span>' : '<span class="down">기관▽</span>'}`;
-  $("scr-table").innerHTML = rows.length ? tableHTML(
-    ["종목명", "현재가", "PBR", "PER", "ROE", "배당", "시총(억)", "20일 수급", "리레이팅"],
-    rows.map((r) => [
-      `<b class="scr-name" data-code="${r.code}">${r.name}</b>`,
-      fmt(r.price),
-      r.pbr != null ? r.pbr.toFixed(2) : "-",
-      r.per != null ? r.per.toFixed(1) : "-",
-      r.roe != null ? `<span class="${r.roe >= 10 ? "up" : ""}">${r.roe.toFixed(1)}%</span>` : "-",
-      r.div != null ? r.div.toFixed(2) + "%" : "-",
-      fmt(r.mcap),
-      flowCell(r),
-      `<b>${r.rerating != null ? r.rerating.toFixed(2) : "-"}</b>`,
-    ])) : "<p class='hint-p'>조건에 맞는 종목이 없습니다. 필터를 완화해 보세요.</p>";
+  const opCell = (r) => {
+    if (r.op_yoy == null) return "-";
+    const badge = r.turnaround ? '<span class="scr-badge">흑자전환</span> ' : "";
+    return `${badge}<span class="${r.op_yoy >= 0 ? "up" : "down"}">${r.op_yoy >= 0 ? "+" : ""}${r.op_yoy.toFixed(0)}%</span>`;
+  };
+  const head = ["종목명", "현재가", "PBR", "PER", "ROE", "배당", "시총(억)", "20일 수급"];
+  if (scrDart) head.push("영업이익 YoY");
+  head.push("리레이팅");
+  $("scr-table").innerHTML = rows.length ? tableHTML(head,
+    rows.map((r) => {
+      const cells = [
+        `<b class="scr-name" data-code="${r.code}">${r.name}</b>`,
+        fmt(r.price),
+        r.pbr != null ? r.pbr.toFixed(2) : "-",
+        r.per != null ? r.per.toFixed(1) : "-",
+        r.roe != null ? `<span class="${r.roe >= 10 ? "up" : ""}">${r.roe.toFixed(1)}%</span>` : "-",
+        r.div != null ? r.div.toFixed(2) + "%" : "-",
+        fmt(r.mcap),
+        flowCell(r),
+      ];
+      if (scrDart) cells.push(opCell(r));
+      cells.push(`<b>${r.rerating != null ? r.rerating.toFixed(2) : "-"}</b>`);
+      return cells;
+    })) : "<p class='hint-p'>조건에 맞는 종목이 없습니다. 필터를 완화해 보세요.</p>";
   $("scr-table").querySelectorAll(".scr-name").forEach((el) => el.onclick = () => analyze(el.dataset.code));
 }
 

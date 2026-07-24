@@ -2,14 +2,15 @@
 """밸류에이션·리레이팅 스크리너 — 시총 상위 종목 스냅샷(밸류+수급+업종).
 
 데이터: 네이버 벌크(시총순) + 종목별 integration 1콜(PER/PBR·수급·업종코드).
-축1(밸류) + 축3(수급). 축2(실적변곡, DART)는 키 필요로 추후.
+축1(밸류) + 축2(실적변곡, DART 영업이익 YoY) + 축3(수급).
+DART 키가 없으면 축2를 빼고 기존 공식으로 자동 폴백한다.
 """
 import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from app import naver
+from app import dart, naver
 from app.analysis import to_num, parse_eok
 
 # 시총 상위 (KOSPI 3페이지=300 + KOSDAQ 1페이지=100 = 400종목)
@@ -18,7 +19,7 @@ REFRESH_SEC = 21600  # 6시간
 MIN_TVAL_EOK = 10    # 거래대금 하한 10억(유동성) — 밸류트랩·상폐 리스크 제외
 
 _lock = threading.Lock()
-_state = {"rows": [], "updated_at": 0, "computing": False}
+_state = {"rows": [], "updated_at": 0, "computing": False, "dart": False, "period": ""}
 _started = False
 
 
@@ -96,12 +97,22 @@ def _compute():
         rows = []
         with ThreadPoolExecutor(max_workers=9) as ex:
             for r in ex.map(_enrich, universe):
-                if r and r.get("per") and r.get("pbr"):
+                # PER는 필수 조건에서 뺀다 — 적자기업(PER 없음)이 곧 턴어라운드 후보라
+                # 여기서 걸러내면 축2가 잡아야 할 종목이 통째로 사라진다.
+                if r and r.get("pbr"):
                     rows.append(r)
 
-        # 리레이팅 스코어: 밸류(저PBR) + 수급 z결합
+        # 축2: DART 영업이익 YoY (키 없으면 빈 dict → 폴백)
+        dq = dart.get([r["code"] for r in rows])
+        for r in rows:
+            d = dq.get(r["code"]) or {}
+            r["op_yoy"] = d.get("op_yoy")
+            r["turnaround"] = d.get("turnaround", False)
+
+        # 리레이팅 스코어: 밸류(저PBR) + 실적변곡 + 수급 z결합
         pbr_z = _zscores(rows, "pbr", invert=True)   # 낮을수록 높은 점수
         flow_z = _zscores([{"code": r["code"], "flowv": r["foreign20"] + r["inst20"]} for r in rows], "flowv")
+        op_z = _zscores(rows, "op_yoy") if dq else {}
         # 업종 상대 백분위 (PBR 오름차순 낮을수록 저평가, ROE 높을수록)
         by_ind = {}
         for r in rows:
@@ -118,7 +129,13 @@ def _compute():
                 roe_pct[r["code"]] = round((i + 0.5) / len(gr_sorted), 3) if len(gr_sorted) > 1 else 0.5
 
         for r in rows:
-            rr = pbr_z.get(r["code"], 0) * 0.55 + flow_z.get(r["code"], 0) * 0.45
+            if op_z:
+                # 설계서 가중치: 실적 변곡이 리레이팅의 핵심 동인
+                rr = (pbr_z.get(r["code"], 0) * 0.3
+                      + op_z.get(r["code"], 0) * 0.4
+                      + flow_z.get(r["code"], 0) * 0.3)
+            else:
+                rr = pbr_z.get(r["code"], 0) * 0.55 + flow_z.get(r["code"], 0) * 0.45
             r["rerating"] = round(rr, 2)
             r["pbr_pct"] = pbr_pct.get(r["code"])
             r["roe_pct"] = roe_pct.get(r["code"])
@@ -127,6 +144,8 @@ def _compute():
         with _lock:
             _state["rows"] = rows
             _state["updated_at"] = time.time()
+            _state["dart"] = bool(op_z)
+            _state["period"] = dart.period() if op_z else ""
     finally:
         with _lock:
             _state["computing"] = False
@@ -145,7 +164,8 @@ def get():
         threading.Thread(target=_loop, daemon=True).start()
     with _lock:
         rows = list(_state["rows"])
-        meta = {"updated_at": _state["updated_at"], "computing": _state["computing"]}
+        meta = {"updated_at": _state["updated_at"], "computing": _state["computing"],
+                "dart": _state["dart"], "period": _state["period"]}
     if not rows:
         meta["computing"] = True
     return {"rows": rows, "count": len(rows), **meta}
