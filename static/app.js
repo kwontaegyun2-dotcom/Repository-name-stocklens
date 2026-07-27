@@ -822,7 +822,7 @@ function renderValuation(v) {
     c.fper != null ? "FPER=컨센서스 기준 선행" : "선행 PER 미제공"]);
   if (h) cells.push([`과거 평균 PER / 선행PER`,
     `${h.avg_per ?? "-"} / ${h.avg_fper ?? "-"}배`,
-    `실적 ${h.per_count}년 기준`]);
+    `실적 ${h.per_count}년 기준${h.from_per_row ? " · 공시 PER 사용" : " · 연평균 주가 기반"}`]);
   if (v.peg) cells.push(["PEG",
     `<span class="${v.peg.peg <= 1 ? "up" : v.peg.peg > 1.5 ? "down" : ""}">${v.peg.peg}</span>`,
     `${v.peg.per_used}배 ÷ 성장 ${v.peg.growth_used}%${v.peg.capped ? ` (실제 ${v.peg.growth_raw}% → 상한 적용)` : ""} — ${v.peg.label}`]);

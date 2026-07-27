@@ -42,12 +42,20 @@ def per_history(fin_rows, candles):
     반환: {"years":[{year, eps, avg_price, per, fper}], "avg_per":..., "avg_fper":...}
     """
     eps_series = None
+    per_series = None
     for name, series in (fin_rows or {}).items():
-        if name.strip() == "EPS":
+        n = name.strip()
+        if n == "EPS":
             eps_series = series
-            break
-    if not eps_series or not candles:
+        elif n == "PER":
+            per_series = series
+    if not candles:
         return None
+    if not eps_series:
+        # 미국 종목은 재무제표에 EPS 행이 없다(실측 확인). 대신 **PER 행이 직접 제공**되므로
+        # 그 값을 연도별 PER로 그대로 쓴다. 연평균 주가 기반이 아니라 정확도는 낮지만,
+        # 1순위 지표(현재 ÷ 과거평균)를 미국에서도 쓸 수 있게 해준다.
+        return _per_history_from_per_row(per_series)
 
     # 연도 → EPS (실적/컨센서스 구분)
     rows = []
@@ -93,6 +101,31 @@ def per_history(fin_rows, candles):
         "avg_fper": round(sum(hist_fper) / len(hist_fper), 2) if hist_fper else None,
         "per_count": len(hist_per),
         "fper_count": len(hist_fper),
+    }
+
+
+def _per_history_from_per_row(per_series):
+    """EPS 행이 없는 시장(미국)용 폴백 — 제공되는 PER 행을 그대로 연도별 PER로 사용."""
+    if not per_series:
+        return None
+    out = []
+    for s in per_series:
+        y = _fy_year(s.get("period"))
+        v = s.get("value")
+        if y and v and v > 0:
+            out.append({"year": y, "eps": None, "consensus": s.get("consensus", False),
+                        "avg_price": None, "per": round(v, 2), "fper": None})
+    if not out:
+        return None
+    out.sort(key=lambda r: r["year"])
+    hist = [o["per"] for o in out if not o["consensus"]]
+    return {
+        "years": out,
+        "avg_per": round(sum(hist) / len(hist), 2) if hist else None,
+        "avg_fper": None,
+        "per_count": len(hist),
+        "fper_count": 0,
+        "from_per_row": True,     # 연평균 주가 기반이 아님을 프론트에 알림
     }
 
 
