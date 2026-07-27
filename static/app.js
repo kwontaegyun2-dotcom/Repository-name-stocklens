@@ -151,7 +151,6 @@ function goHome() {
   currentCode = null;
   $("report").classList.add("hidden");
   $("compare-view").classList.add("hidden");
-  $("screener-view").classList.add("hidden");
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
@@ -364,8 +363,6 @@ function render(d) {
   /* chart */
   renderChart(d);
 
-  /* backtest */
-  renderBacktest(d.backtest);
 
   /* tech summary */
   if (tech.available) {
@@ -397,6 +394,7 @@ function render(d) {
   }
 
   renderChartPro(d.chart_pro);
+  renderValuation(d.valuation);
 
   /* metrics */
   const m = d.metrics;
@@ -770,126 +768,93 @@ function renderCompareTable() {
   $("cmp-table").innerHTML = h;
 }
 
-/* ---------------- screener ---------------- */
-let screenerRows = [];
-let scrPreset = "value";
-let scrPollTimer = null;
-let scrDart = false;          // DART 축2(영업이익 YoY) 사용 가능 여부
-const PRESETS = {
-  value:    { pbr: 1.0, per: 15, roe: 8, div: 0, mcap: 3000, flow: false, sort: "pbr" },
-  rerating: { pbr: 2.0, per: 40, roe: 5, div: 0, mcap: 2000, flow: true, sort: "rerating" },
-  // 적자기업이 곧 턴어라운드 후보라 PER·ROE 하한을 두지 않는다(allowLoss)
-  turnaround: { pbr: 3.0, per: 999, roe: -999, div: 0, mcap: 1000, flow: false,
-                sort: "op_yoy", allowLoss: true, inflection: true },
-  sector:   { pbr: 10, per: 100, roe: 0, div: 0, mcap: 2000, flow: false, sort: "roe_pct", sectorMode: true },
-  dividend: { pbr: 1.5, per: 20, roe: 0, div: 3, mcap: 3000, flow: false, sort: "div" },
-};
+/* ---------------- 밸류에이션 분석 ---------------- */
+function renderValuation(v) {
+  const card = $("val-card");
+  if (!v || !v.available) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
 
-function openScreener() {
-  clearInterval(priceTimer);
-  $("landing").classList.add("hidden");
-  $("report").classList.add("hidden");
-  $("compare-view").classList.add("hidden");
-  $("screener-view").classList.remove("hidden");
-  window.scrollTo({ top: 0 });
-  fetchScreener();
-}
-async function fetchScreener() {
-  try {
-    const d = await api("/api/screener");
-    if ((!d.rows || !d.rows.length) && d.computing) {
-      $("scr-table").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>스크리너 집계 중… (최초 1~2분 소요, 자동 갱신)</span></div>`;
-      clearTimeout(scrPollTimer);
-      scrPollTimer = setTimeout(fetchScreener, 6000);
-      return;
-    }
-    screenerRows = d.rows || [];
-    scrDart = !!d.dart;
-    $("preset-turnaround").classList.toggle("hidden", !scrDart);
-    if (d.updated_at) {
-      const dt = new Date(d.updated_at * 1000);
-      const dartTag = scrDart && d.period ? ` · 실적 ${d.period} 기준` : "";
-      $("scr-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준 · ${d.count}종목 스캔${dartTag}`;
-    }
-    applyPreset(scrPreset, false);
-  } catch {
-    $("scr-table").innerHTML = `<div class="rank-loading"><span>스크리너를 불러오지 못했습니다.</span></div>`;
+  $("val-score").textContent = `${v.score}점`;
+  $("val-score").style.color = scoreColor(v.score);
+  $("val-verdict").innerHTML = `<span class="verdict ${v.verdict_class}">${v.verdict}</span>`;
+
+  $("val-parts").innerHTML = Object.entries(v.parts || {}).map(([k, s]) =>
+    `<div class="tp-bar"><span class="tp-label wide">${k}</span>
+       <span class="tp-track"><i style="width:${s}%;background:${scoreColor(s)}"></i></span>
+       <span class="tp-val">${s}</span></div>`).join("");
+
+  /* 1순위 — 역사적 밸류 비교 배너 */
+  const b = v.band;
+  if (b) {
+    const pct = (b.ratio - 1) * 100;
+    const cls = b.ratio > 1.15 ? "down" : b.ratio < 0.85 ? "up" : "";
+    $("val-band").innerHTML = `
+      <div class="vb-main">
+        <div class="vb-col"><label>현재 ${b.kind}</label><b>${b.current}배</b></div>
+        <div class="vb-vs">vs</div>
+        <div class="vb-col"><label>과거 ${b.years}년 평균 ${b.kind}</label><b>${b.hist_avg}배</b></div>
+        <div class="vb-col ratio"><label>배수</label>
+          <b class="${cls}">${b.ratio}배 (${sign(pct, 0)}%)</b></div>
+      </div>
+      <p class="vb-note ${cls}">${b.label}</p>`;
+    $("val-band").classList.remove("hidden");
+  } else $("val-band").classList.add("hidden");
+
+  /* 연도별 PER 이력 */
+  const h = v.history;
+  if (h && h.years && h.years.length) {
+    $("val-history").innerHTML = tableHTML(
+      ["연도", "EPS", "연평균 주가", "PER", "선행 PER"],
+      h.years.map((y) => [
+        `${y.year}${y.consensus ? " <small>(E)</small>" : ""}`,
+        fmt(y.eps),
+        fmt(y.avg_price),
+        y.per != null ? `${y.per}배` : "-",
+        y.fper != null ? `${y.fper}배` : "-",
+      ]));
+  } else $("val-history").innerHTML = "";
+
+  /* 핵심 지표 카드 */
+  const cells = [];
+  const c = v.current || {};
+  cells.push(["현재 PER / FPER",
+    `${c.per != null ? c.per.toFixed(1) : "-"} / ${c.fper != null ? c.fper.toFixed(1) : "-"}배`,
+    c.fper != null ? "FPER=컨센서스 기준 선행" : "선행 PER 미제공"]);
+  if (h) cells.push([`과거 평균 PER / 선행PER`,
+    `${h.avg_per ?? "-"} / ${h.avg_fper ?? "-"}배`,
+    `실적 ${h.per_count}년 기준`]);
+  if (v.peg) cells.push(["PEG",
+    `<span class="${v.peg.peg <= 1 ? "up" : v.peg.peg > 1.5 ? "down" : ""}">${v.peg.peg}</span>`,
+    `${v.peg.per_used}배 ÷ 성장 ${v.peg.growth_used}%${v.peg.capped ? ` (실제 ${v.peg.growth_raw}% → 상한 적용)` : ""} — ${v.peg.label}`]);
+  if (v.peer) cells.push(["동종업계 PER",
+    `${v.peer.my_per} vs ${v.peer.peer_avg}배`,
+    `${v.peer.label} · 업종 ${v.peer.is_median ? "중앙값" : "평균"}`]);
+  if (v.ev_ebitda) cells.push(["EV/EBITDA",
+    `${v.ev_ebitda.ev_ebitda}배`, v.ev_ebitda.basis]);
+  $("val-grid").innerHTML = cells.map(([l, val, sub]) =>
+    `<div class="pro-item"><label>${l}</label><div class="pro-val">${val}</div><small>${sub}</small></div>`).join("");
+
+  /* 동종업계 상세 (있으면 이력 표 아래 붙임) */
+  if (v.peer && v.peer.peers && v.peer.peers.length) {
+    $("val-history").innerHTML += `<div class="peer-per">` +
+      v.peer.peers.map((p) =>
+        `<span class="pp ${p.self ? "self" : ""}">${p.name} <b>${p.per.toFixed(1)}배</b></span>`).join("") +
+      `</div>`;
   }
-}
-function applyPreset(name, setInputs = true) {
-  scrPreset = name;
-  document.querySelectorAll("#scr-presets button").forEach((b) => b.classList.toggle("active", b.dataset.preset === name));
-  const p = PRESETS[name];
-  if (setInputs) {
-    $("f-pbr").value = p.pbr; $("f-per").value = p.per; $("f-roe").value = p.roe;
-    $("f-div").value = p.div; $("f-mcap").value = p.mcap; $("f-flow").checked = p.flow;
-  }
-  renderScreener();
-}
-function renderScreener() {
-  const pbr = parseFloat($("f-pbr").value) || 999;
-  const per = parseFloat($("f-per").value) || 9999;
-  const roe = parseFloat($("f-roe").value) || -999;
-  const div = parseFloat($("f-div").value) || 0;
-  const mcap = parseFloat($("f-mcap").value) || 0;
-  const flowOnly = $("f-flow").checked;
-  const p = PRESETS[scrPreset];
 
-  let rows = screenerRows.filter((r) => {
-    if (r.pbr == null || r.pbr > pbr) return false;
-    if (r.mcap != null && r.mcap < mcap) return false;
-    if (r.div == null ? div > 0 : r.div < div) return false;
-    if (flowOnly && !(r.foreign20 > 0 && r.inst20 > 0)) return false;
-    // 적자기업(PER 없음)은 PER·ROE 하한을 적용하지 않고, allowLoss 프리셋에서만 통과시킨다
-    if (r.per == null || r.per <= 0) return !!p.allowLoss;
-    if (r.per > per) return false;
-    if (r.roe == null ? roe > 0 : r.roe < roe) return false;
-    return true;
-  });
-  if (p.sectorMode) rows = rows.filter((r) => r.pbr_pct != null && r.pbr_pct < 0.3 && r.roe_pct != null && r.roe_pct > 0.7);
-  // 실적 변곡: 흑자전환이거나 영업이익이 뚜렷하게 증가한 종목만
-  if (p.inflection) rows = rows.filter((r) => r.op_yoy != null && (r.turnaround || r.op_yoy >= 20));
+  /* 6항목 체크리스트 */
+  $("val-check").innerHTML = (v.checklist || []).map((c) =>
+    `<div class="vc-row ${c.ok ? "ok" : "no"}">
+       <span class="vc-mark">${c.ok ? "✅" : "⚠️"}</span>
+       <span class="vc-item">${c.item}</span>
+       <span class="vc-verdict">${c.verdict}</span>
+       <small class="vc-detail">${c.detail}</small>
+     </div>`).join("");
 
-  rows.sort((a, b) => {
-    if (p.sort === "pbr") return (a.pbr ?? 99) - (b.pbr ?? 99);
-    if (p.sort === "div") return (b.div ?? 0) - (a.div ?? 0);
-    if (p.sort === "roe_pct") return (b.roe_pct ?? 0) - (a.roe_pct ?? 0);
-    if (p.sort === "op_yoy") {
-      if (a.turnaround !== b.turnaround) return a.turnaround ? -1 : 1;  // 흑자전환 최우선
-      return (b.op_yoy ?? -999) - (a.op_yoy ?? -999);
-    }
-    return (b.rerating ?? -99) - (a.rerating ?? -99);
-  });
-  rows = rows.slice(0, 60);
-  $("scr-count").textContent = `조건 부합 ${rows.length}종목 (상위 60 표시)`;
-
-  const flowCell = (r) =>
-    `${r.foreign20 > 0 ? '<span class="up">외인▲</span>' : '<span class="down">외인▽</span>'} ${r.inst20 > 0 ? '<span class="up">기관▲</span>' : '<span class="down">기관▽</span>'}`;
-  const opCell = (r) => {
-    if (r.op_yoy == null) return "-";
-    const badge = r.turnaround ? '<span class="scr-badge">흑자전환</span> ' : "";
-    return `${badge}<span class="${r.op_yoy >= 0 ? "up" : "down"}">${r.op_yoy >= 0 ? "+" : ""}${r.op_yoy.toFixed(0)}%</span>`;
-  };
-  const head = ["종목명", "현재가", "PBR", "PER", "ROE", "배당", "시총(억)", "20일 수급"];
-  if (scrDart) head.push("영업이익 YoY");
-  head.push("리레이팅");
-  $("scr-table").innerHTML = rows.length ? tableHTML(head,
-    rows.map((r) => {
-      const cells = [
-        `<b class="scr-name" data-code="${r.code}">${r.name}</b>`,
-        fmt(r.price),
-        r.pbr != null ? r.pbr.toFixed(2) : "-",
-        r.per != null ? r.per.toFixed(1) : "-",
-        r.roe != null ? `<span class="${r.roe >= 10 ? "up" : ""}">${r.roe.toFixed(1)}%</span>` : "-",
-        r.div != null ? r.div.toFixed(2) + "%" : "-",
-        fmt(r.mcap),
-        flowCell(r),
-      ];
-      if (scrDart) cells.push(opCell(r));
-      cells.push(`<b>${r.rerating != null ? r.rerating.toFixed(2) : "-"}</b>`);
-      return cells;
-    })) : "<p class='hint-p'>조건에 맞는 종목이 없습니다. 필터를 완화해 보세요.</p>";
-  $("scr-table").querySelectorAll(".scr-name").forEach((el) => el.onclick = () => analyze(el.dataset.code));
+  $("val-signals").innerHTML = (v.signals || []).map((s) => `<li class="${s.type}">${s.text}</li>`).join("");
+  $("val-note").textContent =
+    "※ 과거 선행 PER은 '그 해 평균주가 ÷ 다음 해 실제 EPS'로 계산한 실현 선행 PER입니다. " +
+    "과거 시점의 컨센서스 추정치는 제공되지 않아 결과값으로 대체했습니다.";
 }
 
 /* ---------------- 고급 차트 분석 ---------------- */
@@ -944,35 +909,6 @@ function renderChartPro(p) {
   $("pro-signals").innerHTML = (p.signals || []).map((s) => `<li class="${s.type}">${s.text}</li>`).join("");
 }
 
-/* ---------------- backtest ---------------- */
-function renderBacktest(bt) {
-  const card = $("backtest-card");
-  if (!bt || !bt.available) { card.classList.add("hidden"); return; }
-  card.classList.remove("hidden");
-  const months = Math.max(1, Math.round(bt.period_days / 21));
-  $("bt-period").textContent = `최근 약 ${months}개월 · 단순보유 시 ${sign(bt.buy_hold, 1)}%`;
-
-  const strat = (title, desc, s) => {
-    if (!s) return `<div class="bt-strat"><div class="bt-name">${title}</div><div class="bt-empty">해당 기간 신호 발생 없음</div></div>`;
-    if (!s.trades) {
-      const op = s.open_return != null ? `미청산 포지션 평가손익 <b class="${s.open_return >= 0 ? "up" : "down"}">${sign(s.open_return, 1)}%</b>` : "완료된 매매 없음";
-      return `<div class="bt-strat"><div class="bt-name">${title} <small>${desc}</small></div><div class="bt-empty">${op} · 추세 지속 중</div></div>`;
-    }
-    const wrColor = s.win_rate >= 60 ? "var(--green)" : s.win_rate >= 40 ? "var(--amber)" : "var(--up)";
-    return `<div class="bt-strat">
-      <div class="bt-name">${title} <small>${desc}</small></div>
-      <div class="bt-stats">
-        <div><label>매매</label><span>${s.trades}회</span></div>
-        <div><label>승률</label><span style="color:${wrColor};font-weight:800">${s.win_rate}%</span></div>
-        <div><label>평균수익</label><span class="${s.avg_return >= 0 ? "up" : "down"}">${sign(s.avg_return, 1)}%</span></div>
-        <div><label>최고/최저</label><span><span class="up">${sign(s.best, 0)}%</span> <span class="down">${sign(s.worst, 0)}%</span></span></div>
-      </div>
-    </div>`;
-  };
-  $("backtest-body").innerHTML =
-    strat("골든/데드크로스", "20·60일선 교차", bt.ma_cross) +
-    strat("RSI 과매도·과매수", "RSI 30 매수 · 70 매도", bt.rsi);
-}
 
 /* ---------------- finance ---------------- */
 function renderFinance(rows) {
@@ -1111,11 +1047,6 @@ $("cmp-clear").onclick = () => { compareList = []; renderCompareTray(); if (!$("
 $("cmp-back").onclick = goHome;
 
 // 스크리너
-$("screener-btn").onclick = openScreener;
-$("scr-back").onclick = goHome;
-document.querySelectorAll("#scr-presets button").forEach((b) => (b.onclick = () => applyPreset(b.dataset.preset)));
-["f-pbr", "f-per", "f-roe", "f-div", "f-mcap"].forEach((id) => ($(id).oninput = renderScreener));
-$("f-flow").onchange = renderScreener;
 
 initTheme();
 renderFavBoard();

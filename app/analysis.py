@@ -419,95 +419,6 @@ def technical_analysis(candles: list) -> dict:
     }
 
 
-# ---------------------------------------------------------------- backtest
-def _rsi_series(closes, n=14):
-    """각 시점의 RSI 값 배열 (앞쪽 None)."""
-    out = [None] * len(closes)
-    if len(closes) < n + 1:
-        return out
-    gains, losses = [], []
-    for i in range(1, len(closes)):
-        d = closes[i] - closes[i - 1]
-        gains.append(max(d, 0.0))
-        losses.append(max(-d, 0.0))
-    avg_g = sum(gains[:n]) / n
-    avg_l = sum(losses[:n]) / n
-    out[n] = 100.0 if avg_l == 0 else 100.0 - 100.0 / (1.0 + avg_g / avg_l)
-    for i in range(n, len(gains)):
-        avg_g = (avg_g * (n - 1) + gains[i]) / n
-        avg_l = (avg_l * (n - 1) + losses[i]) / n
-        out[i + 1] = 100.0 if avg_l == 0 else 100.0 - 100.0 / (1.0 + avg_g / avg_l)
-    return out
-
-
-def _run_trades(closes, signals):
-    """signals: [('buy'|'sell', idx)] → 매매 통계. 마지막 미청산 포지션은 현재가로 평가."""
-    trades = []
-    entry = None
-    for typ, i in signals:
-        if typ == "buy" and entry is None:
-            entry = closes[i]
-        elif typ == "sell" and entry is not None:
-            trades.append((closes[i] - entry) / entry * 100.0)
-            entry = None
-    open_ret = None
-    if entry is not None:
-        open_ret = round((closes[-1] - entry) / entry * 100.0, 2)
-    if not trades:
-        return {"trades": 0, "open_return": open_ret} if open_ret is not None else None
-    wins = sum(1 for r in trades if r > 0)
-    return {
-        "trades": len(trades),
-        "win_rate": round(wins / len(trades) * 100, 1),
-        "avg_return": round(sum(trades) / len(trades), 2),
-        "best": round(max(trades), 2),
-        "worst": round(min(trades), 2),
-        "open_return": open_ret,
-    }
-
-
-def backtest(candles: list) -> dict:
-    """골든/데드크로스, RSI 전략의 과거 성과 백테스트."""
-    if not candles or len(candles) < 70:
-        return {"available": False}
-    closes = [c["close"] for c in candles]
-    n = len(closes)
-    s20, s60 = sma(closes, 20), sma(closes, 60)
-    # sma() 는 길이 n-window+1 → 인덱스 정렬용 패딩
-    s20 = [None] * (n - len(s20)) + s20
-    s60 = [None] * (n - len(s60)) + s60
-
-    ma_sig = []
-    for i in range(1, n):
-        if None in (s20[i], s60[i], s20[i - 1], s60[i - 1]):
-            continue
-        prev, cur = s20[i - 1] - s60[i - 1], s20[i] - s60[i]
-        if prev <= 0 < cur:
-            ma_sig.append(("buy", i))
-        elif prev >= 0 > cur:
-            ma_sig.append(("sell", i))
-
-    rsi_arr = _rsi_series(closes, 14)
-    rsi_sig = []
-    for i in range(1, n):
-        if rsi_arr[i] is None or rsi_arr[i - 1] is None:
-            continue
-        if rsi_arr[i - 1] < 30 <= rsi_arr[i]:
-            rsi_sig.append(("buy", i))
-        elif rsi_arr[i - 1] > 70 >= rsi_arr[i]:
-            rsi_sig.append(("sell", i))
-
-    # 단순 보유(바이앤홀드) 대조군
-    bh = round((closes[-1] - closes[0]) / closes[0] * 100.0, 2)
-    return {
-        "available": True,
-        "period_days": n,
-        "buy_hold": bh,
-        "ma_cross": _run_trades(closes, ma_sig),
-        "rsi": _run_trades(closes, rsi_sig),
-    }
-
-
 # ---------------------------------------------------------------- fundamentals
 def _finance_rows(finance_data) -> dict:
     """finance API → {행이름: [(기간key, 값, isConsensus)]} (기간 오름차순)
@@ -694,6 +605,7 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     return {
         "metrics": {
             "per": per, "cns_per": cns_per, "pbr": pbr, "eps": eps, "bps": bps,
+            "cns_eps": to_num(infos.get("cnsEps")),
             "dividend_yield": dividend_yield, "market_cap": market_cap,
             "roe": roe, "op_margin": opm, "net_margin": npm,
             "debt_ratio": debt, "retention_ratio": retain,
@@ -706,6 +618,8 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
             "매출액": rev_s, "영업이익": op_s,
             "ROE": roe_s, "부채비율": debt_s,
         },
+        # 밸류에이션 분석용 전체 행(EPS·PER·EBITDA 등) — 응답에는 싣지 않는다
+        "all_rows": rows,
         "scores": {
             "value": round(value_score, 1),
             "profitability": round(prof_score, 1),

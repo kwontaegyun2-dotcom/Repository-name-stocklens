@@ -2,6 +2,7 @@
 """StockLens — 국내 주식 종합 분석 대시보드 서버."""
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, screener, chart_pro
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -55,13 +56,6 @@ def api_search(q: str, request: Request, market: str = None):
 def api_ranking(market: str = "KR", sector: str = None, request: Request = None):
     _rate_limit(request, limit=60, window=60)
     return ranking.get(market, sector)
-
-
-# ---------------------------------------------------------------- screener
-@app.get("/api/screener")
-def api_screener(request: Request = None):
-    _rate_limit(request, limit=60, window=60)
-    return screener.get()
 
 
 # ---------------------------------------------------------------- realtime price
@@ -121,7 +115,6 @@ def api_analyze(code: str, request: Request = None):
     infos = {i.get("code"): i.get("value") for i in src}
 
     tech = analysis.technical_analysis(candle_data)
-    bt = analysis.backtest(candle_data)
 
     # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV 등)
     # 상대강도 벤치마크: 국내=코스피지수 / 미국=SPY(S&P500 ETF)
@@ -159,6 +152,34 @@ def api_analyze(code: str, request: Request = None):
             "market_cap": analysis.parse_eok(p.get("marketValue")) if us else analysis.to_num(p.get("marketValue")),
         })
 
+    # 동종업계 PER — peers 응답에는 PER이 없어 종목별로 조회한다(상위 4개만, 병렬).
+    def _peer_per(p):
+        try:
+            pc = p["code"]
+            if naver.is_us(pc):
+                src2 = (naver.basic(pc).get("stockItemTotalInfos")) or []
+            else:
+                src2 = (naver.integration(pc).get("totalInfos")) or []
+            v = {i.get("code"): i.get("value") for i in src2}
+            return {"name": p["name"], "code": pc, "per": analysis.to_num(v.get("per"))}
+        except Exception:
+            return None
+
+    peers_per = []
+    targets_peers = [p for p in peers if p.get("code")][:4]
+    if targets_peers:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            peers_per = [r for r in ex.map(_peer_per, targets_peers) if r and r.get("per")]
+    # 본인도 비교표에 포함
+    if fund["metrics"].get("per"):
+        peers_per.append({"name": name, "code": code, "per": fund["metrics"]["per"], "self": True})
+
+    val = safe(lambda: valuation.analyze(
+        fund["metrics"], fund.get("all_rows") or {}, candle_data, cons,
+        peers_per=peers_per, market_cap=fund["metrics"].get("market_cap"), price=price,
+        market="US" if us else "KR"),
+        {"available": False})
+
     # 수급 요약 테이블 (최근 10일)
     flows = []
     for d in (deal_trend or [])[:10]:
@@ -189,7 +210,7 @@ def api_analyze(code: str, request: Request = None):
         "finance_rows": fund["finance_rows"],
         "technical": tech,
         "chart_pro": pro,
-        "backtest": bt,
+        "valuation": val,
         "targets": targets,
         "consensus": cons,
         "sentiment": {"score": senti["score"], "label": senti["label"]},

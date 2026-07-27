@@ -312,70 +312,6 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .signal-list li.warn::before { content: "🟡"; }
 .signal-list li.neutral::before, .signal-list li.info::before { content: "⚪"; }
 
-/* ---------- screener ---------- */
-.scr-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-.scr-presets button { background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 20px; padding: 8px 15px; font-size: 13.5px; font-weight: 600; transition: .15s; }
-.scr-presets button:hover { color: var(--text); }
-.scr-presets button.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(99,102,241,.4); }
-.scr-filters { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 14px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; margin-bottom: 12px; }
-.scr-filters label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.scr-filters label small { color: var(--dim); }
-.scr-filters input[type=number] { width: 72px; padding: 6px 9px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 13px; }
-.scr-filters .chk { cursor: pointer; }
-.scr-count { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
-.scr-name { cursor: pointer; color: var(--text); }
-.scr-name:hover { color: var(--accent2); }
-#scr-table td .up { font-weight: 700; }
-.scr-badge {
-  display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px;
-  border-radius: 20px; background: rgba(46,230,166,.14); color: var(--green);
-  border: 1px solid rgba(46,230,166,.3); vertical-align: middle;
-}
-
-/* 기술 점수 4축 분해 바 */
-.tech-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin: 4px 0 14px; }
-.tp-bar { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
-.tp-label { flex: 0 0 44px; color: var(--muted); }
-.tp-track { flex: 1; height: 7px; border-radius: 4px; background: var(--surface2); overflow: hidden; }
-.tp-track i { display: block; height: 100%; border-radius: 4px; transition: width .5s ease; }
-.tp-val { flex: 0 0 30px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
-@media (max-width: 640px) { .tech-parts { grid-template-columns: 1fr; } }
-
-/* 고급 차트 분석 */
-.pro-head { display: grid; grid-template-columns: 200px 1fr; gap: 18px; align-items: center; margin-bottom: 16px; }
-.pro-score-box { text-align: center; padding: 14px 10px; background: var(--surface2); border-radius: 12px; border: 1px solid var(--border); }
-.pro-score-box label { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
-.pro-score { font-size: 30px; font-weight: 800; line-height: 1.15; }
-.pro-stage { font-size: 11.5px; margin-top: 5px; line-height: 1.35; }
-.tp-label.wide { flex: 0 0 62px; }
-.pro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.pro-item { padding: 11px 13px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); }
-.pro-item label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
-.pro-item .pro-val { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
-.pro-item small { font-size: 10.5px; color: var(--muted); line-height: 1.35; display: block; }
-.pro-details { margin-bottom: 12px; }
-.pro-details summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 8px 0; color: var(--text); }
-.pro-details summary span { color: var(--muted); font-weight: 500; }
-.tt-list { list-style: none; padding: 6px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 5px; }
-.tt-list li { font-size: 12.5px; padding: 4px 0; }
-.tt-list li.no { color: var(--muted); }
-@media (max-width: 640px) {
-  .pro-head { grid-template-columns: 1fr; }
-  .tt-list { grid-template-columns: 1fr; }
-}
-
-/* ---------- backtest ---------- */
-.backtest-body { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.bt-strat { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 15px 16px; }
-.bt-name { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
-.bt-name small { color: var(--dim); font-weight: 400; font-size: 11.5px; margin-left: 5px; }
-.bt-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; }
-.bt-stats > div { display: flex; flex-direction: column; gap: 2px; }
-.bt-stats label { font-size: 11px; color: var(--muted); }
-.bt-stats span { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.bt-empty { color: var(--muted); font-size: 13px; padding: 6px 0; }
-@media (max-width: 720px) { .backtest-body { grid-template-columns: 1fr; } }
-
 /* ---------- metrics ---------- */
 .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 8px; }
 .metric { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 11px 13px; }
@@ -445,4 +381,58 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .hero-badge { font-size: 12px; }
   .verdict-banner { padding: 15px 18px; }
   .verdict-banner .opinion-head { font-size: 14.5px; }
+}
+
+/* ---------- 기술 점수 4축 분해 바 ---------- */
+.tech-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin: 4px 0 14px; }
+.tp-bar { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
+.tp-label { flex: 0 0 44px; color: var(--muted); }
+.tp-label.wide { flex: 0 0 62px; }
+.tp-track { flex: 1; height: 7px; border-radius: 4px; background: var(--surface2); overflow: hidden; }
+.tp-track i { display: block; height: 100%; border-radius: 4px; transition: width .5s ease; }
+.tp-val { flex: 0 0 30px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ---------- 고급 차트 분석 ---------- */
+.pro-head { display: grid; grid-template-columns: 200px 1fr; gap: 18px; align-items: center; margin-bottom: 16px; }
+.pro-score-box { text-align: center; padding: 14px 10px; background: var(--surface2); border-radius: 12px; border: 1px solid var(--border); }
+.pro-score-box label { display: block; font-size: 11.5px; color: var(--muted); margin-bottom: 4px; }
+.pro-score { font-size: 30px; font-weight: 800; line-height: 1.15; }
+.pro-stage { font-size: 11.5px; margin-top: 5px; line-height: 1.35; }
+.pro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.pro-item { padding: 11px 13px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); }
+.pro-item label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.pro-item .pro-val { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
+.pro-item small { font-size: 10.5px; color: var(--muted); line-height: 1.35; display: block; }
+.pro-details { margin-bottom: 12px; }
+.pro-details summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 8px 0; color: var(--text); }
+.pro-details summary span { color: var(--muted); font-weight: 500; }
+.tt-list { list-style: none; padding: 6px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 5px; }
+.tt-list li { font-size: 12.5px; padding: 4px 0; }
+.tt-list li.no { color: var(--muted); }
+
+/* ---------- 밸류에이션 분석 ---------- */
+.val-band { background: var(--grad-soft); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+.vb-main { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.vb-col { display: flex; flex-direction: column; gap: 2px; }
+.vb-col label { font-size: 11px; color: var(--muted); }
+.vb-col b { font-size: 21px; font-weight: 800; }
+.vb-col.ratio b { font-size: 23px; }
+.vb-vs { font-size: 13px; color: var(--muted); font-weight: 700; }
+.vb-note { margin-top: 9px; font-size: 13px; font-weight: 600; }
+.peer-per { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.peer-per .pp { font-size: 12px; padding: 5px 11px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
+.peer-per .pp.self { background: var(--grad-soft); color: var(--text); border-color: var(--accent); font-weight: 700; }
+.val-check { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
+.vc-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 4px 8px; align-items: center; padding: 9px 12px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); }
+.vc-row.no { border-color: rgba(255,176,32,.32); }
+.vc-item { font-size: 13px; font-weight: 600; }
+.vc-verdict { font-size: 13px; font-weight: 700; }
+.vc-detail { grid-column: 2 / -1; font-size: 11px; color: var(--muted); }
+
+@media (max-width: 640px) {
+  .tech-parts { grid-template-columns: 1fr; }
+  .pro-head { grid-template-columns: 1fr; }
+  .tt-list { grid-template-columns: 1fr; }
+  .vb-main { gap: 12px; }
+  .vb-col b { font-size: 18px; }
 }
