@@ -396,6 +396,8 @@ function render(d) {
     $("tech-signals").innerHTML = "";
   }
 
+  renderChartPro(d.chart_pro);
+
   /* metrics */
   const m = d.metrics;
   const metricDefs = [
@@ -655,9 +657,11 @@ function renderChart(d) {
     if (!bars || bars >= len) chart.timeScale().fitContent();
     else chart.timeScale().setVisibleLogicalRange({ from: len - bars, to: len - 1 });
   };
-  const periods = [["3개월", 66], ["6개월", 125], ["1년", 250], ["전체", 0]];
-  $("chart-controls").innerHTML = periods.map(([label, bars], i) =>
-    `<button data-bars="${bars}" class="${i === 1 ? "active" : ""}">${label}</button>`).join("");
+  const periods = [["3개월", 66], ["6개월", 125], ["1년", 250], ["3년", 750], ["5년", 1250], ["전체", 0]];
+  $("chart-controls").innerHTML = periods
+    .filter(([, bars]) => bars === 0 || bars <= len * 1.1)   // 데이터보다 긴 기간 버튼은 숨김
+    .map(([label, bars]) =>
+      `<button data-bars="${bars}" class="${bars === 125 ? "active" : ""}">${label}</button>`).join("");
   $("chart-controls").querySelectorAll("button").forEach((b) => {
     b.onclick = () => {
       $("chart-controls").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
@@ -886,6 +890,58 @@ function renderScreener() {
       return cells;
     })) : "<p class='hint-p'>조건에 맞는 종목이 없습니다. 필터를 완화해 보세요.</p>";
   $("scr-table").querySelectorAll(".scr-name").forEach((el) => el.onclick = () => analyze(el.dataset.code));
+}
+
+/* ---------------- 고급 차트 분석 ---------------- */
+function renderChartPro(p) {
+  const card = $("pro-card");
+  if (!p || !p.available) { card.classList.add("hidden"); return; }
+  card.classList.remove("hidden");
+
+  $("pro-score").textContent = `${p.score}점`;
+  $("pro-score").style.color = scoreColor(p.score);
+  if (p.stage) {
+    const cls = p.stage.stage === 2 ? "up" : p.stage.stage === 4 ? "down" : "";
+    $("pro-stage").innerHTML = `<span class="${cls}">${p.stage.label}</span>`;
+  } else $("pro-stage").textContent = "";
+
+  /* 기법별 점수 바 */
+  $("pro-parts").innerHTML = Object.entries(p.parts || {}).map(([k, v]) =>
+    `<div class="tp-bar"><span class="tp-label wide">${k}</span>
+       <span class="tp-track"><i style="width:${v}%;background:${scoreColor(v)}"></i></span>
+       <span class="tp-val">${v}</span></div>`).join("");
+
+  /* 핵심 지표 카드 */
+  const cells = [];
+  if (p.relative_strength) {
+    const rs = p.relative_strength;
+    cells.push(["상대강도(시장대비)", `<span class="${rs.excess >= 0 ? "up" : "down"}">${sign(rs.excess, 1)}%p</span>`,
+                `3개월 ${sign(rs.detail["63d"] ?? 0, 1)}%p · 6개월 ${sign(rs.detail["126d"] ?? 0, 1)}%p`]);
+  }
+  if (p.fibonacci) cells.push(["피보나치 되돌림", `${p.fibonacci.retrace_pct}%`, p.fibonacci.zone]);
+  if (p.box) cells.push(["박스권", `${fmt(p.box.bottom)} ~ ${fmt(p.box.top)}`,
+    p.box.breakout ? "상단 돌파 중" : p.box.breakdown ? "하단 이탈" : `폭 ${p.box.width_pct}%`]);
+  if (p.atr_pct != null) cells.push(["ATR 변동성", `${p.atr_pct}%`,
+    p.atr_pct > 5 ? "고변동 — 비중 축소 권장" : "일간 평균 등락폭"]);
+  if (p.obv) cells.push(["OBV 자금흐름", `<span class="${p.obv.slope >= 0 ? "up" : "down"}">${sign(p.obv.slope, 1)}</span>`,
+    p.obv.divergence === "bullish" ? "강세 다이버전스(매집)" : p.obv.divergence === "bearish" ? "약세 다이버전스(분산)" : "추세 동행"]);
+  if (p.disparity) cells.push(["이격도(20/60/120)",
+    `${sign(p.disparity["20"] ?? 0, 1)}% / ${sign(p.disparity["60"] ?? 0, 1)}% / ${sign(p.disparity["120"] ?? 0, 1)}%`,
+    "이동평균 대비 괴리율"]);
+  if (p.vcp) cells.push(["VCP 변동성 수축", p.vcp.contracting ? "수축 진행" : "미형성",
+    `구간 변동폭 ${(p.vcp.ranges || []).join("% → ")}%`]);
+  $("pro-grid").innerHTML = cells.map(([label, val, sub]) =>
+    `<div class="pro-item"><label>${label}</label><div class="pro-val">${val}</div><small>${sub}</small></div>`).join("");
+
+  /* 추세 템플릿 체크리스트 */
+  const tt = p.trend_template;
+  if (tt) {
+    $("tt-count").textContent = `${tt.passed}/${tt.total} 충족`;
+    $("tt-list").innerHTML = tt.checks.map((c) =>
+      `<li class="${c.ok ? "ok" : "no"}">${c.ok ? "✅" : "⬜"} ${c.text}</li>`).join("");
+  }
+
+  $("pro-signals").innerHTML = (p.signals || []).map((s) => `<li class="${s.type}">${s.text}</li>`).join("");
 }
 
 /* ---------------- backtest ---------------- */

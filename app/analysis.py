@@ -782,7 +782,8 @@ GRADE_TABLE = [(85, "S", "최상위 우량"), (75, "A", "우수"), (65, "B", "�
                (50, "C", "보통"), (35, "D", "주의"), (0, "F", "위험")]
 
 
-def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend: list) -> dict:
+def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend: list,
+                     pro: dict = None) -> dict:
     fs = fund["scores"]
 
     # 수급 점수: 최근 5일 외국인+기관 순매수 일수 (국내 전용, 데이터 없으면 중립)
@@ -798,6 +799,10 @@ def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend
         flow_score = _clamp(20 + buy_days * 15)
 
     tech_score = tech.get("score", 50) if tech.get("available") else 50
+    # 고급 차트 분석(스테이지·상대강도·추세템플릿 등)이 있으면 기술적추세에 절반 반영.
+    # 단기 지표(technical)와 장기 구조(chart_pro)를 함께 보게 하는 장치.
+    if pro and pro.get("available") and pro.get("score") is not None:
+        tech_score = tech_score * 0.5 + pro["score"] * 0.5
 
     # 시장심리: 뉴스 감성 + 애널리스트 컨센서스
     mkt_score = senti["score"]

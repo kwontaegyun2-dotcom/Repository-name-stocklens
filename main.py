@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, screener
+from app import naver, kis, analysis, ai, ranking, screener, chart_pro
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -114,7 +114,7 @@ def api_analyze(code: str, request: Request = None):
     news_items = safe(lambda: naver.news(code, 20), [])
     research_items = safe(lambda: naver.research(code, 10), [])
     deal_trend = safe(lambda: naver.trend(code), [])
-    candle_data = safe(lambda: naver.candles(code, 260), [])
+    candle_data = safe(lambda: naver.candles(code, 1300), [])   # 약 5년
 
     # 지표 소스: 미국=basic.stockItemTotalInfos, 국내=integration.totalInfos
     src = (b.get("stockItemTotalInfos") if us else integ.get("totalInfos")) or []
@@ -122,10 +122,18 @@ def api_analyze(code: str, request: Request = None):
 
     tech = analysis.technical_analysis(candle_data)
     bt = analysis.backtest(candle_data)
+
+    # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV 등)
+    # 상대강도 벤치마크: 국내=코스피지수 / 미국=SPY(S&P500 ETF)
+    if us:
+        bench = safe(lambda: [c["close"] for c in naver.candles("SPY", 1300)], [])
+    else:
+        bench = safe(lambda: naver.index_candles("KOSPI", 1300), [])
+    pro = safe(lambda: chart_pro.analyze(candle_data, bench), {"available": False})
     fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
     senti = analysis.news_sentiment(news_items)
     cons = analysis.consensus_info(integ, price)
-    total = analysis.total_evaluation(fund, tech, senti, cons, deal_trend)
+    total = analysis.total_evaluation(fund, tech, senti, cons, deal_trend, pro)
     opinion = analysis.build_opinion(name, fund, tech, senti, cons, total)
 
     # 목표주가: 컨센서스 우선, 기술적 목표 병기
@@ -180,6 +188,7 @@ def api_analyze(code: str, request: Request = None):
         "metrics": fund["metrics"],
         "finance_rows": fund["finance_rows"],
         "technical": tech,
+        "chart_pro": pro,
         "backtest": bt,
         "targets": targets,
         "consensus": cons,

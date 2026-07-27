@@ -143,6 +143,31 @@ def candles(code: str, count: int = 260, timeframe: str = "day"):
     return out
 
 
+def index_candles(symbol: str = "KOSPI", count: int = 1300):
+    """지수 일봉 (상대강도 벤치마크용). 국내 지수는 fchart 로 조회 가능.
+    symbol: KOSPI | KOSDAQ | KPI200"""
+    url = (f"https://fchart.stock.naver.com/sise.nhn?symbol={symbol}"
+           f"&timeframe=day&count={count}&requestType=0")
+    key = f"idx:{url}"
+    now = time.time()
+    hit = _cache.get(key)
+    if hit and now - hit[0] < 1800:
+        return hit[1]
+    r = requests.get(url, headers=HEADERS, timeout=10)
+    r.raise_for_status()
+    out = []
+    for m in _ITEM_RE.finditer(r.text):
+        parts = m.group(1).split("|")
+        if len(parts) < 5:
+            continue
+        try:
+            out.append(float(parts[4]))     # 종가만 필요
+        except ValueError:
+            continue
+    _cache[key] = (now, out)
+    return out
+
+
 def _us_candles(rc: str, count: int):
     key = f"uscandle:{rc}:{count}"
     now = time.time()
