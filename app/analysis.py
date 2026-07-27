@@ -473,6 +473,43 @@ def _exact_row(rows, *names):
     return None
 
 
+# 재무 하이라이트에 노출할 행 — (표시이름, [원본 행 이름 후보들], 단위힌트)
+# 단위힌트: "eok"=금액(억), "pct"=%, "x"=배수, "won"=원
+_HIGHLIGHT_SPEC = [
+    ("매출액", ["매출액"], "eok"),
+    ("영업이익", ["영업이익", "EBIT"], "eok"),
+    ("당기순이익", ["당기순이익", "세후손익", "순이익"], "eok"),
+    ("영업이익률", ["영업이익률"], "pct"),
+    ("순이익률", ["순이익률"], "pct"),
+    ("ROE", ["ROE"], "pct"),
+    ("ROA", ["ROA"], "pct"),
+    ("EPS", ["EPS"], "won"),
+    ("PER", ["PER"], "x"),
+    ("PBR", ["PBR"], "x"),
+    ("부채비율", ["부채비율"], "pct"),
+]
+
+
+def _highlight_rows(rows: dict) -> dict:
+    """전체 재무 행에서 핵심 지표만 지정 순서로 추출. 각 행에 unit 힌트를 부착."""
+    out = {}
+    for disp, names, unit in _HIGHLIGHT_SPEC:
+        series = None
+        for nm in names:
+            if nm in rows and rows[nm]:
+                series = rows[nm]
+                break
+            for k in rows:
+                if k.strip() == nm and rows[k]:
+                    series = rows[k]
+                    break
+            if series:
+                break
+        if series and any(s.get("value") is not None for s in series):
+            out[disp] = {"unit": unit, "series": series}
+    return out
+
+
 def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> dict:
     """infos: {code: value} (국내=integration.totalInfos, 미국=basic.stockItemTotalInfos)"""
     infos = infos or {}
@@ -614,10 +651,9 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
             "rev_growth_fwd": round(rev_growth_fwd, 1) if rev_growth_fwd is not None else None,
             "op_growth_fwd": round(op_growth_fwd, 1) if op_growth_fwd is not None else None,
         },
-        "finance_rows": {
-            "매출액": rev_s, "영업이익": op_s,
-            "ROE": roe_s, "부채비율": debt_s,
-        },
+        # 재무 하이라이트 표: 연도별 추이를 보여줄 핵심 지표들(있는 것만, 지정 순서대로).
+        # 국내/미국 행 이름이 달라(영업이익/EBIT, 당기순이익/세후손익 등) 별칭으로 매칭한다.
+        "finance_rows": _highlight_rows(rows),
         # 밸류에이션 분석용 전체 행(EPS·PER·EBITDA 등) — 응답에는 싣지 않는다
         "all_rows": rows,
         "scores": {

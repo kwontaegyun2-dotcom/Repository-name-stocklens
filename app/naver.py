@@ -112,10 +112,44 @@ def trend(code: str):
 _ITEM_RE = re.compile(r'<item data="([^"]+)"')
 
 
+def _resample(daily, timeframe):
+    """일봉 리스트 → 주봉/월봉 집계 (미국용 — 네이버가 미국 주/월봉을 안 줌).
+    주: ISO 주차 / 월: 연-월 기준. OHLC 규칙(시=첫날 시가, 고/저=구간 max/min,
+    종=마지막날 종가, 거래량=합)."""
+    if timeframe == "day" or not daily:
+        return daily
+    buckets = {}
+    order = []
+    for c in daily:
+        dt = c["date"]           # YYYYMMDD
+        y, m, d = int(dt[:4]), int(dt[4:6]), int(dt[6:8])
+        if timeframe == "month":
+            key = f"{y:04d}{m:02d}"
+        else:  # week — ISO 주차
+            iso = datetime(y, m, d).isocalendar()
+            key = f"{iso[0]:04d}W{iso[1]:02d}"
+        if key not in buckets:
+            buckets[key] = {"date": dt, "open": c["open"], "high": c["high"],
+                            "low": c["low"], "close": c["close"], "volume": c["volume"]}
+            order.append(key)
+        else:
+            b = buckets[key]
+            b["high"] = max(b["high"], c["high"])
+            b["low"] = min(b["low"], c["low"])
+            b["close"] = c["close"]
+            b["volume"] += c["volume"]
+            b["date"] = dt          # 구간 마지막 날짜로 표기
+    return [buckets[k] for k in order]
+
+
 def candles(code: str, count: int = 260, timeframe: str = "day"):
-    """일봉 → [{date, open, high, low, close, volume}] (오름차순)."""
+    """캔들 → [{date, open, high, low, close, volume}] (오름차순).
+    timeframe: day | week | month"""
     if is_us(code):
-        return _us_candles(code, count)
+        # 미국은 네이버가 주/월봉을 안 줘서 일봉을 받아 리샘플. 넉넉히 받는다.
+        need = count if timeframe == "day" else count * (7 if timeframe == "week" else 24)
+        daily = _us_candles(code, min(need, 1300))
+        return _resample(daily, timeframe)
     url = (f"https://fchart.stock.naver.com/sise.nhn?symbol={code}"
            f"&timeframe={timeframe}&count={count}&requestType=0")
     key = f"candle:{url}"

@@ -556,10 +556,43 @@ function drawRadar(categories) {
 }
 
 /* ---------------- candle chart ---------------- */
+let chartCtx = { code: null, candles: [], targets: {}, technical: {}, tf: "day" };
+let chartApi = null;             // lightweight-charts 인스턴스
+let rsState = { lo: 0, hi: 1 };  // 구간 슬라이더 위치(0~1)
+let rsSync = false;              // 슬라이더↔차트 되먹임 방지
+
 function renderChart(d) {
+  chartCtx = { code: d.code, candles: d.candles || [], targets: d.targets || {},
+               technical: d.technical || {}, tf: "day" };
+  // 봉 주기 버튼 초기화
+  $("chart-tf").querySelectorAll("button").forEach((b) =>
+    b.classList.toggle("active", b.dataset.tf === "day"));
+  drawChart();
+}
+
+/* 봉 주기 전환 — 캔들만 다시 받아 차트 재그림 (전체 재분석 X) */
+async function switchTimeframe(tf) {
+  if (tf === chartCtx.tf || !chartCtx.code) return;
+  $("chart-tf").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.tf === tf));
+  $("chart-container").style.opacity = ".4";
+  try {
+    const r = await api(`/api/candles/${chartCtx.code}?tf=${tf}`);
+    chartCtx.candles = r.candles || [];
+    chartCtx.tf = tf;
+    drawChart();
+  } catch {
+    /* 실패 시 조용히 무시 */
+  } finally {
+    $("chart-container").style.opacity = "1";
+  }
+}
+
+function drawChart() {
+  const d = chartCtx;
   const el = $("chart-container");
   el.innerHTML = "";
   $("chart-controls").innerHTML = "";
+  if (chartApi) { try { chartApi.remove(); } catch {} chartApi = null; }
   if (!window.LightweightCharts || !d.candles || d.candles.length === 0) {
     el.innerHTML = "<p class='hint-p'>차트 데이터를 불러올 수 없습니다.</p>";
     return;
@@ -575,18 +608,19 @@ function renderChart(d) {
     layout: { background: { color: "transparent" }, textColor: txt, fontFamily: "Pretendard, sans-serif", fontSize: 11 },
     grid: { vertLines: { color: gridC }, horzLines: { color: gridC } },
     rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.26 } },
-    timeScale: { borderVisible: false, rightOffset: 5, minBarSpacing: 2, fixRightEdge: true },
+    timeScale: { borderVisible: false, rightOffset: 5, minBarSpacing: 1, fixRightEdge: true },
     crosshair: {
       mode: LC.CrosshairMode.Normal,
       vertLine: { color: crossC, width: 1, style: LC.LineStyle.Dashed, labelBackgroundColor: "#6366f1" },
       horzLine: { color: crossC, width: 1, style: LC.LineStyle.Dashed, labelBackgroundColor: "#6366f1" },
     },
-    // 마우스휠은 페이지 스크롤로(차트 확대 방해 X) · 드래그로 이동 · 기간버튼/핀치로 확대
+    // 드래그로 이동 · 아래 구간 슬라이더/기간버튼/핀치·휠로 폭(구간) 조절
     handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
-    handleScale: { axisPressedMouseMove: true, mouseWheel: false, pinch: true },
+    handleScale: { axisPressedMouseMove: true, mouseWheel: true, pinch: true },
     height: 440,
     autoSize: true,
   });
+  chartApi = chart;
 
   const toDate = (s) => `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
   const candleSeries = chart.addCandlestickSeries({
@@ -649,17 +683,29 @@ function renderChart(d) {
     addPriceLine(d.technical.resistance, "#9aa3ba", "저항");
   }
 
-  // 기간 선택 (스크롤/줌 대신 클릭 한 번으로 보기)
+  // 기간 선택 — 봉 주기에 따라 기본 구간(bars 수)이 달라진다
   const len = d.candles.length;
-  const setRange = (bars) => {
-    if (!bars || bars >= len) chart.timeScale().fitContent();
-    else chart.timeScale().setVisibleLogicalRange({ from: len - bars, to: len - 1 });
+  const tf = chartCtx.tf;
+  const PERIODS = {
+    day:   [["3개월", 66], ["6개월", 125], ["1년", 250], ["3년", 750], ["5년", 1250], ["전체", 0]],
+    week:  [["6개월", 26], ["1년", 52], ["2년", 104], ["3년", 156], ["5년", 260], ["전체", 0]],
+    month: [["1년", 12], ["2년", 24], ["3년", 36], ["5년", 60], ["10년", 120], ["전체", 0]],
   };
-  const periods = [["3개월", 66], ["6개월", 125], ["1년", 250], ["3년", 750], ["5년", 1250], ["전체", 0]];
-  $("chart-controls").innerHTML = periods
-    .filter(([, bars]) => bars === 0 || bars <= len * 1.1)   // 데이터보다 긴 기간 버튼은 숨김
-    .map(([label, bars]) =>
-      `<button data-bars="${bars}" class="${bars === 125 ? "active" : ""}">${label}</button>`).join("");
+  const defBars = { day: 125, week: 52, month: 24 }[tf];
+  const setRange = (bars) => {
+    if (!bars || bars >= len) {
+      chart.timeScale().fitContent();
+      rsState.lo = 0; rsState.hi = 1;
+    } else {
+      chart.timeScale().setVisibleLogicalRange({ from: len - bars, to: len - 1 });
+      rsState.lo = Math.max(0, (len - bars) / (len - 1));
+      rsState.hi = 1;
+    }
+    paintSlider();
+  };
+  const periods = PERIODS[tf].filter(([, bars]) => bars === 0 || bars <= len * 1.1);
+  $("chart-controls").innerHTML = periods.map(([label, bars]) =>
+    `<button data-bars="${bars}" class="${bars === defBars ? "active" : ""}">${label}</button>`).join("");
   $("chart-controls").querySelectorAll("button").forEach((b) => {
     b.onclick = () => {
       $("chart-controls").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
@@ -667,7 +713,65 @@ function renderChart(d) {
       setRange(+b.dataset.bars);
     };
   });
-  setRange(125);
+
+  // 차트↔슬라이더 동기화: 차트를 드래그/줌하면 슬라이더 핸들을 따라 움직인다
+  chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
+    if (!r || rsSync || len < 2) return;
+    rsState.lo = Math.max(0, Math.min(1, r.from / (len - 1)));
+    rsState.hi = Math.max(0, Math.min(1, r.to / (len - 1)));
+    paintSlider();
+  });
+
+  setRange(defBars);
+}
+
+/* ---- 구간 설정 슬라이더 ---- */
+function applySliderToChart() {
+  if (!chart || chartCtx.candles.length < 2) return;
+  const len = chartCtx.candles.length;
+  rsSync = true;
+  chart.timeScale().setVisibleLogicalRange({
+    from: rsState.lo * (len - 1), to: rsState.hi * (len - 1),
+  });
+  rsSync = false;
+}
+function paintSlider() {
+  const loEl = $("rs-lo"), hiEl = $("rs-hi"), fill = $("rs-fill");
+  if (!loEl) return;
+  const loPct = rsState.lo * 100, hiPct = rsState.hi * 100;
+  loEl.style.left = `${loPct}%`;
+  hiEl.style.left = `${hiPct}%`;
+  fill.style.left = `${loPct}%`;
+  fill.style.width = `${hiPct - loPct}%`;
+  const cs = chartCtx.candles;
+  if (cs.length) {
+    const at = (p) => { const c = cs[Math.min(cs.length - 1, Math.round(p * (cs.length - 1)))]; const s = c.date; return `${s.slice(2, 4)}.${s.slice(4, 6)}`; };
+    $("rs-label-lo").textContent = at(rsState.lo);
+    $("rs-label-hi").textContent = at(rsState.hi);
+  }
+}
+function initRangeSlider() {
+  const track = document.querySelector("#range-slider .rs-track");
+  if (!track) return;
+  let dragging = null;
+  const onMove = (clientX) => {
+    if (!dragging) return;
+    const rect = track.getBoundingClientRect();
+    let p = (clientX - rect.left) / rect.width;
+    p = Math.max(0, Math.min(1, p));
+    if (dragging === "lo") rsState.lo = Math.min(p, rsState.hi - 0.02);
+    else rsState.hi = Math.max(p, rsState.lo + 0.02);
+    paintSlider();
+    applySliderToChart();
+  };
+  track.querySelectorAll(".rs-handle").forEach((h) => {
+    h.addEventListener("mousedown", (e) => { dragging = h.dataset.h; e.preventDefault(); });
+    h.addEventListener("touchstart", (e) => { dragging = h.dataset.h; }, { passive: true });
+  });
+  document.addEventListener("mousemove", (e) => onMove(e.clientX));
+  document.addEventListener("touchmove", (e) => { if (dragging && e.touches[0]) onMove(e.touches[0].clientX); }, { passive: true });
+  document.addEventListener("mouseup", () => { dragging = null; });
+  document.addEventListener("touchend", () => { dragging = null; });
 }
 
 /* ---------------- compare ---------------- */
@@ -859,9 +963,14 @@ function renderValuation(v) {
 
 /* ---------------- 고급 차트 분석 ---------------- */
 function renderChartPro(p) {
-  const card = $("pro-card");
-  if (!p || !p.available) { card.classList.add("hidden"); return; }
+  const card = $("pro-card"), title = $("pro-head-title");
+  if (!p || !p.available) {
+    card.classList.add("hidden");
+    if (title) title.classList.add("hidden");
+    return;
+  }
   card.classList.remove("hidden");
+  if (title) title.classList.remove("hidden");
 
   $("pro-score").textContent = `${p.score}점`;
   $("pro-score").style.color = scoreColor(p.score);
@@ -911,56 +1020,82 @@ function renderChartPro(p) {
 
 
 /* ---------------- finance ---------------- */
+const _UNIT_LABEL = { eok: "억", pct: "%", x: "배", won: "원" };
+
 function renderFinance(rows) {
-  const rev = rows["매출액"] || [], op = rows["영업이익"] || [];
+  // rows: { 표시이름: { unit, series:[{period,value,consensus}] } }
+  const S = (name) => (rows[name] && rows[name].series) || [];
+  const rev = S("매출액"), op = S("영업이익");
   const c = $("finance-chart"), ctx = c.getContext("2d");
   c.width = c.parentElement.clientWidth - 48;
   ctx.clearRect(0, 0, c.width, c.height);
 
-  const periods = rev.map((r) => r.period);
+  // 기간 축은 가장 긴 시계열 기준 (미국은 매출액 없을 수도 있어 방어)
+  let base = rev.length ? rev : op;
+  const rowNames = Object.keys(rows).filter((k) => S(k).length);
+  if (!base.length && rowNames.length) base = S(rowNames[0]);
+  const periods = base.map((r) => r.period);
+  const cnsFlags = base.map((r) => r.consensus);
   if (periods.length === 0) { $("finance-table").innerHTML = "<p class='hint-p'>재무 데이터가 없습니다.</p>"; return; }
 
+  // ── 매출/영업이익 막대 차트 ──
   const vals = [...rev, ...op].map((r) => r.value).filter((v) => v != null);
-  const maxV = Math.max(...vals, 1);
-  const minV = Math.min(...vals, 0);
-  const range = maxV - minV || 1;
-  const W = c.width, H = c.height, pad = 30;
-  const groupW = (W - pad * 2) / periods.length;
-  const y = (v) => H - 30 - ((v - minV) / range) * (H - 60);
+  if (vals.length) {
+    const maxV = Math.max(...vals, 1), minV = Math.min(...vals, 0);
+    const range = maxV - minV || 1;
+    const W = c.width, H = c.height, pad = 30;
+    const groupW = (W - pad * 2) / periods.length;
+    const y = (v) => H - 30 - ((v - minV) / range) * (H - 60);
+    ctx.strokeStyle = "#1f2635";
+    ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(W - pad, y(0)); ctx.stroke();
+    periods.forEach((p, i) => {
+      const x0 = pad + i * groupW, bw = Math.min(groupW / 3.2, 34);
+      const rv = rev[i]?.value, ov = op[i]?.value, isCns = cnsFlags[i];
+      if (rv != null) { ctx.fillStyle = isCns ? "rgba(79,140,255,.45)" : "#4f8cff"; ctx.fillRect(x0 + groupW / 2 - bw - 3, Math.min(y(rv), y(0)), bw, Math.abs(y(rv) - y(0))); }
+      if (ov != null) { ctx.fillStyle = isCns ? "rgba(46,204,113,.45)" : "#2ecc71"; ctx.fillRect(x0 + groupW / 2 + 3, Math.min(y(ov), y(0)), bw, Math.abs(y(ov) - y(0))); }
+      ctx.fillStyle = "#8a93a6"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(`${p.slice(0, 4)}${isCns ? "(E)" : ""}`, x0 + groupW / 2, H - 10);
+    });
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#4f8cff"; ctx.fillRect(pad, 6, 10, 10);
+    ctx.fillStyle = "#8a93a6"; ctx.fillText("매출액", pad + 14, 15);
+    ctx.fillStyle = "#2ecc71"; ctx.fillRect(pad + 70, 6, 10, 10);
+    ctx.fillStyle = "#8a93a6"; ctx.fillText("영업이익", pad + 84, 15);
+  }
 
-  ctx.strokeStyle = "#1f2635";
-  ctx.beginPath(); ctx.moveTo(pad, y(0)); ctx.lineTo(W - pad, y(0)); ctx.stroke();
-
-  periods.forEach((p, i) => {
-    const x0 = pad + i * groupW;
-    const bw = Math.min(groupW / 3.2, 34);
-    const rv = rev[i]?.value, ov = op[i]?.value;
-    const isCns = rev[i]?.consensus;
-    if (rv != null) {
-      ctx.fillStyle = isCns ? "rgba(79,140,255,.45)" : "#4f8cff";
-      ctx.fillRect(x0 + groupW / 2 - bw - 3, Math.min(y(rv), y(0)), bw, Math.abs(y(rv) - y(0)));
-    }
-    if (ov != null) {
-      ctx.fillStyle = isCns ? "rgba(46,204,113,.45)" : "#2ecc71";
-      ctx.fillRect(x0 + groupW / 2 + 3, Math.min(y(ov), y(0)), bw, Math.abs(y(ov) - y(0)));
-    }
-    ctx.fillStyle = "#8a93a6"; ctx.font = "11px sans-serif"; ctx.textAlign = "center";
-    const label = `${p.slice(0, 4)}${isCns ? "(E)" : ""}`;
-    ctx.fillText(label, x0 + groupW / 2, H - 10);
+  // ── 연도별 지표 표 (매출·이익 + PER/PBR/ROE 등 밸류·수익성 추이) ──
+  const fmtCell = (v, unit) => {
+    if (v == null) return "-";
+    if (unit === "pct") return `${fmt(v, 1)}%`;
+    if (unit === "x") return `${fmt(v, 2)}배`;
+    if (unit === "won") return fmt(v, 0);
+    return fmt(v, 0);       // eok
+  };
+  const header = ["항목", ...periods.map((p, i) => `${p.slice(0, 4)}${cnsFlags[i] ? "(E)" : ""}`)];
+  const bodyRows = rowNames.map((name) => {
+    const { unit, series } = rows[name];
+    const label = _UNIT_LABEL[unit] && unit !== "eok" ? `${name} <small>(${_UNIT_LABEL[unit]})</small>` : name;
+    // period 정렬: base periods 순서에 맞춰 값 매핑
+    const byPeriod = {};
+    series.forEach((s) => { byPeriod[s.period] = s.value; });
+    const lowerBetter = ["PER", "PBR", "부채비율"].includes(name);
+    const higherBetter = ["ROE", "ROA", "영업이익률", "순이익률", "EPS", "매출액", "영업이익", "당기순이익"].includes(name);
+    const cells = periods.map((p, i) => {
+      const v = byPeriod[p];
+      if (v == null) return "-";
+      const txt = fmtCell(v, unit);
+      if (unit === "eok" || unit === "won") return txt;
+      // 전년 대비 방향 색상 (밸류지표만)
+      const pv = i > 0 ? byPeriod[periods[i - 1]] : null;
+      if (pv == null || v === pv) return txt;
+      const up = v > pv;
+      const good = higherBetter ? up : lowerBetter ? !up : null;
+      if (good === null) return txt;
+      return `<span class="${good ? "fin-good" : "fin-bad"}">${txt}${up ? " ▲" : " ▼"}</span>`;
+    });
+    return [label, ...cells];
   });
-  ctx.textAlign = "left";
-  ctx.fillStyle = "#4f8cff"; ctx.fillRect(pad, 6, 10, 10);
-  ctx.fillStyle = "#8a93a6"; ctx.fillText("매출액", pad + 14, 15);
-  ctx.fillStyle = "#2ecc71"; ctx.fillRect(pad + 70, 6, 10, 10);
-  ctx.fillStyle = "#8a93a6"; ctx.fillText("영업이익", pad + 84, 15);
-
-  const rowNames = Object.keys(rows).filter((k) => rows[k] && rows[k].length);
-  $("finance-table").innerHTML = tableHTML(
-    ["항목", ...periods.map((p, i) => `${p.slice(0, 4)}.${p.slice(4)}${rev[i]?.consensus ? "(E)" : ""}`)],
-    rowNames.map((name) => [
-      name,
-      ...rows[name].map((cell) => (cell.value != null ? fmt(cell.value, 2) : "-")),
-    ]));
+  $("finance-table").innerHTML = tableHTML(header, bodyRows);
 }
 
 /* ---------------- AI report ---------------- */
@@ -1046,7 +1181,11 @@ $("cmp-go").onclick = showCompare;
 $("cmp-clear").onclick = () => { compareList = []; renderCompareTray(); if (!$("compare-view").classList.contains("hidden")) goHome(); };
 $("cmp-back").onclick = goHome;
 
-// 스크리너
+// 차트 봉 주기(일/주/월) + 구간 슬라이더
+$("chart-tf").querySelectorAll("button").forEach((b) => {
+  b.onclick = () => switchTimeframe(b.dataset.tf);
+});
+initRangeSlider();
 
 initTheme();
 renderFavBoard();

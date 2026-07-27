@@ -83,6 +83,19 @@ def api_price(code: str):
         raise HTTPException(502, f"시세 조회 실패: {e}")
 
 
+# ---------------------------------------------------------------- candles (일/주/월봉 전환)
+@app.get("/api/candles/{code}")
+def api_candles(code: str, tf: str = "day", request: Request = None):
+    _rate_limit(request, limit=60, window=60)
+    if tf not in ("day", "week", "month"):
+        tf = "day"
+    count = 1300 if tf == "day" else (520 if tf == "week" else 240)
+    try:
+        return {"candles": naver.candles(code, count, tf), "timeframe": tf}
+    except Exception as e:
+        raise HTTPException(502, f"차트 조회 실패: {e}")
+
+
 # ---------------------------------------------------------------- full analysis
 @app.get("/api/analyze/{code}")
 def api_analyze(code: str, request: Request = None):
