@@ -175,7 +175,8 @@ def api_analyze(code: str, request: Request = None):
             "market_cap": analysis.parse_eok(p.get("marketValue")) if us else analysis.to_num(p.get("marketValue")),
         })
 
-    # 동종업계 PER — peers 응답에는 PER이 없어 종목별로 조회한다(상위 4개만, 병렬).
+    # 동종업계 PER — peers 응답에는 PER이 없어 종목별로 조회한다(상위 2개만, 병렬).
+    # (본인 포함 중앙값 비교용이라 2개로도 충분하며 요청당 네트워크 호출 2건 절감)
     def _peer_per(p):
         try:
             pc = p["code"]
@@ -189,9 +190,9 @@ def api_analyze(code: str, request: Request = None):
             return None
 
     peers_per = []
-    targets_peers = [p for p in peers if p.get("code")][:4]
+    targets_peers = [p for p in peers if p.get("code")][:2]
     if targets_peers:
-        with ThreadPoolExecutor(max_workers=4) as ex:
+        with ThreadPoolExecutor(max_workers=2) as ex:
             peers_per = [r for r in ex.map(_peer_per, targets_peers) if r and r.get("per")]
     # 본인도 비교표에 포함
     if fund["metrics"].get("per"):
