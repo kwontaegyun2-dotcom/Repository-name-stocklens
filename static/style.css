@@ -345,7 +345,9 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 /* ---------- AI ---------- */
 .ai-report { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-top: 14px; font-size: 14px; color: var(--text2); }
 .ai-report h1, .ai-report h2, .ai-report h3 { margin: 14px 0 8px; color: var(--text); }
-.ai-report ul { margin: 6px 0 6px 20px; } .ai-report p { margin: 6px 0; }
+.ai-report ul, .ai-report ol { margin: 6px 0 10px 22px; } .ai-report li { margin: 3px 0; }
+.ai-report p { margin: 6px 0; } .ai-report em { color: var(--text); font-style: italic; }
+.ai-report code { background: var(--surface2); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
 
 /* ---------- modal ---------- */
 .modal { position: fixed; inset: 0; background: rgba(3,4,10,.6); display: flex; align-items: center; justify-content: center; z-index: 100; backdrop-filter: blur(6px); }

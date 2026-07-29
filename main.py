@@ -116,12 +116,27 @@ def api_analyze(code: str, request: Request = None):
         except Exception:
             return default
 
-    integ = safe(lambda: naver.integration(code), {})
-    fin_annual = safe(lambda: naver.finance(code, "annual"), {})
-    news_items = safe(lambda: naver.news(code, 20), [])
-    research_items = safe(lambda: naver.research(code, 10), [])
-    deal_trend = safe(lambda: naver.trend(code), [])
-    candle_data = safe(lambda: naver.candles(code, 1300), [])   # 약 5년
+    # 독립적인 네트워크 호출을 병렬로 수집한다 (순차 실행 대비 응답시간 대폭 단축).
+    # 뉴스·증권사 리포트는 상위 3건만 받아 전송량과 AI 프롬프트 크기를 줄인다.
+    with ThreadPoolExecutor(max_workers=7) as ex:
+        f_integ = ex.submit(safe, lambda: naver.integration(code), {})
+        f_fin = ex.submit(safe, lambda: naver.finance(code, "annual"), {})
+        f_news = ex.submit(safe, lambda: naver.news(code, 3), [])
+        f_research = ex.submit(safe, lambda: naver.research(code, 3), [])
+        f_trend = ex.submit(safe, lambda: naver.trend(code), [])
+        f_candles = ex.submit(safe, lambda: naver.candles(code, 1300), [])   # 약 5년
+        # 상대강도 벤치마크: 국내=코스피지수 / 미국=SPY(S&P500 ETF)
+        if us:
+            f_bench = ex.submit(safe, lambda: [c["close"] for c in naver.candles("SPY", 1300)], [])
+        else:
+            f_bench = ex.submit(safe, lambda: naver.index_candles("KOSPI", 1300), [])
+        integ = f_integ.result()
+        fin_annual = f_fin.result()
+        news_items = f_news.result()
+        research_items = f_research.result()
+        deal_trend = f_trend.result()
+        candle_data = f_candles.result()
+        bench = f_bench.result()
 
     # 지표 소스: 미국=basic.stockItemTotalInfos, 국내=integration.totalInfos
     src = (b.get("stockItemTotalInfos") if us else integ.get("totalInfos")) or []
@@ -130,11 +145,6 @@ def api_analyze(code: str, request: Request = None):
     tech = analysis.technical_analysis(candle_data)
 
     # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV 등)
-    # 상대강도 벤치마크: 국내=코스피지수 / 미국=SPY(S&P500 ETF)
-    if us:
-        bench = safe(lambda: [c["close"] for c in naver.candles("SPY", 1300)], [])
-    else:
-        bench = safe(lambda: naver.index_candles("KOSPI", 1300), [])
     pro = safe(lambda: chart_pro.analyze(candle_data, bench), {"available": False})
     fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
     senti = analysis.news_sentiment(news_items)
@@ -227,7 +237,7 @@ def api_analyze(code: str, request: Request = None):
         "targets": targets,
         "consensus": cons,
         "sentiment": {"score": senti["score"], "label": senti["label"]},
-        "news": senti["items"][:12],
+        "news": senti["items"][:3],
         "research": research_items,
         "peers": peers,
         "flows": flows,

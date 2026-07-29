@@ -1116,17 +1116,47 @@ $("ai-btn").onclick = async () => {
 };
 
 function mdToHtml(md) {
-  let h = md
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.*)$/gm, "<h1>$1</h1>")
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const inline = (s) => esc(s)
     .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
-    .replace(/^\s*[-*] (.*)$/gm, "<li>$1</li>")
-    .replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, "<ul>$1</ul>");
-  return h.split(/\n{2,}/).map((p) =>
-    p.startsWith("<h") || p.startsWith("<ul") ? p : `<p>${p.replace(/\n/g, "<br>")}</p>`
-  ).join("");
+    .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
+
+  const lines = (md || "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let list = null;   // "ul" | "ol" | null
+  let para = [];     // 현재 문단 줄 모음
+
+  const flushPara = () => {
+    if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para = []; }
+  };
+  const flushList = () => { if (list) { out.push(`</${list}>`); list = null; } };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) { flushPara(); flushList(); continue; }
+
+    let m;
+    if ((m = line.match(/^(#{1,4})\s+(.*)$/))) {
+      // #→h2 부터 시작(카드 제목과 충돌 방지)
+      flushPara(); flushList();
+      const lvl = Math.min(m[1].length + 1, 4);
+      out.push(`<h${lvl}>${inline(m[2])}</h${lvl}>`);
+    } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+      flushPara();
+      if (list !== "ol") { flushList(); out.push("<ol>"); list = "ol"; }
+      out.push(`<li>${inline(m[1])}</li>`);
+    } else if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {
+      flushPara();
+      if (list !== "ul") { flushList(); out.push("<ul>"); list = "ul"; }
+      out.push(`<li>${inline(m[1])}</li>`);
+    } else {
+      flushList();
+      para.push(line);
+    }
+  }
+  flushPara(); flushList();
+  return out.join("");
 }
 
 /* ---------------- KIS modal ---------------- */
