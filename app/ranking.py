@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from app import naver, analysis
+from app import naver, analysis, chart_pro
 
 # (종목코드, 표시명, 섹터) — 코스피·코스닥 주요 130여 종목
 UNIVERSE = [
@@ -191,7 +191,7 @@ def _safe(fn, d):
         return d
 
 
-def _score(entry, market):
+def _score(entry, market, bench=None):
     code, disp, sector = entry
     try:
         us = market == "US"
@@ -201,20 +201,23 @@ def _score(entry, market):
         rate = analysis.to_num(b.get("fluctuationsRatio"))
         currency = (b.get("currencyType") or {}).get("code") or "KRW"
 
+        # 검색(=/api/analyze)과 점수 정합성을 위해 동일한 입력·계산을 쓴다.
+        # 캔들 1300개(52주 위치·장기 이평), 뉴스 3건, 고급 차트분석(pro)까지 동일.
         integ = _safe(lambda: naver.integration(code), {})
         fin_a = _safe(lambda: naver.finance(code, "annual"), {})
-        news = _safe(lambda: naver.news(code, 8), [])
+        news = _safe(lambda: naver.news(code, 3), [])
         trend = _safe(lambda: naver.trend(code), [])
-        candles = _safe(lambda: naver.candles(code, 150), [])
+        candles = _safe(lambda: naver.candles(code, 1300), [])
 
         src = (b.get("stockItemTotalInfos") if us else integ.get("totalInfos")) or []
         infos = {i.get("code"): i.get("value") for i in src}
 
         tech = analysis.technical_analysis(candles)
+        pro = _safe(lambda: chart_pro.analyze(candles, bench), {"available": False})
         fund = analysis.fundamental_analysis(infos, fin_a, market=market)
         senti = analysis.news_sentiment(news)
         cons = analysis.consensus_info(integ, price)
-        total = analysis.total_evaluation(fund, tech, senti, cons, trend)
+        total = analysis.total_evaluation(fund, tech, senti, cons, trend, pro)
         return {
             "code": code, "name": name, "sector": sector,
             "price": price, "rate": rate, "currency": currency,
@@ -235,9 +238,14 @@ def _compute(market):
             return
         st["computing"] = True
     try:
+        # 상대강도 벤치마크를 1회만 조회해 전 종목에 공유 (analyze와 동일 기준).
+        if market == "US":
+            bench = _safe(lambda: [c["close"] for c in naver.candles("SPY", 1300)], [])
+        else:
+            bench = _safe(lambda: naver.index_candles("KOSPI", 1300), [])
         out = []
         with ThreadPoolExecutor(max_workers=9) as ex:
-            for r in ex.map(lambda e: _score(e, market), UNIVERSES[market]):
+            for r in ex.map(lambda e: _score(e, market, bench), UNIVERSES[market]):
                 if r:
                     out.append(r)
         out.sort(key=lambda x: x["score"], reverse=True)
