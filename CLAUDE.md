@@ -11,7 +11,7 @@
 main.py              FastAPI 엔트리 · 전 엔드포인트 · 공개모드 게이팅 · 레이트리밋
 app/naver.py         네이버 비공식 API 클라이언트 (국내/미국 자동 라우팅)
 app/analysis.py      분석 엔진 (기술적·펀더멘털·감성·점수화)
-app/ranking.py       랭킹 유니버스(국내 132/미국 147) 백그라운드 채점
+app/ranking.py       랭킹 유니버스(국내 182/미국 190) 백그라운드 채점
 app/chart_pro.py     고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV·피보나치 등)
 app/valuation.py     밸류에이션 6항목 (역사적PER·PEG·동종업계·EV/EBITDA·목표주가·실적방향)
 app/dart.py          DART 주요계정 → 영업이익 YoY·흑자전환 (키 없으면 자동 비활성)
