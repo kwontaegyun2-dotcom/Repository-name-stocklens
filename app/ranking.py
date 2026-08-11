@@ -2,7 +2,7 @@
 """주요 종목 실시간 랭킹 — 백그라운드로 채점·캐싱해 즉시 순위 제공."""
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from app import naver, analysis, chart_pro
 
@@ -238,7 +238,6 @@ _state = {
     "KR": {"items": [], "updated_at": 0, "computing": False},
     "US": {"items": [], "updated_at": 0, "computing": False},
 }
-_us_started = False
 REFRESH_SEC = 1800  # 30분마다 갱신
 
 
@@ -289,6 +288,15 @@ def _score(entry, market, bench=None):
         return None
 
 
+def _publish(st, out):
+    snap = sorted(out, key=lambda x: x["score"], reverse=True)
+    for i, r in enumerate(snap, 1):
+        r["rank"] = i
+    with _lock:
+        st["items"] = snap
+        st["updated_at"] = time.time()
+
+
 def _compute(market):
     st = _state[market]
     with _lock:
@@ -302,39 +310,42 @@ def _compute(market):
         else:
             bench = _safe(lambda: naver.index_candles("KOSPI", 1300), [])
         out = []
-        with ThreadPoolExecutor(max_workers=9) as ex:
-            for r in ex.map(lambda e: _score(e, market, bench), UNIVERSES[market]):
+        total = len(UNIVERSES[market])
+        # 전부 끝날 때까지 화면이 텅 비어있지 않도록, 완료되는 대로 주기적으로 중간 결과를
+        # 공개한다(20종목마다). 종목 수가 늘면서(미국 190개) 전체 완료까지 몇 분씩 걸릴 수
+        # 있어, 다 끝난 뒤에야 한번에 보여주면 사용자가 계속 빈 스피너만 보고 이탈하게 된다.
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            futures = [ex.submit(_score, e, market, bench) for e in UNIVERSES[market]]
+            for i, fut in enumerate(as_completed(futures), 1):
+                r = fut.result()
                 if r:
                     out.append(r)
-        out.sort(key=lambda x: x["score"], reverse=True)
-        for i, r in enumerate(out, 1):
-            r["rank"] = i
-        with _lock:
-            st["items"] = out
-            st["updated_at"] = time.time()
+                if out and (i % 20 == 0 or i == total):
+                    _publish(st, out)
     finally:
         with _lock:
             st["computing"] = False
 
 
-def _loop(market):
+def _loop(market, initial_delay=0):
+    if initial_delay:
+        time.sleep(initial_delay)
     while True:
         _compute(market)
         time.sleep(REFRESH_SEC)
 
 
 def start_background():
-    # 국내는 즉시 백그라운드 집계, 미국은 첫 요청 시 지연 시작(부하 분산)
+    # 국내는 즉시, 미국은 90초 지연 후 자동 시작 — 둘 다 서버 기동 시 스스로 도는 구조로
+    # 바꿔서, 사용자가 미국 탭을 처음 열 때부터 집계를 기다리는 일이 없게 한다(예전엔
+    # 첫 요청이 있어야 시작해서, 최초 방문자가 전체 계산 시간을 그대로 떠안았음).
+    # 90초 지연은 국내 집계와 동시에 시작해 부하가 몰리는 것만 피하기 위함.
     threading.Thread(target=_loop, args=("KR",), daemon=True).start()
+    threading.Thread(target=_loop, args=("US", 90), daemon=True).start()
 
 
 def get(market: str = "KR", sector: str = None):
-    global _us_started
     market = "US" if str(market).upper() == "US" else "KR"
-    if market == "US" and not _us_started:
-        _us_started = True
-        threading.Thread(target=_loop, args=("US",), daemon=True).start()
-
     st = _state[market]
     with _lock:
         items = list(st["items"])

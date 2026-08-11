@@ -169,13 +169,17 @@ async function loadRanking(sector = "전체") {
     const qs = `?market=${currentMarket}` + (sector && sector !== "전체" ? `&sector=${encodeURIComponent(sector)}` : "");
     const d = await api(`/api/ranking${qs}`);
     renderRankFilters(d.sectors);
-    if ((!d.items || d.items.length === 0) && d.computing) {
-      $("rank-list").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분, 자동 갱신)</span></div>`;
-      clearTimeout(rankPollTimer);
-      rankPollTimer = setTimeout(() => loadRanking(currentSector), 5000);
-      return;
+    if (!d.items || d.items.length === 0) {
+      $("rank-list").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (종목이 많아 몇 분 걸릴 수 있어요, 이 화면에서 자동으로 채워집니다)</span></div>`;
+    } else {
+      // 계산이 끝나기 전이라도 완료된 종목부터 순위표를 보여준다(부분 결과).
+      renderRanking(d);
     }
-    renderRanking(d);
+    // 백엔드가 아직 채점 중이면(부분 결과 포함) 계속 폴링해서 자동으로 채워나간다.
+    clearTimeout(rankPollTimer);
+    if (d.computing) {
+      rankPollTimer = setTimeout(() => loadRanking(currentSector), 5000);
+    }
   } catch {
     $("rank-list").innerHTML = `<div class="rank-loading"><span>랭킹을 불러오지 못했습니다.</span></div>`;
   }
@@ -198,7 +202,8 @@ let rankShown = 5;
 function renderRanking(d) {
   if (d.updated_at) {
     const dt = new Date(d.updated_at * 1000);
-    $("rank-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준`;
+    const suffix = d.computing ? ` · 집계 중(${d.items.length}종목 반영됨)…` : "";
+    $("rank-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준${suffix}`;
   }
   if (!d.items.length) {
     $("rank-list").innerHTML = `<div class="rank-loading"><span>해당 섹터 데이터가 없습니다.</span></div>`;
