@@ -180,6 +180,81 @@ def _support_resistance(highs, lows, price, lookback=140, span=4):
     return support, resistance
 
 
+def _timing_comment(trend, momentum, r, macd_v, vol_ratio, pos52, cross, bb, verdict_cls) -> str:
+    """실제 계산된 지표값 중 가장 두드러진 근거를 골라 종목별로 다른 한줄평을 만든다.
+    (verdict 4구간만으로 문장을 고르면 같은 구간 종목이 전부 똑같은 문장이 되는 문제 방지)"""
+    reasons = []  # (우선순위 낮을수록 먼저 채택, 문장)
+
+    if cross == "golden" and vol_ratio and vol_ratio >= 1.2:
+        reasons.append((1, "거래량을 동반한 골든크로스가 나와 추세 전환 신뢰도가 높은 편입니다"))
+    elif cross == "golden":
+        reasons.append((2, "골든크로스가 나왔지만 거래량 동반이 약해 좀 더 지켜볼 필요가 있습니다"))
+    elif cross == "dead":
+        reasons.append((1, "데드크로스가 발생해 단기 추세가 꺾인 상태입니다"))
+
+    if r is not None:
+        if r >= 75:
+            reasons.append((1, f"RSI {r:.0f}로 과열 구간이라 추격 매수보다 되돌림을 기다리는 편이 안전합니다"))
+        elif r >= 70:
+            reasons.append((2, f"RSI {r:.0f}로 과열권에 진입해 단기 조정 가능성이 있습니다"))
+        elif r <= 25:
+            reasons.append((1, f"RSI {r:.0f}로 과매도 구간이라 기술적 반등을 노려볼 만합니다"))
+        elif r <= 30:
+            reasons.append((2, f"RSI {r:.0f}로 과매도권에 근접해 반등 여부를 지켜볼 만합니다"))
+
+    if macd_v:
+        if macd_v["hist"] > 0 and macd_v["hist_prev"] <= 0:
+            reasons.append((1, "MACD가 막 상승 전환해 초기 매수 신호로 볼 수 있습니다"))
+        elif macd_v["hist"] < 0 and macd_v["hist_prev"] >= 0:
+            reasons.append((1, "MACD가 막 하락 전환해 주의가 필요한 시점입니다"))
+
+    if trend >= 58 and momentum <= 42:
+        reasons.append((1, "추세는 살아있지만 모멘텀(MACD·RSI)이 둔화되고 있어 속도조절 구간으로 보입니다"))
+    elif trend <= 42 and momentum >= 58:
+        reasons.append((1, "추세는 아직 약하지만 모멘텀 지표는 개선되고 있어 바닥을 다지는 신호일 수 있습니다"))
+
+    if pos52 is not None:
+        if pos52 >= 90:
+            reasons.append((2, f"52주 최고가 대비 {100 - pos52:.0f}%밖에 안 남아 신고가 돌파 시도 구간입니다"))
+        elif pos52 <= 15:
+            reasons.append((2, f"52주 최저가권({pos52:.0f}%)까지 눌려 있어 낙폭과대 반등 가능성을 열어둘 자리입니다"))
+
+    if vol_ratio:
+        rising = trend >= 50
+        if vol_ratio >= 1.5:
+            reasons.append((2, f"최근 거래량이 평균 대비 {vol_ratio:.1f}배로 {'매수세 유입' if rising else '매도 물량 출회'}이 뚜렷합니다"))
+        elif vol_ratio < 0.6:
+            reasons.append((3, "거래량이 크게 위축돼 있어 방향성 확인이 더 필요한 구간입니다"))
+
+    if bb:
+        if bb.get("pct_b", 0.5) >= 1.0:
+            reasons.append((2, "볼린저밴드 상단을 이탈해 단기 변동성이 커진 상태입니다"))
+        elif bb.get("pct_b", 0.5) <= 0.0:
+            reasons.append((2, "볼린저밴드 하단을 이탈해 낙폭이 과도한 상태입니다"))
+
+    # 위 강한 신호가 하나도 없는(=진짜 잔잔한) 종목은, 그마저도 완전히 같은 문장이
+    # 되지 않도록 추세 방향·RSI 정도로 약한 단서라도 짚어준다.
+    if not reasons:
+        if trend >= 54:
+            reasons.append((4, "단기 이동평균이 완만하게 우상향 중이지만 뚜렷한 매매 신호는 아직 없습니다"))
+        elif trend <= 46:
+            reasons.append((4, "단기 이동평균이 살짝 눌려 있지만 추세 이탈로 보긴 이른 수준입니다"))
+        elif r is not None:
+            reasons.append((4, f"RSI {r:.0f}로 과열도 과매도도 아닌 중립 구간이라 특별한 신호가 없는 상태입니다"))
+
+    reasons.sort(key=lambda x: x[0])
+    core = reasons[0][1] if reasons else "뚜렷한 방향성 신호가 없어 다음 신호를 기다리는 구간입니다"
+
+    action = {
+        "buy": "현재가 부근이나 20일선 눌림목에서 분할 매수를 고려할 만합니다.",
+        "accumulate": "한 번에 매수하기보다 지지선 부근에서 2~3회 나눠 진입하는 편이 유리합니다.",
+        "hold": "지지선·저항선 사이 박스권으로, 지지선 이탈 시 관망하고 저항 재돌파 시 추격을 고려하세요.",
+        "avoid": "저항선 회복이나 추세 전환 신호(골든크로스·RSI 반등) 전까지는 신규 진입을 미루는 편이 안전합니다.",
+    }[verdict_cls]
+
+    return f"{core}. {action}"
+
+
 # ---------------------------------------------------------------- technical
 def technical_analysis(candles: list) -> dict:
     if not candles or len(candles) < 30:
@@ -365,16 +440,17 @@ def technical_analysis(candles: list) -> dict:
     # ---- 진입 타이밍 판단
     if score >= 70:
         verdict, verdict_cls = "매수 우위", "buy"
-        timing = "추세와 모멘텀이 모두 긍정적입니다. 눌림목(20일선 부근) 분할 매수 전략이 유효합니다."
     elif score >= 55:
         verdict, verdict_cls = "분할 매수 관점", "accumulate"
-        timing = "완만한 상승 흐름입니다. 한 번에 매수하기보다 2~3회 분할 진입을 권장합니다."
     elif score >= 40:
         verdict, verdict_cls = "관망", "hold"
-        timing = "방향성이 뚜렷하지 않습니다. 지지선 확인 후 진입해도 늦지 않습니다."
     else:
         verdict, verdict_cls = "보수적 접근", "avoid"
-        timing = "하락 추세가 우세합니다. 신규 진입은 추세 전환 신호(골든크로스, RSI 반등) 확인 후 고려하세요."
+
+    # 한줄평: 종합점수 구간 4개로만 나누면 같은 구간 종목이 전부 똑같은 문장이 된다
+    # (특히 '관망' 구간에 몰림). 실제로 계산된 RSI·거래량·크로스·추세/모멘텀 상충 여부 등
+    # 구체적 근거 중 가장 두드러진 것을 골라 종목마다 다른 문장을 만든다.
+    timing = _timing_comment(trend, momentum, r, m, vol_ratio, pos52, cross, bb, verdict_cls)
 
     # 매수 관심 구간: 지지선 ~ 현재가 아래 가장 가까운 지지(스윙 지지·20일선·60일선)
     anchors = [x for x in (support, mas.get(20), mas.get(60)) if x and x < price * 0.999]
