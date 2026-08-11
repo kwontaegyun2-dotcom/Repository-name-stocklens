@@ -490,8 +490,13 @@ _HIGHLIGHT_SPEC = [
 ]
 
 
-def _highlight_rows(rows: dict) -> dict:
-    """전체 재무 행에서 핵심 지표만 지정 순서로 추출. 각 행에 unit 힌트를 부착."""
+def _highlight_rows(rows: dict, market: str = "KR") -> dict:
+    """전체 재무 행에서 핵심 지표만 지정 순서로 추출. 각 행에 unit 힌트를 부착.
+
+    ⚠️ 단위 함정: 미국 종목은 finance API 금액 행(매출액·영업이익·당기순이익)이
+    백만 USD로 온다(EV/EBITDA와 동일 — valuation.py의 ev_ebitda 참고). 그대로
+    "eok"(억) 단위로 표시하면 100배 부풀려진다 → US는 eok 행만 100으로 나눠 맞춘다.
+    """
     out = {}
     for disp, names, unit in _HIGHLIGHT_SPEC:
         series = None
@@ -506,6 +511,8 @@ def _highlight_rows(rows: dict) -> dict:
             if series:
                 break
         if series and any(s.get("value") is not None for s in series):
+            if market == "US" and unit == "eok":
+                series = [{**s, "value": s["value"] / 100.0 if s["value"] is not None else None} for s in series]
             out[disp] = {"unit": unit, "series": series}
     return out
 
@@ -653,7 +660,7 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
         },
         # 재무 하이라이트 표: 연도별 추이를 보여줄 핵심 지표들(있는 것만, 지정 순서대로).
         # 국내/미국 행 이름이 달라(영업이익/EBIT, 당기순이익/세후손익 등) 별칭으로 매칭한다.
-        "finance_rows": _highlight_rows(rows),
+        "finance_rows": _highlight_rows(rows, market),
         # 밸류에이션 분석용 전체 행(EPS·PER·EBITDA 등) — 응답에는 싣지 않는다
         "all_rows": rows,
         "scores": {
