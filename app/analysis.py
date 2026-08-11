@@ -543,6 +543,12 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     _, retain_s = _row_match(rows, "유보율")
 
     roe = _last_actual(roe_s)
+    # 미국은 ROE 원본 데이터가 없다(Naver API 확인 완료, 영구적 한계) → EPS/BPS로 근사.
+    # ROE = 순이익/자기자본 = (순이익/주식수)÷(자기자본/주식수) = EPS/BPS 이므로 유효한 근사치.
+    # 이게 없으면 미국은 수익성 점수를 영업이익률·순이익률 2개 평균으로만 매겨 100점
+    # saturate가 국내(ROE 포함 3개 평균)보다 훨씬 쉬워지는 시장간 불공정이 생긴다.
+    if roe is None and eps is not None and bps and bps > 0:
+        roe = eps / bps * 100.0
     roa = _last_actual(roa_s)
     opm = _last_actual(opm_s)
     npm = _last_actual(npm_s)
