@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=19">
+<link rel="stylesheet" href="/static/style.css?v=20">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -18,6 +18,14 @@
   </div>
   <button id="theme-btn" class="icon-btn" title="테마 전환">🌙</button>
   <button id="kis-btn" class="ghost-btn">⚙ 실시간 시세 연동</button>
+  <div id="auth-area" class="auth-area">
+    <button id="login-btn" class="ghost-btn">로그인</button>
+    <div id="user-chip" class="user-chip hidden">
+      <button id="admin-link" class="ghost-btn small hidden">👑 관리자</button>
+      <span id="user-email"></span>
+      <button id="logout-btn" class="ghost-btn small">로그아웃</button>
+    </div>
+  </div>
   <span class="credit">made by 태균</span>
 </header>
 
@@ -128,6 +136,11 @@
         <div id="verdict" class="verdict"></div>
         <div id="cons-opinion" class="target-upside"></div>
       </div>
+    </div>
+    <div class="fair-buy-box hidden" id="fair-buy-box">
+      <div class="fb-head"><span class="fb-label">💰 적정 매수가</span><span class="fb-sub" id="fb-sources"></span></div>
+      <div class="fb-grid" id="fb-grid"></div>
+      <p class="hint-p">PER·PEG·업종 평균·역사적 밸류·애널리스트 목표주가를 종합한 추정치이며, 안전마진(20%/10%/0%)을 차등 적용했습니다.</p>
     </div>
     <p id="timing-comment" class="timing-comment"></p>
     <div class="entry-grid" id="entry-grid"></div>
@@ -316,6 +329,38 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=19"></script>
+<!-- 로그인/회원가입 모달 -->
+<div id="auth-modal" class="modal hidden">
+  <div class="modal-box">
+    <div class="auth-tabs">
+      <button id="auth-tab-login" class="auth-tab active" data-mode="login">로그인</button>
+      <button id="auth-tab-signup" class="auth-tab" data-mode="signup">회원가입</button>
+    </div>
+    <label>이메일</label>
+    <input id="auth-email" type="text" placeholder="you@example.com" autocomplete="username">
+    <label>비밀번호</label>
+    <input id="auth-password" type="password" placeholder="8자 이상" autocomplete="current-password">
+    <div id="auth-msg" class="kis-msg"></div>
+    <div class="modal-actions">
+      <button id="auth-submit" class="primary-btn">로그인</button>
+      <button id="auth-close" class="ghost-btn">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 관리자: 가입자 현황 -->
+<main id="admin-view" class="report hidden">
+  <button id="admin-back" class="back-btn">← 돌아가기</button>
+  <section class="card">
+    <h3>👑 가입자 현황</h3>
+    <div id="admin-stats" class="pro-grid"></div>
+  </section>
+  <section class="card">
+    <h3>회원 목록</h3>
+    <div class="table-wrap" id="admin-users-table"></div>
+  </section>
+</main>
+
+<script src="/static/app.js?v=20"></script>
 </body>
 </html>

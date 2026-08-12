@@ -107,6 +107,15 @@ button { cursor: pointer; font-family: inherit; }
   padding: 9px 16px; font-size: 13px; white-space: nowrap; transition: .2s;
 }
 .ghost-btn:hover { color: var(--text); border-color: var(--border-glow); box-shadow: 0 0 20px rgba(139,92,246,.15); }
+.ghost-btn.small { padding: 6px 11px; font-size: 12px; border-radius: 9px; }
+
+/* ---------- auth ---------- */
+.auth-area { display: flex; align-items: center; }
+.user-chip { display: flex; align-items: center; gap: 8px; }
+.user-chip #user-email { font-size: 12.5px; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.auth-tabs { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; margin-bottom: 16px; }
+.auth-tab { flex: 1; background: transparent; border: none; color: var(--muted); padding: 8px; border-radius: 8px; font-size: 13px; font-weight: 600; transition: .15s; }
+.auth-tab.active { background: var(--grad); color: #fff; }
 .icon-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 8px 11px; font-size: 15px; line-height: 1; transition: .2s; }
 .icon-btn:hover { border-color: var(--border-glow); transform: translateY(-1px); }
 .primary-btn {
@@ -282,6 +291,24 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .entry-item.buy div { color: var(--green); }
 .entry-item.sell { background: rgba(255,77,109,.09); border-color: rgba(255,77,109,.3); }
 .entry-item.sell div { color: var(--up); }
+
+/* 적정 매수가 */
+.fair-buy-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; margin-bottom: 14px; }
+.fb-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.fb-label { font-weight: 700; font-size: 14.5px; }
+.fb-sub { font-size: 12px; color: var(--muted); }
+.fb-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.fb-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 13px; text-align: center; }
+.fb-item label { color: var(--muted); font-size: 11.5px; display: block; }
+.fb-item label small { opacity: .8; }
+.fb-price { font-size: 18px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.fb-upside { font-size: 11.5px; margin-top: 4px; }
+.fb-item.cons { border-color: rgba(46,230,166,.35); }
+.fb-item.cons .fb-price { color: var(--green); }
+.fb-item.base { border-color: var(--accent); }
+.fb-item.opt { border-color: rgba(255,77,109,.3); }
+.fb-upside.up { color: var(--green); }
+.fb-upside.down { color: var(--up); }
 
 /* ---------- chart ---------- */
 .chart-controls { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }

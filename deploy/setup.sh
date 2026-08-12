@@ -12,6 +12,10 @@ id -u stocklens &>/dev/null || sudo useradd -r -m -s /usr/sbin/nologin stocklens
 
 sudo mkdir -p "$APP_DIR"
 sudo chown "$(whoami)":"$(whoami)" "$APP_DIR"
+
+# 회원 DB는 코드 배포 경로 밖(재배포 rsync 영향 없음)의 전용 디렉터리에 둔다.
+sudo mkdir -p /opt/stocklens-data
+sudo chown stocklens:stocklens /opt/stocklens-data
 python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/pip" install --upgrade pip
 "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt"

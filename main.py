@@ -5,20 +5,24 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
+
+# 회원 DB는 배포 코드 동기화 경로 밖에 둔다 (오라클 rsync 재배포 시 덮어써지지 않도록).
+_DATA_DIR = Path(os.environ.get("STOCKLENS_DATA_DIR") or (BASE / "data"))
 
 
 @app.on_event("startup")
 def _startup():
     ranking.start_background()
+    auth.init(_DATA_DIR)
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
@@ -203,6 +207,7 @@ def api_analyze(code: str, request: Request = None):
         peers_per=peers_per, market_cap=fund["metrics"].get("market_cap"), price=price,
         market="US" if us else "KR"),
         {"available": False})
+    targets["fair_buy"] = val.get("fair_buy") if val.get("available") else None
 
     # 수급 요약 테이블 (최근 10일)
     flows = []
@@ -300,6 +305,81 @@ def ai_report(code: str, request: Request):
         return {"report": md}
     except Exception as e:
         raise HTTPException(502, f"AI 리포트 생성 실패: {e}")
+
+
+# ---------------------------------------------------------------- auth
+SESSION_COOKIE = "sl_session"
+
+
+class SignupBody(BaseModel):
+    email: str
+    password: str
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+def _current_user(request: Request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    uid = auth.verify_session_token(token)
+    if not uid:
+        return None
+    return auth.get_user(uid)
+
+
+def _set_session_cookie(response: Response, user_id: int, request: Request):
+    token = auth.create_session_token(user_id)
+    response.set_cookie(
+        SESSION_COOKIE, token,
+        max_age=30 * 86400, httponly=True, samesite="lax",
+        secure=request.url.scheme == "https",
+    )
+
+
+@app.post("/api/auth/signup")
+def api_signup(body: SignupBody, response: Response, request: Request):
+    _rate_limit(request, limit=10, window=300)
+    try:
+        user = auth.signup(body.email, body.password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _set_session_cookie(response, user["id"], request)
+    return {"user": user}
+
+
+@app.post("/api/auth/login")
+def api_login(body: LoginBody, response: Response, request: Request):
+    _rate_limit(request, limit=10, window=300)
+    user = auth.authenticate(body.email, body.password)
+    if not user:
+        raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
+    _set_session_cookie(response, user["id"], request)
+    return {"user": user}
+
+
+@app.post("/api/auth/logout")
+def api_logout(response: Response):
+    response.delete_cookie(SESSION_COOKIE)
+    return {"ok": True}
+
+
+@app.get("/api/auth/me")
+def api_me(request: Request):
+    user = _current_user(request)
+    return {"user": user}
+
+
+# ---------------------------------------------------------------- admin
+@app.get("/api/admin/users")
+def api_admin_users(request: Request):
+    user = _current_user(request)
+    if not user or not user["is_admin"]:
+        raise HTTPException(403, "관리자만 접근할 수 있습니다.")
+    return {"users": auth.list_users(), "stats": auth.stats()}
 
 
 # ---------------------------------------------------------------- static

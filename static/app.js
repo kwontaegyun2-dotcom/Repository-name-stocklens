@@ -151,6 +151,7 @@ function goHome() {
   currentCode = null;
   $("report").classList.add("hidden");
   $("compare-view").classList.add("hidden");
+  $("admin-view").classList.add("hidden");
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
@@ -349,6 +350,27 @@ function render(d) {
   $("target-tech").textContent = t.technical ? pw(t.technical) : "-";
   $("target-tech-upside").textContent = t.technical_upside != null ? `상승여력 ${sign(t.technical_upside, 1)}%` : "";
   $("target-tech-upside").className = "target-upside " + updownClass(t.technical_upside);
+
+  const fb = t.fair_buy;
+  if (fb) {
+    $("fair-buy-box").classList.remove("hidden");
+    $("fb-sources").textContent = `지표 ${fb.sources}개 종합 · 적정가 ${pw(fb.fair_value)}`;
+    const tiers = [
+      { key: "conservative", label: "🛡️ 보수적", cls: "cons" },
+      { key: "base", label: "⭐ 기준", cls: "base" },
+      { key: "optimistic", label: "🚀 낙관적", cls: "opt" },
+    ];
+    $("fb-grid").innerHTML = tiers.map(({ key, label, cls }) => {
+      const v = fb[key];
+      return `<div class="fb-item ${cls}">
+        <label>${label} <small>(안전마진 ${v.margin}%)</small></label>
+        <div class="fb-price">${pw(v.price)}</div>
+        <div class="fb-upside ${updownClass(v.upside)}">현재가 대비 ${sign(v.upside, 1)}%</div>
+      </div>`;
+    }).join("");
+  } else {
+    $("fair-buy-box").classList.add("hidden");
+  }
 
   const tech = d.technical;
   if (tech.available) {
@@ -1164,6 +1186,103 @@ function mdToHtml(md) {
   return out.join("");
 }
 
+/* ---------------- auth ---------------- */
+let currentUser = null;
+let authMode = "login";
+
+function renderAuthUI() {
+  const loggedIn = !!currentUser;
+  $("login-btn").classList.toggle("hidden", loggedIn);
+  $("user-chip").classList.toggle("hidden", !loggedIn);
+  if (loggedIn) {
+    $("user-email").textContent = currentUser.email;
+    $("admin-link").classList.toggle("hidden", !currentUser.is_admin);
+  }
+}
+
+async function loadMe() {
+  try {
+    const r = await api("/api/auth/me");
+    currentUser = r.user;
+  } catch {
+    currentUser = null;
+  }
+  renderAuthUI();
+}
+
+function openAuthModal(mode) {
+  authMode = mode;
+  document.querySelectorAll(".auth-tab").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
+  $("auth-submit").textContent = mode === "login" ? "로그인" : "회원가입";
+  $("auth-msg").textContent = "";
+  $("auth-email").value = "";
+  $("auth-password").value = "";
+  $("auth-modal").classList.remove("hidden");
+}
+
+$("login-btn").onclick = () => openAuthModal("login");
+$("auth-close").onclick = () => $("auth-modal").classList.add("hidden");
+$("auth-modal").addEventListener("click", (e) => {
+  if (e.target === $("auth-modal")) $("auth-modal").classList.add("hidden");
+});
+document.querySelectorAll(".auth-tab").forEach((b) => {
+  b.onclick = () => openAuthModal(b.dataset.mode);
+});
+$("auth-submit").onclick = async () => {
+  const email = $("auth-email").value.trim();
+  const password = $("auth-password").value;
+  if (!email || !password) { $("auth-msg").textContent = "이메일과 비밀번호를 모두 입력하세요."; return; }
+  $("auth-msg").textContent = "처리 중...";
+  try {
+    const r = await api(authMode === "login" ? "/api/auth/login" : "/api/auth/signup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    currentUser = r.user;
+    renderAuthUI();
+    $("auth-modal").classList.add("hidden");
+  } catch (e) {
+    $("auth-msg").textContent = "오류: " + e.message;
+  }
+};
+$("logout-btn").onclick = async () => {
+  try { await api("/api/auth/logout", { method: "POST" }); } catch {}
+  currentUser = null;
+  renderAuthUI();
+  if (!$("admin-view").classList.contains("hidden")) goHome();
+};
+
+/* ---------------- admin ---------------- */
+async function showAdmin() {
+  $("landing").classList.add("hidden");
+  $("report").classList.add("hidden");
+  $("compare-view").classList.add("hidden");
+  $("admin-view").classList.remove("hidden");
+  window.scrollTo({ top: 0 });
+  try {
+    const r = await api("/api/admin/users");
+    const s = r.stats;
+    $("admin-stats").innerHTML = `
+      <div class="pro-item"><label>총 가입자</label><div>${fmt(s.total)}명</div></div>
+      <div class="pro-item"><label>최근 24시간 가입</label><div>${fmt(s.signups_24h)}명</div></div>
+      <div class="pro-item"><label>최근 7일 가입</label><div>${fmt(s.signups_7d)}명</div></div>
+      <div class="pro-item"><label>최근 24시간 접속</label><div>${fmt(s.active_24h)}명</div></div>`;
+    $("admin-users-table").innerHTML = `<table><thead><tr>
+      <th>이메일</th><th>가입일</th><th>최근 로그인</th><th>관리자</th>
+      </tr></thead><tbody>${r.users.map((u) => `<tr>
+        <td>${u.email}</td>
+        <td>${new Date(u.created_at * 1000).toLocaleString("ko-KR")}</td>
+        <td>${u.last_login ? new Date(u.last_login * 1000).toLocaleString("ko-KR") : "-"}</td>
+        <td>${u.is_admin ? "👑" : ""}</td>
+      </tr>`).join("")}</tbody></table>`;
+  } catch (e) {
+    $("admin-stats").innerHTML = `<p class="hint-p">불러오기 실패: ${e.message}</p>`;
+  }
+}
+$("admin-link").onclick = showAdmin;
+$("admin-back").onclick = goHome;
+
 /* ---------------- KIS modal ---------------- */
 $("kis-btn").onclick = () => $("kis-modal").classList.remove("hidden");
 $("kis-close").onclick = () => $("kis-modal").classList.add("hidden");
@@ -1225,3 +1344,4 @@ initRangeSlider();
 initTheme();
 renderFavBoard();
 loadRanking();
+loadMe();

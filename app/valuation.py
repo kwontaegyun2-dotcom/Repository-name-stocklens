@@ -267,6 +267,58 @@ def ev_ebitda(market_cap_eok, fin_rows, debt_ratio, bps, price, market="KR"):
     }
 
 
+def fair_buy_price(price, band, peer, peg, cons):
+    """PER/PEG/업종평균/애널리스트 목표주가를 종합해 '적정가'를 추정하고,
+    안전마진을 차등 적용해 보수적/기준/낙관적 3단계 매수가를 산출한다.
+
+    각 관점은 "현재가를 그 배수 괴리만큼 되돌린 가격"으로 환산해 공통 척도(원)로 맞춘다:
+      - 역사적밸류: price ÷ (현재/과거평균 배수)
+      - 동종업계:   price ÷ (내 PER/업종중앙값 배수)
+      - PEG:        price × (PEG=1이 되는 목표배수 ÷ 현재 사용배수)
+      - 애널리스트 목표주가: 그대로 사용(가장 느슨한 가중치 — 후행 경향 때문)
+    가중평균(사용 가능한 항목만)으로 '적정가'를 만들고, 20%/10%/0% 안전마진을 적용한다.
+    """
+    if not price or price <= 0:
+        return None
+
+    # 각 관점의 '괴리 배수'는 저PER+고성장 상한(50%) 조합 등에서 극단값(수배)이 나올 수 있다.
+    # 개별 관점이 종합 적정가를 통째로 왜곡하지 않도록, 현재가의 0.5~1.6배 범위로 clamp한다
+    # (동일한 이유로 peer_comparison은 PER 200배 초과 제외, PEG는 성장률 50% 상한을 이미 적용 중).
+    lo, hi = price * 0.5, price * 1.6
+
+    components = []  # (fair_price, weight)
+    if band and band.get("ratio") and band["ratio"] > 0:
+        components.append((_clamp(price / band["ratio"], lo, hi), 0.35))
+    if peer and peer.get("ratio") and peer["ratio"] > 0:
+        components.append((_clamp(price / peer["ratio"], lo, hi), 0.20))
+    if peg and peg.get("per_used") and peg["per_used"] > 0 and peg.get("growth_used"):
+        components.append((_clamp(price * (peg["growth_used"] / peg["per_used"]), lo, hi), 0.20))
+    target = cons.get("target_price") if cons else None
+    if target and target > 0:
+        components.append((_clamp(target, lo, hi), 0.25))
+
+    if not components:
+        return None
+
+    tw = sum(w for _, w in components)
+    fair_value = sum(p * w for p, w in components) / tw
+
+    conservative = fair_value * 0.80
+    base = fair_value * 0.90
+    optimistic = fair_value * 1.00
+
+    def _upside(v):
+        return round((v - price) / price * 100, 1)
+
+    return {
+        "fair_value": round(fair_value),
+        "sources": len(components),
+        "conservative": {"price": round(conservative), "margin": 20, "upside": _upside(conservative)},
+        "base": {"price": round(base), "margin": 10, "upside": _upside(base)},
+        "optimistic": {"price": round(optimistic), "margin": 0, "upside": _upside(optimistic)},
+    }
+
+
 def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, price=None, market="KR"):
     """밸류에이션 종합 분석 → 지표 + 6개 항목 점수 + 종합.
 
@@ -418,6 +470,7 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
         "peg": peg,
         "peer": peer,
         "ev_ebitda": ev,
+        "fair_buy": fair_buy_price(price, band, peer, peg, cons),
         "current": {"per": per, "fper": fper, "pbr": metrics.get("pbr"),
                     "eps": metrics.get("eps"), "cns_eps": metrics.get("cns_eps")},
         "checklist": checklist,
