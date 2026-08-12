@@ -332,6 +332,48 @@ function render(d) {
   $("grade").style.color = scoreColor(d.total.total_score);
   $("grade-desc").textContent = d.total.grade_desc + " · " + d.total.total_score + "점";
 
+  /* 매수 매력도 요약 (한눈에 보기) — 이미 계산된 targets/technical/valuation/flows를 재사용 */
+  {
+    const t = d.targets, tech = d.technical, val = d.valuation;
+    const score = d.total.total_score;
+    $("highlight-card").classList.remove("hidden");
+    $("hl-score").textContent = score;
+    $("hl-score").style.color = scoreColor(score);
+    $("hl-badge").textContent = score >= 70 ? "🟢" : score >= 55 ? "🟡" : score >= 40 ? "🟠" : "🔴";
+
+    const fbBase = t.fair_buy ? t.fair_buy.base : null;
+    const stopLoss = (tech.available && tech.entry) ? tech.entry.stop_loss : null;
+    const items = [
+      { label: "현재가", value: pw(d.price) },
+      { label: "적정 매수가", value: fbBase ? pw(fbBase.price) : "-" },
+      { label: "목표주가", value: t.consensus ? pw(t.consensus) : "-" },
+      { label: "손절 고려가", value: stopLoss ? pw(stopLoss) : "-" },
+      { label: "상승여력", value: t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-",
+        cls: updownClass(t.consensus_upside) },
+    ];
+    $("hl-grid").innerHTML = items.map((it) => `
+      <div class="hl-item"><label>${it.label}</label><div class="${it.cls || ""}">${it.value}</div></div>`).join("");
+
+    // 근거: 이미 계산된 기술적·밸류에이션 신호(bull/bear/warn 태그) + 외국인 수급 추세
+    const reasons = [];
+    const pick = (arr) => (arr || []).forEach((s) => {
+      if (s.type === "bull") reasons.push({ good: true, text: s.text });
+      else if (s.type === "bear" || s.type === "warn") reasons.push({ good: false, text: s.text });
+    });
+    pick(val.signals);
+    pick(tech.signals);
+    const flows5 = (d.flows || []).slice(0, 5).map((f) => f.foreigner).filter((v) => v != null);
+    if (flows5.length >= 3) {
+      const posDays = flows5.filter((v) => v > 0).length;
+      if (posDays === flows5.length) reasons.unshift({ good: true, text: `외국인 최근 ${flows5.length}일 연속 순매수` });
+      else if (posDays === 0) reasons.unshift({ good: false, text: `외국인 최근 ${flows5.length}일 연속 순매도` });
+    }
+    const finalReasons = [...reasons.filter((r) => r.good).slice(0, 3), ...reasons.filter((r) => !r.good).slice(0, 3)];
+    $("hl-reasons").innerHTML = finalReasons.length
+      ? finalReasons.map((r) => `<li class="${r.good ? "good" : "bad"}">${r.good ? "✅" : "⚠️"} ${r.text}</li>`).join("")
+      : `<li>판단 근거로 쓸 신호가 충분하지 않습니다.</li>`;
+  }
+
   /* opinion */
   $("opinion-head").textContent = d.opinion.headline;
   $("opinion-points").innerHTML = d.opinion.points.map((p) => `<li>${p}</li>`).join("");
