@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -25,6 +25,7 @@ def _startup():
     auth.init(_DATA_DIR)
     push.init(_DATA_DIR)
     watch.init(_DATA_DIR, api_analyze)
+    portfolio.init(_DATA_DIR)
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
@@ -459,6 +460,36 @@ def api_push_test(request: Request):
     if total == 0:
         raise HTTPException(400, "등록된 기기가 없습니다.")
     return {"ok": True, "sent": sent, "total": total}
+
+
+# ---------------------------------------------------------------- 내 포트폴리오
+class PortfolioBody(BaseModel):
+    name: str
+    shares: float
+
+
+@app.get("/api/portfolio")
+def api_portfolio(request: Request):
+    user = _require_user(request)
+    rows = portfolio.list_for_user(user["id"])
+    return portfolio.compute(rows, api_analyze)
+
+
+@app.post("/api/portfolio/{code}")
+def api_portfolio_add(code: str, body: PortfolioBody, request: Request):
+    user = _require_user(request)
+    try:
+        portfolio.upsert(user["id"], code, body.name, body.shares)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.delete("/api/portfolio/{code}")
+def api_portfolio_remove(code: str, request: Request):
+    user = _require_user(request)
+    portfolio.remove(user["id"], code)
+    return {"ok": True}
 
 
 @app.get("/sw.js")

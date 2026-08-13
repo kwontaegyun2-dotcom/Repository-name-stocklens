@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=25">
+<link rel="stylesheet" href="/static/style.css?v=26">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -21,6 +21,7 @@
   <div id="auth-area" class="auth-area">
     <button id="login-btn" class="ghost-btn">로그인</button>
     <div id="user-chip" class="user-chip hidden">
+      <button id="portfolio-link" class="ghost-btn small">💼 포트폴리오</button>
       <button id="admin-link" class="ghost-btn small hidden">👑 관리자</button>
       <span id="user-email"></span>
       <button id="logout-btn" class="ghost-btn small">로그아웃</button>
@@ -387,6 +388,42 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=25"></script>
+<!-- 내 포트폴리오 -->
+<main id="portfolio-view" class="report hidden">
+  <button id="pf-back" class="back-btn">← 돌아가기</button>
+
+  <section class="card">
+    <h3>💼 내 포트폴리오 <small class="hint">국내 종목만 지원 (해외는 환율 미지원으로 제외)</small></h3>
+    <div class="pf-add-row">
+      <div class="pf-search-wrap">
+        <input id="pf-search-input" type="text" placeholder="종목명 또는 코드 검색" autocomplete="off">
+        <div id="pf-search-dropdown" class="dropdown hidden"></div>
+      </div>
+      <input id="pf-shares" type="number" min="1" step="1" placeholder="수량(주)">
+      <button id="pf-add-btn" class="primary-btn" disabled>추가</button>
+    </div>
+    <p id="pf-add-msg" class="hint-p"></p>
+  </section>
+
+  <section class="card hidden" id="pf-summary-card">
+    <h3>📊 포트폴리오 요약</h3>
+    <div class="pf-total" id="pf-total"></div>
+    <div class="pro-grid" id="pf-metrics"></div>
+    <ul id="pf-warnings" class="pf-warnings"></ul>
+    <p id="pf-excluded" class="hint-p"></p>
+  </section>
+
+  <section class="card hidden" id="pf-sector-card">
+    <h3>🏭 업종별 비중</h3>
+    <div id="pf-sector-bars" class="pf-sector-bars"></div>
+  </section>
+
+  <section class="card hidden" id="pf-holdings-card">
+    <h3>📋 보유 종목</h3>
+    <div class="table-wrap" id="pf-holdings-table"></div>
+  </section>
+</main>
+
+<script src="/static/app.js?v=26"></script>
 </body>
 </html>
