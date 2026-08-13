@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=24">
+<link rel="stylesheet" href="/static/style.css?v=25">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -305,6 +305,11 @@
 <!-- 종목 비교 화면 -->
 <main id="compare-view" class="report hidden">
   <button id="cmp-back" class="back-btn">← 돌아가기</button>
+  <section class="card cmp-pick-card" id="cmp-pick-card">
+    <div class="cmp-pick-label">현재 가격 기준 가장 매력적인 종목</div>
+    <div class="cmp-pick-name" id="cmp-pick-name"></div>
+    <div class="cmp-pick-reason" id="cmp-pick-reason"></div>
+  </section>
   <section class="card">
     <h3>⚖️ 종목 비교 <small class="hint">부문별 점수 겹쳐보기</small></h3>
     <div class="cmp-radar-row">
@@ -382,6 +387,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=24"></script>
+<script src="/static/app.js?v=25"></script>
 </body>
 </html>

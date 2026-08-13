@@ -254,6 +254,10 @@ button { cursor: pointer; font-family: inherit; }
 .cmp-leg i { width: 12px; height: 12px; border-radius: 3px; }
 .cmp-leg span { flex: 1; }
 td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166,.08); }
+.cmp-pick-card { text-align: center; border: 1px solid var(--accent); box-shadow: 0 0 30px rgba(139,92,246,.12); }
+.cmp-pick-label { font-size: 12.5px; color: var(--muted); font-weight: 600; margin-bottom: 8px; }
+.cmp-pick-name { font-size: 26px; font-weight: 900; }
+.cmp-pick-reason { font-size: 13px; color: var(--muted); margin-top: 6px; }
 .live-row { display: flex; align-items: baseline; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
 .live-price { font-size: 34px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .live-change { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }

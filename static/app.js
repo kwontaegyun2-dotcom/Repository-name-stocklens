@@ -895,8 +895,24 @@ function showCompare() {
   $("report").classList.add("hidden");
   $("compare-view").classList.remove("hidden");
   window.scrollTo({ top: 0 });
+  renderComparePick();
   drawCompareRadar();
   renderCompareTable();
+}
+function renderComparePick() {
+  // 종합점수를 기본으로 하되, 목표주가 상승여력을 소폭 가감해 "가격 매력도"까지 반영한다
+  // (점수는 같은데 이미 목표가를 넘어선 종목이 1등으로 뽑히는 걸 막기 위한 보정).
+  let best = null, bestVal = -Infinity;
+  compareList.forEach((x) => {
+    const bonus = x.upside != null ? Math.max(-20, Math.min(x.upside, 40)) * 0.3 : 0;
+    const val = x.score + bonus;
+    if (val > bestVal) { bestVal = val; best = x; }
+  });
+  if (!best) return;
+  $("cmp-pick-name").textContent = `🏆 ${best.name}`;
+  $("cmp-pick-name").style.color = scoreColor(best.score);
+  const upsideTxt = best.upside != null ? ` · 목표주가 상승여력 ${sign(best.upside, 1)}%` : "";
+  $("cmp-pick-reason").textContent = `종합점수 ${best.score}점 (${best.grade}등급)${upsideTxt}`;
 }
 function drawCompareRadar() {
   const c = $("cmp-radar"), ctx = c.getContext("2d");
