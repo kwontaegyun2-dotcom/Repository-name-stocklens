@@ -562,6 +562,32 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .pf-search-wrap, #pf-shares, #pf-price, #pf-add-btn { width: 100%; }
 }
 
+/* ---------- 오늘의 진단 / 위험탐지 / 실질노출 / 상관관계 ---------- */
+.pf-actions-summary { font-size: 14px; color: var(--text2); margin-bottom: 14px; }
+.pf-actions-list { display: flex; flex-direction: column; gap: 10px; }
+.pf-action-card { border-radius: 14px; padding: 12px 16px; border: 1px solid var(--border); background: var(--surface); }
+.pf-action-red { border-color: rgba(255,77,109,.4); background: rgba(255,77,109,.07); }
+.pf-action-yellow { border-color: rgba(255,166,77,.4); background: rgba(255,166,77,.07); }
+.pf-action-green { border-color: rgba(46,230,166,.4); background: rgba(46,230,166,.07); }
+.pf-action-head { font-size: 14px; margin-bottom: 4px; }
+.pf-action-detail { font-size: 13px; color: var(--text2); }
+.pf-todo-wrap { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.pf-todo-wrap h4 { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+.pf-todo-list { list-style: none; display: flex; flex-direction: column; gap: 7px; }
+.pf-todo-list li { font-size: 13.5px; font-weight: 600; }
+
+.pf-risk-list { display: flex; flex-direction: column; gap: 10px; }
+.pf-risk-item { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; padding: 10px 14px; border-radius: 12px; background: rgba(255,77,109,.06); border: 1px solid rgba(255,77,109,.25); }
+.pf-risk-tag { font-weight: 700; white-space: nowrap; color: var(--down); }
+.pf-risk-detail { color: var(--text2); }
+
+.corr-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.corr-table th, .corr-table td { padding: 8px 10px; text-align: center; border-bottom: 1px solid var(--border); }
+.corr-table th { color: var(--muted); font-weight: 600; }
+.corr-table th:first-child, .corr-table td:first-child { text-align: left; font-weight: 600; color: var(--text); }
+.corr-table td.corr-high { color: var(--down); font-weight: 700; }
+.corr-table td.corr-low { color: var(--up); }
+
 /* ---------- 실적 발표 ---------- */
 .eg-deadline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; }
 .eg-deadline.urgent { border-color: rgba(255,166,77,.4); background: rgba(255,166,77,.08); }

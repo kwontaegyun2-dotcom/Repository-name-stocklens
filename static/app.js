@@ -1636,6 +1636,10 @@ async function loadPortfolio() {
   $("pf-total").textContent = "";
   $("pf-metrics").innerHTML = `<p class="hint-p">불러오는 중... (보유 종목이 많으면 몇 초 걸릴 수 있어요)</p>`;
   $("pf-warnings").innerHTML = "";
+  $("pf-actions-card").classList.add("hidden");
+  $("pf-risk-card").classList.add("hidden");
+  $("pf-exposure-card").classList.add("hidden");
+  $("pf-corr-card").classList.add("hidden");
   try {
     const p = await api("/api/portfolio");
     renderPortfolio(p);
@@ -1646,11 +1650,85 @@ async function loadPortfolio() {
   }
 }
 
+const RISK_LEVEL_ICON = { red: "🔴", yellow: "🟡", green: "🟢" };
+
+function renderTodayActions(p) {
+  const actions = p.today_actions || [];
+  $("pf-actions-card").classList.toggle("hidden", !p.available || !actions.length);
+  if (!p.available || !actions.length) return;
+
+  const n = actions.length;
+  $("pf-actions-summary").textContent = `현재 ${p.items.length}개 종목 중 조치가 필요한 항목이 ${n}건 있습니다.`;
+
+  $("pf-actions-list").innerHTML = actions.map((a) => `
+    <div class="pf-action-card pf-action-${a.level}">
+      <div class="pf-action-head">${RISK_LEVEL_ICON[a.level]} <b>${a.name}</b> ${a.title}</div>
+      <div class="pf-action-detail">${a.detail}</div>
+    </div>`).join("");
+
+  const todos = actions.map((a) => a.action);
+  $("pf-todo-wrap").classList.toggle("hidden", !todos.length);
+  $("pf-todo-list").innerHTML = todos.map((t) => `<li>→ ${t}</li>`).join("");
+}
+
+function renderRiskFlags(p) {
+  const flags = p.risk_flags || [];
+  $("pf-risk-card").classList.toggle("hidden", !p.available || !flags.length);
+  if (!p.available || !flags.length) return;
+  const circled = ["①", "②", "③", "④", "⑤", "⑥"];
+  $("pf-risk-list").innerHTML = flags.map((f, i) => `
+    <div class="pf-risk-item">
+      <span class="pf-risk-tag">${circled[i] || `(${i + 1})`} ${f.type}</span>
+      <span class="pf-risk-detail">${f.detail}</span>
+    </div>`).join("");
+}
+
+function renderExposure(p) {
+  const exp = p.theme_exposure || {};
+  const entries = Object.entries(exp);
+  $("pf-exposure-card").classList.toggle("hidden", !p.available || !entries.length);
+  if (!p.available || !entries.length) return;
+  $("pf-exposure-bars").innerHTML = entries.map(([theme, w]) => `
+    <div class="pf-sector-row">
+      <span class="pf-sector-name">${theme}${w >= 50 ? " 🔴" : ""}</span>
+      <div class="pf-sector-track"><div class="pf-sector-fill" style="width:${w}%"></div></div>
+      <span class="pf-sector-pct">${w}%</span>
+    </div>`).join("");
+}
+
+function renderCorrelation(p) {
+  const c = p.correlation;
+  $("pf-corr-card").classList.toggle("hidden", !p.available || !c);
+  if (!p.available || !c) return;
+  const { labels, matrix } = c;
+  const head = "<tr><th></th>" + labels.map((l) => `<th>${l}</th>`).join("") + "</tr>";
+  const rows = labels.map((l, i) => "<tr><th>" + l + "</th>" + matrix[i].map((v) => {
+    if (v == null) return "<td>-</td>";
+    const cls = v >= 0.7 ? "corr-high" : v <= 0 ? "corr-low" : "";
+    return `<td class="${cls}">${v.toFixed(2)}</td>`;
+  }).join("") + "</tr>").join("");
+  $("pf-corr-table").innerHTML = `<table class="corr-table"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+
+  const highPairs = [];
+  for (let i = 0; i < labels.length; i++) {
+    for (let j = i + 1; j < labels.length; j++) {
+      if (matrix[i][j] != null && matrix[i][j] >= 0.7) highPairs.push(`${labels[i]}·${labels[j]}(${matrix[i][j].toFixed(2)})`);
+    }
+  }
+  $("pf-corr-text").textContent = highPairs.length
+    ? `${highPairs.join(", ")} — 상관관계가 높아 실제 분산효과가 제한적입니다.`
+    : "종목 간 상관관계가 특별히 높지는 않습니다 — 분산효과가 어느 정도 작동하고 있습니다.";
+}
+
 function renderPortfolio(p) {
   const hasHoldings = p.available || (p.excluded && p.excluded.length);
   $("pf-summary-card").classList.toggle("hidden", !hasHoldings);
   $("pf-sector-card").classList.toggle("hidden", !p.available);
   $("pf-holdings-card").classList.toggle("hidden", !p.available);
+  renderTodayActions(p);
+  renderRiskFlags(p);
+  renderExposure(p);
+  renderCorrelation(p);
 
   if (!p.available) {
     if (hasHoldings) {

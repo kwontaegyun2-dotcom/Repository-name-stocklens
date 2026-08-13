@@ -511,7 +511,7 @@ class PortfolioBody(BaseModel):
 def api_portfolio(request: Request):
     user = _require_user(request)
     rows = portfolio.list_for_user(user["id"])
-    return portfolio.compute(rows, api_analyze)
+    return portfolio.compute(user["id"], rows, api_analyze)
 
 
 @app.post("/api/portfolio/{code}")

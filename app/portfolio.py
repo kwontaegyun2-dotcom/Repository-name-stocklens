@@ -10,9 +10,13 @@ import sqlite3
 import statistics
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
-from app import ranking
+from app import ranking, themes
+
+_KST = ZoneInfo("Asia/Seoul")
 
 _db_path = None
 _SECTOR_MAP = {code: sector for code, _name, sector in ranking.UNIVERSE}
@@ -35,6 +39,10 @@ def init(data_dir: Path):
         cols = {row["name"] for row in c.execute("PRAGMA table_info(portfolio)")}
         if "avg_price" not in cols:
             c.execute("ALTER TABLE portfolio ADD COLUMN avg_price REAL")
+        if "snapshot_score" not in cols:
+            c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_score REAL")
+        if "snapshot_date" not in cols:
+            c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_date TEXT")
 
 
 def _conn():
@@ -84,10 +92,23 @@ def remove(user_id: int, code: str):
 def list_for_user(user_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
-            "SELECT code, name, shares, avg_price FROM portfolio WHERE user_id=? ORDER BY created_at",
+            "SELECT code, name, shares, avg_price, snapshot_score, snapshot_date "
+            "FROM portfolio WHERE user_id=? ORDER BY created_at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def _update_snapshots(user_id: int, updates: list[tuple]):
+    """updates: [(code, score, date_str)]. 오늘 처음 조회한 종목만 (compute()에서) 전달됨."""
+    if not updates:
+        return
+    with _conn() as c:
+        for code, score, date_str in updates:
+            c.execute(
+                "UPDATE portfolio SET snapshot_score=?, snapshot_date=? WHERE user_id=? AND code=?",
+                (score, date_str, user_id, code),
+            )
 
 
 # ---------------------------------------------------------------- 시계열 재구성
@@ -125,8 +146,158 @@ def _volatility_and_drawdown(values):
     return round(vol, 1), round(max_dd, 1)
 
 
+# ---------------------------------------------------------------- 상관관계 · 위험기여도
+def _return_series(dates, price_by_date):
+    vals = [price_by_date[d] for d in dates]
+    return [(vals[i] - vals[i - 1]) / vals[i - 1] for i in range(1, len(vals)) if vals[i - 1]]
+
+
+def _pearson(a, b):
+    n = min(len(a), len(b))
+    if n < 20:
+        return None
+    a, b = a[:n], b[:n]
+    ma, mb = sum(a) / n, sum(b) / n
+    cov = sum((a[i] - ma) * (b[i] - mb) for i in range(n))
+    va = sum((x - ma) ** 2 for x in a)
+    vb = sum((x - mb) ** 2 for x in b)
+    if va <= 0 or vb <= 0:
+        return None
+    return round(cov / (va * vb) ** 0.5, 2)
+
+
+def _correlation_and_risk(items):
+    """items: price_by_date를 아직 갖고 있는 상태의 items 리스트(가중치 계산 이후).
+    공통 거래일 수익률로 상관계수 행렬과, 각 종목이 포트폴리오 전체 변동성에서
+    차지하는 비중(위험기여도, 합=100%)을 계산한다. 종목이 1개뿐이거나 공통 거래일이
+    30일 미만이면 계산하지 않고 솔직히 None을 반환한다(억지로 안 채움)."""
+    n = len(items)
+    if n < 2:
+        return None, None
+    date_sets = [set(it["price_by_date"].keys()) for it in items]
+    common = sorted(set.intersection(*date_sets))[-252:]
+    if len(common) < 30:
+        return None, None
+
+    returns = [_return_series(common, it["price_by_date"]) for it in items]
+    corr = [[1.0 if i == j else None for j in range(n)] for i in range(n)]
+    for i in range(n):
+        for j in range(i + 1, n):
+            c = _pearson(returns[i], returns[j])
+            corr[i][j] = corr[j][i] = c
+
+    stdevs = [statistics.pstdev(r) if len(r) >= 20 else None for r in returns]
+    if any(s is None for s in stdevs) or any(any(row[j] is None for row in corr) for j in range(n)):
+        return corr, None
+    cov = [[corr[i][j] * stdevs[i] * stdevs[j] for j in range(n)] for i in range(n)]
+    w = [it["weight"] / 100 for it in items]
+    Sw = [sum(cov[i][j] * w[j] for j in range(n)) for i in range(n)]
+    port_var = sum(w[i] * Sw[i] for i in range(n))
+    if port_var <= 0:
+        return corr, None
+    contrib = {items[i]["code"]: round(w[i] * Sw[i] / port_var * 100, 1) for i in range(n)}
+    return corr, contrib
+
+
+def _theme_exposure(items):
+    """themes.py에 큐레이션된 테마(국내분만 매칭 — 포트폴리오가 국내종목만 지원하므로)에
+    보유 비중을 합산해 "실질 노출"을 계산한다. 신규 데이터·네트워크 호출 없음."""
+    exposure = {}
+    for name, codes in themes.THEMES.items():
+        kr_codes = {code for market, code in codes if market == "KR"}
+        w = round(sum(it["weight"] for it in items if it["code"] in kr_codes), 1)
+        if w > 0:
+            exposure[name] = w
+    return dict(sorted(exposure.items(), key=lambda kv: -kv[1]))
+
+
+def _risk_flags(items, sector_weight, corr, contrib):
+    """"좋은 종목"이 아니라 "위험한 조합"을 잡아낸다 — 종목 쏠림/업종 쏠림/상관관계 과다.
+    상관관계 클러스터는 상관계수 0.7 이상인 종목들을 묶어(union-find) 합산 비중이
+    20% 이상이면 "사실상 같은 베팅"으로 플래그한다."""
+    flags = []
+    if items:
+        top = items[0]
+        if top["weight"] >= 30:
+            c = contrib.get(top["code"]) if contrib else None
+            extra = f" → 포트폴리오 변동성의 {c:.0f}%를 차지" if c is not None else ""
+            flags.append({"type": "종목 쏠림", "detail": f"{top['name']} {top['weight']:.0f}%{extra}"})
+    if sector_weight:
+        top_sector, sw = next(iter(sector_weight.items()))
+        if sw >= 50:
+            flags.append({"type": "업종 쏠림", "detail": f"{top_sector} {sw:.0f}%"})
+
+    if corr:
+        n = len(items)
+        parent = list(range(n))
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if corr[i][j] is not None and corr[i][j] >= 0.7:
+                    union(i, j)
+        groups = {}
+        for i in range(n):
+            groups.setdefault(find(i), []).append(i)
+        for members in groups.values():
+            if len(members) < 2:
+                continue
+            w = round(sum(items[i]["weight"] for i in members), 1)
+            if w >= 20:
+                names = " + ".join(items[i]["name"] for i in members)
+                flags.append({
+                    "type": "상관관계 과다",
+                    "detail": f"{names} → 종목은 {len(members)}개지만 상관계수가 높아 "
+                              f"사실상 같은 베팅입니다 (합산 비중 {w:.0f}%)",
+                })
+    return flags
+
+
+def _today_actions(items):
+    """"그래서 오늘 뭘 하지?"에 답하는 카드 목록. 목표 비중은 종목별 맞춤 목표가
+    없으므로 "균등분산 기준"(100%/종목수)을 쓴다 — 정밀한 자산배분 조언이 아니라
+    쏠림을 알아채기 위한 참고선임을 문구에 명시한다."""
+    n = len(items)
+    if not n:
+        return []
+    equal_w = 100 / n
+    cards = []
+    for it in items:
+        if it["weight"] >= max(equal_w * 1.5, 25):
+            cards.append({
+                "level": "red", "code": it["code"], "name": it["name"], "title": "비중 과다",
+                "detail": f"목표(균등분산 기준) {equal_w:.0f}% → 현재 {it['weight']:.0f}%",
+                "action": f"{it['name']} {it['weight'] - equal_w:.0f}%p 비중 축소 검토",
+            })
+        if it.get("score_diff") is not None and it["score_diff"] <= -8:
+            cards.append({
+                "level": "yellow", "code": it["code"], "name": it["name"], "title": "매수 타이밍 악화",
+                "detail": f"종합점수 {it['prev_score']:.0f} → {it['score']:.0f}",
+                "action": f"{it['name']} 보유 비중 재검토 필요",
+            })
+        if it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
+            cards.append({
+                "level": "green", "code": it["code"], "name": it["name"], "title": "추가매수 기회",
+                "detail": f"적정매수가 대비 {it['buy_discount_pct']:.0f}%",
+                "action": f"{it['name']} 추가매수 검토",
+            })
+    order = {"red": 0, "yellow": 1, "green": 2}
+    cards.sort(key=lambda c: order[c["level"]])
+    return cards
+
+
 # ---------------------------------------------------------------- 종합 계산
-def compute(holding_rows: list[dict], analyze_fn) -> dict:
+def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     """holding_rows: list_for_user() 결과. analyze_fn(code) == main.api_analyze."""
     if not holding_rows:
         return {"available": False, "reason": "담긴 종목이 없습니다."}
@@ -154,6 +325,8 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
     if not results:
         return {"available": False, "reason": "계산 가능한 국내 보유 종목이 없습니다.", "excluded": excluded}
 
+    today_str = datetime.now(_KST).date().isoformat()
+    snapshot_updates = []
     items = []
     total_value = 0.0
     for row, d in results:
@@ -162,13 +335,29 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
         total_value += value
         avg_price = row["avg_price"]
         cost = row["shares"] * avg_price if avg_price else None
+        score = d["total"]["total_score"]
+
+        snap_score, snap_date = row.get("snapshot_score"), row.get("snapshot_date")
+        if snap_date != today_str:
+            score_diff = round(score - snap_score, 1) if snap_score is not None else None
+            prev_score = snap_score
+            snapshot_updates.append((row["code"], score, today_str))
+        else:
+            score_diff, prev_score = None, None
+
+        fair_buy = (d.get("targets") or {}).get("fair_buy") or {}
+        base_price = (fair_buy.get("base") or {}).get("price")
+        buy_discount_pct = round((price - base_price) / base_price * 100, 1) if base_price else None
+
         items.append({
             "code": row["code"], "name": row["name"], "shares": row["shares"],
             "price": price, "value": value,
             "avg_price": avg_price, "cost": cost,
             "pnl": round(value - cost) if cost is not None else None,
             "pnl_pct": round((value - cost) / cost * 100, 1) if cost else None,
-            "score": d["total"]["total_score"],
+            "score": score,
+            "score_diff": score_diff, "prev_score": prev_score,
+            "buy_discount_pct": buy_discount_pct,
             "val_score": (d.get("valuation") or {}).get("score"),
             "upside": (d.get("targets") or {}).get("consensus_upside"),
             "sector": _SECTOR_MAP.get(row["code"], "미분류"),
@@ -180,6 +369,7 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
 
     for it in items:
         it["weight"] = round(it["value"] / total_value * 100, 1)
+    items.sort(key=lambda x: -x["weight"])
 
     def _wavg(key):
         pairs = [(it["weight"], it[key]) for it in items if it.get(key) is not None]
@@ -204,9 +394,19 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
     if vol is not None and vol >= 30:
         warnings.append(f"⚠️ 포트폴리오 변동성이 높은 편입니다 (연 {vol}%)")
 
+    corr, contrib = _correlation_and_risk(items)
+    if contrib:
+        for it in items:
+            it["risk_contrib_pct"] = contrib.get(it["code"])
+    theme_exposure = _theme_exposure(items)
+    risk_flags = _risk_flags(items, sector_weight, corr, contrib)
+    today_actions = _today_actions(items)
+    corr_table = {"labels": [it["name"] for it in items], "matrix": corr} if corr else None
+
+    _update_snapshots(user_id, snapshot_updates)
+
     for it in items:
         del it["price_by_date"]
-    items.sort(key=lambda x: -x["weight"])
 
     priced = [it for it in items if it["cost"] is not None]
     total_cost = sum(it["cost"] for it in priced) or None
@@ -228,4 +428,8 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
         "max_drawdown": mdd,
         "warnings": warnings,
         "excluded": excluded,
+        "today_actions": today_actions,
+        "risk_flags": risk_flags,
+        "theme_exposure": theme_exposure,
+        "correlation": corr_table,
     }

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=31">
+<link rel="stylesheet" href="/static/style.css?v=32">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -436,6 +436,16 @@
 <main id="portfolio-view" class="report hidden">
   <button id="pf-back" class="back-btn">← 돌아가기</button>
 
+  <section class="card hidden" id="pf-actions-card">
+    <h3>🤖 오늘의 포트폴리오 진단</h3>
+    <p id="pf-actions-summary" class="pf-actions-summary"></p>
+    <div id="pf-actions-list" class="pf-actions-list"></div>
+    <div id="pf-todo-wrap" class="pf-todo-wrap hidden">
+      <h4>오늘 할 일</h4>
+      <ul id="pf-todo-list" class="pf-todo-list"></ul>
+    </div>
+  </section>
+
   <section class="card">
     <h3>💼 내 포트폴리오 <small class="hint">국내 종목만 지원 (해외는 환율 미지원으로 제외)</small></h3>
     <div class="pf-add-row">
@@ -459,9 +469,25 @@
     <p id="pf-excluded" class="hint-p"></p>
   </section>
 
+  <section class="card hidden" id="pf-risk-card">
+    <h3>🚨 포트폴리오 이상징후</h3>
+    <div id="pf-risk-list" class="pf-risk-list"></div>
+  </section>
+
+  <section class="card hidden" id="pf-exposure-card">
+    <h3>💣 실질 노출 <small class="hint">테마 기준 — 종목은 달라도 같은 산업에 겹쳐 노출된 비중</small></h3>
+    <div id="pf-exposure-bars" class="pf-sector-bars"></div>
+  </section>
+
   <section class="card hidden" id="pf-sector-card">
     <h3>🏭 업종별 비중</h3>
     <div id="pf-sector-bars" class="pf-sector-bars"></div>
+  </section>
+
+  <section class="card hidden" id="pf-corr-card">
+    <h3>🧠 종목간 상관관계 <small class="hint">최근 1년 일별 수익률 기준</small></h3>
+    <p id="pf-corr-text" class="hint-p"></p>
+    <div class="table-wrap" id="pf-corr-table"></div>
   </section>
 
   <section class="card hidden" id="pf-holdings-card">
@@ -470,6 +496,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=31"></script>
+<script src="/static/app.js?v=32"></script>
 </body>
 </html>
