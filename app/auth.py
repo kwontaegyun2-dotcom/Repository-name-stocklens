@@ -11,7 +11,10 @@ import time
 from pathlib import Path
 from threading import Lock
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_USERNAME_RE = re.compile(r"^[a-z0-9_]{3,20}$")
+
+ADMIN_USERNAME = "admin"
+ADMIN_DEFAULT_PASSWORD = "admin1234"
 
 _lock = Lock()
 _db_path = None
@@ -32,33 +35,32 @@ def init(data_dir: Path):
     with _conn() as c:
         c.execute("""CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
+            username TEXT UNIQUE NOT NULL,
             password_hash TEXT NOT NULL,
             created_at REAL NOT NULL,
             last_login REAL,
             is_admin INTEGER NOT NULL DEFAULT 0
         )""")
-    _promote_admins_from_env()
+    _ensure_admin_account()
+
+
+def _ensure_admin_account():
+    """admin 계정이 없으면 admin/admin1234로 만든다(비밀번호는 로그인 후 변경 가능)."""
+    with _lock, _conn() as c:
+        row = c.execute("SELECT id FROM users WHERE username=?", (ADMIN_USERNAME,)).fetchone()
+        if row:
+            return
+        now = time.time()
+        c.execute(
+            "INSERT INTO users (username, password_hash, created_at, last_login, is_admin) VALUES (?,?,?,?,1)",
+            (ADMIN_USERNAME, _hash_password(ADMIN_DEFAULT_PASSWORD), now, now),
+        )
 
 
 def _conn():
     c = sqlite3.connect(_db_path)
     c.row_factory = sqlite3.Row
     return c
-
-
-def _admin_emails():
-    raw = os.environ.get("STOCKLENS_ADMIN_EMAIL", "")
-    return {e.strip().lower() for e in raw.split(",") if e.strip()}
-
-
-def _promote_admins_from_env():
-    emails = _admin_emails()
-    if not emails:
-        return
-    with _lock, _conn() as c:
-        for email in emails:
-            c.execute("UPDATE users SET is_admin=1 WHERE lower(email)=?", (email,))
 
 
 # ---------------------------------------------------------------- password
@@ -84,43 +86,53 @@ def _verify_password(password: str, stored: str) -> bool:
 def _row_to_user(row) -> dict:
     return {
         "id": row["id"],
-        "email": row["email"],
+        "username": row["username"],
         "created_at": row["created_at"],
         "last_login": row["last_login"],
         "is_admin": bool(row["is_admin"]),
     }
 
 
-def signup(email: str, password: str) -> dict:
-    email = (email or "").strip().lower()
-    if not _EMAIL_RE.match(email):
-        raise ValueError("올바른 이메일 형식이 아닙니다.")
+def signup(username: str, password: str) -> dict:
+    username = (username or "").strip().lower()
+    if not _USERNAME_RE.match(username):
+        raise ValueError("아이디는 영문 소문자/숫자/밑줄(_)로 3~20자여야 합니다.")
     if not password or len(password) < 8:
         raise ValueError("비밀번호는 8자 이상이어야 합니다.")
 
-    is_admin = 1 if email in _admin_emails() else 0
     with _lock, _conn() as c:
-        existing = c.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()
+        existing = c.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone()
         if existing:
-            raise ValueError("이미 가입된 이메일입니다.")
+            raise ValueError("이미 사용 중인 아이디입니다.")
         now = time.time()
         cur = c.execute(
-            "INSERT INTO users (email, password_hash, created_at, last_login, is_admin) VALUES (?,?,?,?,?)",
-            (email, _hash_password(password), now, now, is_admin),
+            "INSERT INTO users (username, password_hash, created_at, last_login, is_admin) VALUES (?,?,?,?,0)",
+            (username, _hash_password(password), now, now),
         )
         row = c.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone()
     return _row_to_user(row)
 
 
-def authenticate(email: str, password: str) -> dict | None:
-    email = (email or "").strip().lower()
+def authenticate(username: str, password: str) -> dict | None:
+    username = (username or "").strip().lower()
     with _lock, _conn() as c:
-        row = c.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+        row = c.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if not row or not _verify_password(password, row["password_hash"]):
             return None
         c.execute("UPDATE users SET last_login=? WHERE id=?", (time.time(), row["id"]))
         row = c.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
     return _row_to_user(row)
+
+
+def change_password(user_id: int, current_password: str, new_password: str):
+    if not new_password or len(new_password) < 8:
+        raise ValueError("새 비밀번호는 8자 이상이어야 합니다.")
+    with _lock, _conn() as c:
+        row = c.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+        if not row or not _verify_password(current_password, row["password_hash"]):
+            raise ValueError("현재 비밀번호가 올바르지 않습니다.")
+        c.execute("UPDATE users SET password_hash=? WHERE id=?",
+                  (_hash_password(new_password), user_id))
 
 
 def get_user(user_id: int) -> dict | None:

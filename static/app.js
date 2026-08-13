@@ -1413,7 +1413,7 @@ function renderAuthUI() {
   $("login-btn").classList.toggle("hidden", loggedIn);
   $("user-chip").classList.toggle("hidden", !loggedIn);
   if (loggedIn) {
-    $("user-email").textContent = currentUser.email;
+    $("user-name").textContent = currentUser.username;
     $("admin-link").classList.toggle("hidden", !currentUser.is_admin);
   }
 }
@@ -1434,9 +1434,11 @@ function openAuthModal(mode) {
   authMode = mode;
   document.querySelectorAll(".auth-tab").forEach((b) => b.classList.toggle("active", b.dataset.mode === mode));
   $("auth-submit").textContent = mode === "login" ? "로그인" : "회원가입";
+  $("auth-confirm-wrap").classList.toggle("hidden", mode !== "signup");
   $("auth-msg").textContent = "";
-  $("auth-email").value = "";
+  $("auth-username").value = "";
   $("auth-password").value = "";
+  $("auth-password-confirm").value = "";
   $("auth-modal").classList.remove("hidden");
 }
 
@@ -1449,15 +1451,19 @@ document.querySelectorAll(".auth-tab").forEach((b) => {
   b.onclick = () => openAuthModal(b.dataset.mode);
 });
 $("auth-submit").onclick = async () => {
-  const email = $("auth-email").value.trim();
+  const username = $("auth-username").value.trim().toLowerCase();
   const password = $("auth-password").value;
-  if (!email || !password) { $("auth-msg").textContent = "이메일과 비밀번호를 모두 입력하세요."; return; }
+  if (!username || !password) { $("auth-msg").textContent = "아이디와 비밀번호를 모두 입력하세요."; return; }
+  if (authMode === "signup" && password !== $("auth-password-confirm").value) {
+    $("auth-msg").textContent = "비밀번호 확인이 일치하지 않습니다.";
+    return;
+  }
   $("auth-msg").textContent = "처리 중...";
   try {
     const r = await api(authMode === "login" ? "/api/auth/login" : "/api/auth/signup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
     currentUser = r.user;
     renderAuthUI();
@@ -1475,6 +1481,41 @@ $("logout-btn").onclick = async () => {
   renderAuthUI();
   updateWatchBtn();
   if (!$("admin-view").classList.contains("hidden")) goHome();
+};
+
+/* ---------------- 내 정보 / 비밀번호 변경 ---------------- */
+$("myinfo-link").onclick = () => {
+  if (!currentUser) return;
+  $("myinfo-username").textContent = currentUser.username;
+  $("myinfo-current").value = "";
+  $("myinfo-new").value = "";
+  $("myinfo-new-confirm").value = "";
+  $("myinfo-msg").textContent = "";
+  $("myinfo-modal").classList.remove("hidden");
+};
+$("myinfo-close").onclick = () => $("myinfo-modal").classList.add("hidden");
+$("myinfo-modal").addEventListener("click", (e) => {
+  if (e.target === $("myinfo-modal")) $("myinfo-modal").classList.add("hidden");
+});
+$("myinfo-submit").onclick = async () => {
+  const current = $("myinfo-current").value;
+  const next = $("myinfo-new").value;
+  const confirm = $("myinfo-new-confirm").value;
+  if (!current || !next) { $("myinfo-msg").textContent = "현재/새 비밀번호를 모두 입력하세요."; return; }
+  if (next !== confirm) { $("myinfo-msg").textContent = "새 비밀번호 확인이 일치하지 않습니다."; return; }
+  $("myinfo-msg").textContent = "변경 중...";
+  try {
+    await api("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: current, new_password: next }),
+    });
+    $("myinfo-msg").textContent = "비밀번호가 변경되었습니다.";
+    $("myinfo-msg").style.color = "#2ecc71";
+  } catch (e) {
+    $("myinfo-msg").textContent = "오류: " + e.message;
+    $("myinfo-msg").style.color = "";
+  }
 };
 
 /* ---------------- 관심종목 매수 기회 알림 (웹푸시) ---------------- */
@@ -1563,9 +1604,9 @@ async function showAdmin() {
       <div class="pro-item"><label>최근 7일 가입</label><div>${fmt(s.signups_7d)}명</div></div>
       <div class="pro-item"><label>최근 24시간 접속</label><div>${fmt(s.active_24h)}명</div></div>`;
     $("admin-users-table").innerHTML = `<table><thead><tr>
-      <th>이메일</th><th>가입일</th><th>최근 로그인</th><th>관리자</th>
+      <th>아이디</th><th>가입일</th><th>최근 로그인</th><th>관리자</th>
       </tr></thead><tbody>${r.users.map((u) => `<tr>
-        <td>${u.email}</td>
+        <td>${u.username}</td>
         <td>${new Date(u.created_at * 1000).toLocaleString("ko-KR")}</td>
         <td>${u.last_login ? new Date(u.last_login * 1000).toLocaleString("ko-KR") : "-"}</td>
         <td>${u.is_admin ? "👑" : ""}</td>

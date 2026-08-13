@@ -338,13 +338,18 @@ SESSION_COOKIE = "sl_session"
 
 
 class SignupBody(BaseModel):
-    email: str
+    username: str
     password: str
 
 
 class LoginBody(BaseModel):
-    email: str
+    username: str
     password: str
+
+
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
 
 
 def _current_user(request: Request):
@@ -377,7 +382,7 @@ def _set_session_cookie(response: Response, user_id: int, request: Request):
 def api_signup(body: SignupBody, response: Response, request: Request):
     _rate_limit(request, limit=10, window=300)
     try:
-        user = auth.signup(body.email, body.password)
+        user = auth.signup(body.username, body.password)
     except ValueError as e:
         raise HTTPException(400, str(e))
     _set_session_cookie(response, user["id"], request)
@@ -387,9 +392,9 @@ def api_signup(body: SignupBody, response: Response, request: Request):
 @app.post("/api/auth/login")
 def api_login(body: LoginBody, response: Response, request: Request):
     _rate_limit(request, limit=10, window=300)
-    user = auth.authenticate(body.email, body.password)
+    user = auth.authenticate(body.username, body.password)
     if not user:
-        raise HTTPException(401, "이메일 또는 비밀번호가 올바르지 않습니다.")
+        raise HTTPException(401, "아이디 또는 비밀번호가 올바르지 않습니다.")
     _set_session_cookie(response, user["id"], request)
     return {"user": user}
 
@@ -397,6 +402,16 @@ def api_login(body: LoginBody, response: Response, request: Request):
 @app.post("/api/auth/logout")
 def api_logout(response: Response):
     response.delete_cookie(SESSION_COOKIE)
+    return {"ok": True}
+
+
+@app.post("/api/auth/change-password")
+def api_change_password(body: ChangePasswordBody, request: Request):
+    user = _require_user(request)
+    try:
+        auth.change_password(user["id"], body.current_password, body.new_password)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     return {"ok": True}
 
 

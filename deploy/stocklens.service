@@ -12,7 +12,6 @@ RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=STOCKLENS_PUBLIC=1
 Environment=STOCKLENS_DATA_DIR=/opt/stocklens-data
-Environment=STOCKLENS_ADMIN_EMAIL=kwontaegyun2@gmail.com
 
 [Install]
 WantedBy=multi-user.target

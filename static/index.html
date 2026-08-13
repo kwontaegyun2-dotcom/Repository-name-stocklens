@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=29">
+<link rel="stylesheet" href="/static/style.css?v=30">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -23,7 +23,7 @@
     <div id="user-chip" class="user-chip hidden">
       <button id="portfolio-link" class="ghost-btn small">💼 포트폴리오</button>
       <button id="admin-link" class="ghost-btn small hidden">👑 관리자</button>
-      <span id="user-email"></span>
+      <button id="myinfo-link" class="ghost-btn small">👤 <span id="user-name"></span></button>
       <button id="logout-btn" class="ghost-btn small">로그아웃</button>
     </div>
   </div>
@@ -384,14 +384,37 @@
       <button id="auth-tab-login" class="auth-tab active" data-mode="login">로그인</button>
       <button id="auth-tab-signup" class="auth-tab" data-mode="signup">회원가입</button>
     </div>
-    <label>이메일</label>
-    <input id="auth-email" type="text" placeholder="you@example.com" autocomplete="username">
+    <label>아이디</label>
+    <input id="auth-username" type="text" placeholder="영문 소문자/숫자/밑줄 3~20자" autocomplete="username">
     <label>비밀번호</label>
     <input id="auth-password" type="password" placeholder="8자 이상" autocomplete="current-password">
+    <div id="auth-confirm-wrap" class="hidden">
+      <label>비밀번호 확인</label>
+      <input id="auth-password-confirm" type="password" placeholder="비밀번호를 다시 입력하세요" autocomplete="new-password">
+    </div>
     <div id="auth-msg" class="kis-msg"></div>
     <div class="modal-actions">
       <button id="auth-submit" class="primary-btn">로그인</button>
       <button id="auth-close" class="ghost-btn">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 내 정보 -->
+<div id="myinfo-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>내 정보</h3>
+    <p class="hint-p">아이디: <b id="myinfo-username"></b></p>
+    <label>현재 비밀번호</label>
+    <input id="myinfo-current" type="password" placeholder="현재 비밀번호" autocomplete="current-password">
+    <label>새 비밀번호</label>
+    <input id="myinfo-new" type="password" placeholder="8자 이상" autocomplete="new-password">
+    <label>새 비밀번호 확인</label>
+    <input id="myinfo-new-confirm" type="password" placeholder="새 비밀번호를 다시 입력하세요" autocomplete="new-password">
+    <div id="myinfo-msg" class="kis-msg"></div>
+    <div class="modal-actions">
+      <button id="myinfo-submit" class="primary-btn">비밀번호 변경</button>
+      <button id="myinfo-close" class="ghost-btn">닫기</button>
     </div>
   </div>
 </div>
@@ -445,6 +468,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=29"></script>
+<script src="/static/app.js?v=30"></script>
 </body>
 </html>

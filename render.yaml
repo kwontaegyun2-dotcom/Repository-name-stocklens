@@ -9,6 +9,4 @@ services:
     envVars:
       - key: STOCKLENS_PUBLIC
         value: "1"
-      - key: STOCKLENS_ADMIN_EMAIL
-        value: "kwontaegyun2@gmail.com"
     healthCheckPath: /
