@@ -44,6 +44,12 @@ function scoreColor(s) {
   if (s >= 45) return "#f5a623";
   return "#ff4d4d";
 }
+function judgeLabel(score) {
+  if (score >= 75) return { label: "적극관심", emoji: "🟢" };
+  if (score >= 60) return { label: "관심", emoji: "🟢" };
+  if (score >= 45) return { label: "관망", emoji: "🟡" };
+  return { label: "매도검토", emoji: "🔴" };
+}
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -312,6 +318,40 @@ function renderRanking(d) {
   rankAll = d.items;
   rankShown = 5;
   paintRanking();
+  renderTodayPick(d.items);
+}
+
+/* ---------------- 오늘의 투자 판단 (홈) ---------------- */
+function renderTodayPick(items) {
+  const board = $("today-board");
+  if (!items || !items.length) { board.classList.add("hidden"); return; }
+  board.classList.remove("hidden");
+  const top = items.slice(0, 8);
+  const best = top[0];
+  const bj = judgeLabel(best.score);
+  $("today-hero").innerHTML = `
+    <div class="today-hero-card" data-code="${best.code}">
+      <div class="today-hero-label">🔥 지금 가장 주목할 종목</div>
+      <div class="today-hero-name">${best.name} <small>${best.code}</small></div>
+      <div class="today-hero-score" style="color:${scoreColor(best.score)}">종합점수 ${best.score}점 / ${bj.emoji} ${bj.label}</div>
+    </div>`;
+  $("today-hero").querySelector(".today-hero-card").onclick = () => analyze(best.code);
+
+  $("today-rows").innerHTML = top.map((r) => {
+    const j = judgeLabel(r.score);
+    const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
+    const fair = r.target_price ? pw(r.target_price, r.currency) : "-";
+    return `<div class="today-row" data-code="${r.code}">
+      <span class="today-judge" style="color:${scoreColor(r.score)}">${j.emoji} ${j.label}</span>
+      <span class="today-name">${r.name}</span>
+      <span class="today-price">${pw(r.price, r.currency)}</span>
+      <span class="today-fair">${fair}</span>
+      <span class="today-upside ${updownClass(r.upside)}">${up}</span>
+    </div>`;
+  }).join("");
+  $("today-rows").querySelectorAll(".today-row").forEach((row) => {
+    row.onclick = () => analyze(row.dataset.code);
+  });
 }
 
 function paintRanking() {
@@ -405,6 +445,30 @@ async function refreshPrice() {
   } catch {}
 }
 
+/* ---------------- 적정 매수가 구간별 행동 가이드 ---------------- */
+function renderFairBuyBands(fb, price) {
+  const c = fb.conservative.price, b = fb.base.price, o = fb.optimistic.price;
+  const hi = Math.round(o * 1.1);
+  const bands = [
+    { max: c, label: "적극매수", cls: "band-strong-buy", emoji: "🟢" },
+    { max: b, label: "매수", cls: "band-buy", emoji: "🟢" },
+    { max: o, label: "분할매수", cls: "band-partial", emoji: "🟡" },
+    { max: hi, label: "관망", cls: "band-watch", emoji: "🟠" },
+    { max: Infinity, label: "고평가", cls: "band-avoid", emoji: "🔴" },
+  ];
+  let lo = 0;
+  $("fb-bands").innerHTML = bands.map((band) => {
+    const rangeText = band.max === Infinity ? `${pw(lo)} 이상` :
+      (lo === 0 ? `${pw(band.max)} 이하` : `${pw(lo)} ~ ${pw(band.max)}`);
+    const active = price != null && price > lo && price <= band.max;
+    lo = band.max;
+    return `<div class="fb-band-row ${band.cls} ${active ? "active" : ""}">
+      <span class="fb-band-range">${rangeText}</span>
+      <span class="fb-band-judge">${band.emoji} ${band.label}</span>
+    </div>`;
+  }).join("");
+}
+
 /* ---------------- render ---------------- */
 function render(d) {
   lastAnalysis = d;
@@ -444,6 +508,14 @@ function render(d) {
     $("hl-badge").textContent = score >= 70 ? "🟢" : score >= 55 ? "🟡" : score >= 40 ? "🟠" : "🔴";
 
     const fbBase = t.fair_buy ? t.fair_buy.base : null;
+    if (fbBase && d.price) {
+      const diffPct = (d.price - fbBase.price) / fbBase.price * 100;
+      if (diffPct <= -3) $("hl-discount").textContent = `현재 가격은 적정가 대비 ${Math.abs(diffPct).toFixed(1)}% 저평가되어 있습니다.`;
+      else if (diffPct >= 3) $("hl-discount").textContent = `현재 가격은 적정가 대비 ${diffPct.toFixed(1)}% 고평가되어 있습니다.`;
+      else $("hl-discount").textContent = `현재 가격은 적정가와 비슷한 수준입니다.`;
+    } else {
+      $("hl-discount").textContent = "";
+    }
     const stopLoss = (tech.available && tech.entry) ? tech.entry.stop_loss : null;
     const items = [
       { label: "현재가", value: pw(d.price) },
@@ -470,10 +542,14 @@ function render(d) {
       if (posDays === flows5.length) reasons.unshift({ good: true, text: `외국인 최근 ${flows5.length}일 연속 순매수` });
       else if (posDays === 0) reasons.unshift({ good: false, text: `외국인 최근 ${flows5.length}일 연속 순매도` });
     }
-    const finalReasons = [...reasons.filter((r) => r.good).slice(0, 3), ...reasons.filter((r) => !r.good).slice(0, 3)];
-    $("hl-reasons").innerHTML = finalReasons.length
-      ? finalReasons.map((r) => `<li class="${r.good ? "good" : "bad"}">${r.good ? "✅" : "⚠️"} ${r.text}</li>`).join("")
-      : `<li>판단 근거로 쓸 신호가 충분하지 않습니다.</li>`;
+    const goodReasons = reasons.filter((r) => r.good).slice(0, 4);
+    const badReasons = reasons.filter((r) => !r.good).slice(0, 4);
+    $("hl-reasons-good").innerHTML = goodReasons.length
+      ? goodReasons.map((r) => `<li class="good">✅ ${r.text}</li>`).join("")
+      : `<li>뚜렷한 매수 근거 신호가 없습니다.</li>`;
+    $("hl-reasons-bad").innerHTML = badReasons.length
+      ? badReasons.map((r) => `<li class="bad">⚠️ ${r.text}</li>`).join("")
+      : `<li>뚜렷한 우려 신호는 없습니다.</li>`;
   }
 
   /* opinion */
@@ -512,8 +588,10 @@ function render(d) {
         <div class="fb-upside ${updownClass(v.upside)}">현재가 대비 ${sign(v.upside, 1)}%</div>
       </div>`;
     }).join("");
+    renderFairBuyBands(fb, d.price);
   } else {
     $("fair-buy-box").classList.add("hidden");
+    $("fb-bands").innerHTML = "";
   }
 
   const tech = d.technical;

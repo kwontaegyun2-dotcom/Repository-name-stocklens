@@ -304,6 +304,7 @@ def _score(entry, market, bench=None):
             "grade_desc": total["grade_desc"],
             "categories": total["categories"],
             "upside": cons.get("upside"),
+            "target_price": cons.get("target_price"),
             "verdict": tech.get("verdict") if tech.get("available") else None,
             "rsi": tech.get("rsi") if tech.get("available") else None,
             "op_growth_fwd": fund["metrics"].get("op_growth_fwd"),
