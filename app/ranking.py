@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import naver, analysis, chart_pro
+from app import naver, analysis, chart_pro, valuation
 
 # (종목코드, 표시명, 섹터) — 코스피·코스닥 주요 130여 종목
 UNIVERSE = [
@@ -275,6 +275,28 @@ def _score(entry, market, bench=None):
         senti = analysis.news_sentiment(news)
         cons = analysis.consensus_info(integ, price)
         total = analysis.total_evaluation(fund, tech, senti, cons, trend, pro)
+
+        # 이상징후 탐지(app/anomaly.py)가 재사용할 원신호. 여기서 이미 확보한 데이터로만
+        # 계산해서 추가 네트워크 호출이 없다(전체(rank) 재계산 주기 부담을 늘리지 않음).
+        per_ratio = None
+        hist = _safe(lambda: valuation.per_history(fund.get("all_rows") or {}, candles), None)
+        if hist:
+            m = fund["metrics"]
+            cur = m.get("cns_per") if (m.get("cns_per") and m["cns_per"] > 0) else m.get("per")
+            avg = hist["avg_fper"] if (m.get("cns_per") and m["cns_per"] and hist.get("avg_fper")) else hist.get("avg_per")
+            if cur and cur > 0 and avg and avg > 0:
+                per_ratio = round(cur / avg, 2)
+
+        foreign_dir = None
+        if not us and trend:
+            flows = [analysis.to_num(t.get("foreignerPureBuyQuant")) for t in trend[:5]]
+            flows = [f for f in flows if f is not None]
+            if len(flows) >= 3:
+                if all(f > 0 for f in flows):
+                    foreign_dir = "buy"
+                elif all(f < 0 for f in flows):
+                    foreign_dir = "sell"
+
         return {
             "code": code, "name": name, "sector": sector,
             "price": price, "rate": rate, "currency": currency,
@@ -283,6 +305,10 @@ def _score(entry, market, bench=None):
             "categories": total["categories"],
             "upside": cons.get("upside"),
             "verdict": tech.get("verdict") if tech.get("available") else None,
+            "rsi": tech.get("rsi") if tech.get("available") else None,
+            "op_growth_fwd": fund["metrics"].get("op_growth_fwd"),
+            "per_ratio": per_ratio,
+            "foreign_dir": foreign_dir,
         }
     except Exception:
         return None

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, themes
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, themes, anomaly
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -78,6 +78,13 @@ def api_theme_detail(name: str, request: Request = None):
     if not r:
         raise HTTPException(404, "존재하지 않는 테마입니다.")
     return r
+
+
+# ---------------------------------------------------------------- 이상징후 탐지
+@app.get("/api/anomalies")
+def api_anomalies(request: Request = None):
+    _rate_limit(request, limit=60, window=60)
+    return anomaly.scan()
 
 
 # ---------------------------------------------------------------- realtime price

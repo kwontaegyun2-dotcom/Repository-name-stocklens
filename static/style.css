@@ -568,3 +568,19 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .eg-reflection { background: var(--grad-soft); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-top: 10px; }
 .eg-reflection b { font-size: 14px; }
 .eg-reflection p { font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.6; }
+
+/* ---------- 이상징후 탐지 ---------- */
+.anomaly-board { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22); margin-bottom: 20px; }
+.anomaly-board h2 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.anomaly-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin-top: 16px; }
+.anomaly-card { border-radius: 16px; padding: 16px 18px; cursor: pointer; transition: .15s; border: 1px solid var(--border); background: var(--surface); }
+.anomaly-card:hover { transform: translateY(-2px); border-color: var(--border-glow); }
+.anomaly-card.bull { border-color: rgba(46,230,166,.35); background: rgba(46,230,166,.06); }
+.anomaly-card.bear { border-color: rgba(255,77,109,.35); background: rgba(255,77,109,.06); }
+.an-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.an-tag { font-size: 11.5px; font-weight: 700; padding: 3px 9px; border-radius: 20px; background: var(--surface2); }
+.an-name { font-weight: 700; font-size: 14px; }
+.an-score { margin-left: auto; font-weight: 800; font-size: 14px; }
+.an-reasons { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.an-reasons li { font-size: 12.5px; color: var(--text2); padding-left: 14px; position: relative; }
+.an-reasons li::before { content: "·"; position: absolute; left: 2px; color: var(--muted); }

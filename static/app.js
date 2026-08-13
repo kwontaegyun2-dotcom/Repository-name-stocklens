@@ -167,6 +167,37 @@ function goHome() {
   loadRanking(currentSector);
 }
 
+/* ---------------- 이상징후 탐지 ---------------- */
+async function loadAnomalies() {
+  try {
+    const r = await api("/api/anomalies");
+    const cards = [
+      ...r.bull.map((it) => ({ ...it, kind: "bull" })),
+      ...r.bear.map((it) => ({ ...it, kind: "bear" })),
+    ];
+    if (!cards.length) { $("anomaly-board").classList.add("hidden"); return; }
+    $("anomaly-board").classList.remove("hidden");
+    $("anomaly-list").innerHTML = cards.map((it) => {
+      const flag = it.currency === "USD" ? "🇺🇸" : "🇰🇷";
+      const bull = it.kind === "bull";
+      return `
+      <div class="anomaly-card ${it.kind}" data-code="${it.code}">
+        <div class="an-head">
+          <span class="an-tag">${bull ? "🔥 저평가 확대" : "⚠️ 단기 과열"}</span>
+          <span class="an-name">${flag} ${it.name}</span>
+          <span class="an-score" style="color:${scoreColor(it.score)}">${it.score}점</span>
+        </div>
+        <ul class="an-reasons">${it.anomaly_reasons.map((r2) => `<li>${r2}</li>`).join("")}</ul>
+      </div>`;
+    }).join("");
+    $("anomaly-list").querySelectorAll(".anomaly-card").forEach((card) => {
+      card.onclick = () => analyze(card.dataset.code);
+    });
+  } catch {
+    $("anomaly-board").classList.add("hidden");
+  }
+}
+
 /* ---------------- 테마·산업 ---------------- */
 let currentTheme = null;
 
@@ -1745,6 +1776,7 @@ renderFavBoard();
 loadRanking();
 loadMe();
 loadThemeChips();
+loadAnomalies();
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
