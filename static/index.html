@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=21">
+<link rel="stylesheet" href="/static/style.css?v=22">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -82,6 +82,7 @@
         <h2>
           <span id="stock-name"></span> <small id="stock-code"></small> <em id="stock-market"></em>
           <button id="fav-btn" class="fav-btn" title="관심종목 추가/해제">☆</button>
+          <button id="watch-btn" class="watch-btn" title="매수 기회 알림 켜기/끄기">🔔 알림</button>
           <button id="compare-btn" class="cmp-btn" title="비교에 담기">⚖️ 비교담기</button>
         </h2>
         <div class="live-row">
@@ -90,6 +91,7 @@
           <span id="live-badge" class="badge"></span>
           <span id="source-badge" class="badge src"></span>
         </div>
+        <p id="watch-msg" class="watch-msg hidden"></p>
       </div>
     </div>
     <div class="header-score">
@@ -374,6 +376,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=21"></script>
+<script src="/static/app.js?v=22"></script>
 </body>
 </html>

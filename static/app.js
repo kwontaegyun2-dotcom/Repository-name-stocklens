@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 let currentCode = null;
 let priceTimer = null;
 let chart = null;
+let watchedCodes = new Set();
 
 /* ---------------- utils ---------------- */
 const fmt = (n, digits = 0) =>
@@ -101,6 +102,12 @@ function updateFavBtn() {
   const on = isFav(currentCode);
   b.textContent = on ? "★" : "☆";
   b.classList.toggle("on", on);
+}
+function updateWatchBtn() {
+  const b = $("watch-btn");
+  const on = currentCode && watchedCodes.has(currentCode);
+  b.textContent = on ? "🔔 알림 켜짐" : "🔔 알림";
+  b.classList.toggle("on", !!on);
 }
 
 /* ---------------- search ---------------- */
@@ -325,6 +332,9 @@ function render(d) {
   $("source-badge").textContent = d.kis_enabled ? "한국투자증권 실시간" : "네이버 시세";
   if (d.public) $("kis-btn").classList.add("hidden");
   updateFavBtn();
+  updateWatchBtn();
+  $("watch-msg").classList.add("hidden");
+  $("watch-msg").textContent = "";
 
   /* score */
   drawGauge(d.total.total_score);
@@ -1250,6 +1260,8 @@ async function loadMe() {
     currentUser = null;
   }
   renderAuthUI();
+  await loadWatchlist();
+  updateWatchBtn();
 }
 
 function openAuthModal(mode) {
@@ -1284,6 +1296,8 @@ $("auth-submit").onclick = async () => {
     currentUser = r.user;
     renderAuthUI();
     $("auth-modal").classList.add("hidden");
+    await loadWatchlist();
+    updateWatchBtn();
   } catch (e) {
     $("auth-msg").textContent = "오류: " + e.message;
   }
@@ -1291,8 +1305,79 @@ $("auth-submit").onclick = async () => {
 $("logout-btn").onclick = async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
   currentUser = null;
+  watchedCodes = new Set();
   renderAuthUI();
+  updateWatchBtn();
   if (!$("admin-view").classList.contains("hidden")) goHome();
+};
+
+/* ---------------- 관심종목 매수 기회 알림 (웹푸시) ---------------- */
+async function loadWatchlist() {
+  if (!currentUser) { watchedCodes = new Set(); return; }
+  try {
+    const r = await api("/api/watch");
+    watchedCodes = new Set(r.items.map((it) => it.code));
+  } catch {
+    watchedCodes = new Set();
+  }
+}
+
+function urlBase64ToUint8Array(base64) {
+  const padding = "=".repeat((4 - (base64.length % 4)) % 4);
+  const raw = atob((base64 + padding).replace(/-/g, "+").replace(/_/g, "/"));
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+function pushSupported() {
+  return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+}
+
+async function ensurePushSubscribed() {
+  if (!window.isSecureContext) throw new Error("HTTPS로 접속해야 알림을 켤 수 있습니다.");
+  if (!pushSupported()) throw new Error("이 브라우저는 웹 알림을 지원하지 않습니다.");
+  const permission = await Notification.requestPermission();
+  if (permission !== "granted") throw new Error("알림이 차단되어 있습니다. 브라우저 설정에서 이 사이트의 알림을 허용해주세요.");
+  const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+  await navigator.serviceWorker.ready;
+  const key = (await (await fetch("/api/push/key")).json()).key;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+  }
+  await api("/api/push/subscribe", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(sub.toJSON()),
+  });
+}
+
+$("watch-btn").onclick = async () => {
+  if (!currentCode) return;
+  if (!currentUser) { openAuthModal("login"); return; }
+  const msg = $("watch-msg");
+  msg.classList.remove("hidden");
+  try {
+    if (watchedCodes.has(currentCode)) {
+      await api(`/api/watch/${currentCode}`, { method: "DELETE" });
+      watchedCodes.delete(currentCode);
+      msg.textContent = "매수 기회 알림을 껐습니다.";
+    } else {
+      msg.textContent = "알림 권한을 요청하는 중...";
+      await ensurePushSubscribed();
+      await api(`/api/watch/${currentCode}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: $("stock-name").textContent }),
+      });
+      watchedCodes.add(currentCode);
+      msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번).";
+    }
+    updateWatchBtn();
+  } catch (e) {
+    msg.textContent = "오류: " + e.message;
+  }
 };
 
 /* ---------------- admin ---------------- */
@@ -1387,3 +1472,6 @@ initTheme();
 renderFavBoard();
 loadRanking();
 loadMe();
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+}

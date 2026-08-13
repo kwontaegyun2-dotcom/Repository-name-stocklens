@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -23,6 +23,8 @@ _DATA_DIR = Path(os.environ.get("STOCKLENS_DATA_DIR") or (BASE / "data"))
 def _startup():
     ranking.start_background()
     auth.init(_DATA_DIR)
+    push.init(_DATA_DIR)
+    watch.init(_DATA_DIR, api_analyze)
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
@@ -331,6 +333,13 @@ def _current_user(request: Request):
     return auth.get_user(uid)
 
 
+def _require_user(request: Request):
+    user = _current_user(request)
+    if not user:
+        raise HTTPException(401, "로그인이 필요합니다.")
+    return user
+
+
 def _set_session_cookie(response: Response, user_id: int, request: Request):
     token = auth.create_session_token(user_id)
     response.set_cookie(
@@ -380,6 +389,82 @@ def api_admin_users(request: Request):
     if not user or not user["is_admin"]:
         raise HTTPException(403, "관리자만 접근할 수 있습니다.")
     return {"users": auth.list_users(), "stats": auth.stats()}
+
+
+# ---------------------------------------------------------------- 관심종목 매수 기회 알림
+class SubscribeBody(BaseModel):
+    endpoint: str
+    keys: dict
+
+
+class UnsubscribeBody(BaseModel):
+    endpoint: str
+
+
+class WatchBody(BaseModel):
+    name: str
+
+
+@app.get("/api/push/key")
+def api_push_key():
+    return {"key": push.PUBLIC_KEY}
+
+
+@app.post("/api/push/subscribe")
+def api_push_subscribe(body: SubscribeBody, request: Request):
+    user = _require_user(request)
+    keys = body.keys or {}
+    if not body.endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        raise HTTPException(400, "구독 정보가 올바르지 않습니다.")
+    devices = watch.save_sub(user["id"], body.endpoint, keys["p256dh"], keys["auth"],
+                              request.headers.get("user-agent", ""))
+    return {"ok": True, "devices": devices}
+
+
+@app.post("/api/push/unsubscribe")
+def api_push_unsubscribe(body: UnsubscribeBody, request: Request):
+    _require_user(request)
+    watch.drop_sub(body.endpoint)
+    return {"ok": True}
+
+
+@app.get("/api/watch")
+def api_watch_list(request: Request):
+    user = _require_user(request)
+    return {"items": watch.list_for_user(user["id"])}
+
+
+@app.post("/api/watch/{code}")
+def api_watch_add(code: str, body: WatchBody, request: Request):
+    user = _require_user(request)
+    watch.add(user["id"], code, body.name)
+    return {"ok": True}
+
+
+@app.delete("/api/watch/{code}")
+def api_watch_remove(code: str, request: Request):
+    user = _require_user(request)
+    watch.remove(user["id"], code)
+    return {"ok": True}
+
+
+@app.post("/api/push/test")
+def api_push_test(request: Request):
+    user = _require_user(request)
+    sent, total = watch.send_to_user(user["id"], {
+        "title": "🔔 StockLens 알림 테스트",
+        "body": "알림이 정상적으로 켜졌습니다. 관심종목이 매수 기회 조건을 충족하면 이렇게 알려드립니다.",
+        "url": "/", "tag": "stocklens-test", "renotify": True,
+    })
+    if total == 0:
+        raise HTTPException(400, "등록된 기기가 없습니다.")
+    return {"ok": True, "sent": sent, "total": total}
+
+
+@app.get("/sw.js")
+def service_worker():
+    return FileResponse(BASE / "static" / "sw.js", media_type="application/javascript",
+                         headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
 
 
 # ---------------------------------------------------------------- static
