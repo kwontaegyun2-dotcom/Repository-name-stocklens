@@ -41,7 +41,16 @@ def init(data_dir: Path):
             last_login REAL,
             is_admin INTEGER NOT NULL DEFAULT 0
         )""")
+        _migrate_email_to_username(c)
     _ensure_admin_account()
+
+
+def _migrate_email_to_username(c):
+    """예전 스키마(email 컬럼) → username 컬럼. 기존 회원 데이터를 지우지 않고
+    컬럼명만 바꾼다(SQLite 3.25+ RENAME COLUMN). 이미 새 스키마면 아무 일도 안 함."""
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(users)")}
+    if "email" in cols and "username" not in cols:
+        c.execute("ALTER TABLE users RENAME COLUMN email TO username")
 
 
 def _ensure_admin_account():
