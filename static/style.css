@@ -173,6 +173,13 @@ button { cursor: pointer; font-family: inherit; }
 .rank-filters button { background: var(--surface); color: var(--muted); border: 1px solid var(--border); padding: 6px 13px; border-radius: 20px; font-size: 12.5px; transition: .15s; }
 .rank-filters button:hover { color: var(--text); }
 .rank-filters button.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(99,102,241,.4); }
+
+.theme-board { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22); margin-bottom: 20px; }
+.theme-board h2 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.theme-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 4px; }
+.theme-chips button { background: var(--surface); color: var(--text); border: 1px solid var(--border); padding: 9px 16px; border-radius: 22px; font-size: 13px; font-weight: 600; transition: .15s; }
+.theme-chips button:hover { border-color: var(--border-glow); }
+.theme-chips button.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 4px 14px rgba(99,102,241,.4); }
 .rank-list { display: flex; flex-direction: column; gap: 8px; }
 .rank-loading { display: flex; align-items: center; gap: 12px; justify-content: center; color: var(--muted); padding: 40px 0; font-size: 14px; }
 .rank-row { display: grid; grid-template-columns: 46px 1.6fr 1fr 84px 1fr; align-items: center; gap: 14px; padding: 13px 16px; border-radius: 14px; cursor: pointer; background: var(--surface); border: 1px solid transparent; transition: .16s; }

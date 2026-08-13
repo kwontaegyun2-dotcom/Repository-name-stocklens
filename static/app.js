@@ -167,6 +167,66 @@ function goHome() {
   loadRanking(currentSector);
 }
 
+/* ---------------- 테마·산업 ---------------- */
+let currentTheme = null;
+
+async function loadThemeChips() {
+  try {
+    const { themes } = await api("/api/themes");
+    $("theme-chips").innerHTML = themes.map((t) =>
+      `<button data-theme="${t}" class="${t === currentTheme ? "active" : ""}">${t}</button>`).join("");
+    $("theme-chips").querySelectorAll("button").forEach((b) => {
+      b.onclick = () => selectTheme(b.dataset.theme);
+    });
+  } catch {}
+}
+
+async function selectTheme(name) {
+  currentTheme = name;
+  $("theme-chips").querySelectorAll("button").forEach((b) => b.classList.toggle("active", b.dataset.theme === name));
+  const box = $("theme-result");
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>${name} 분석 중…</span></div>`;
+  try {
+    const t = await api(`/api/themes/${encodeURIComponent(name)}`);
+    if (!t.items.length) {
+      box.innerHTML = `<div class="rank-loading"><span>아직 데이터가 준비되지 않았습니다. 잠시 후 다시 시도해주세요.</span></div>`;
+      return;
+    }
+    const rowsHtml = t.items.map((r) => {
+      const rank = r.theme_rank;
+      const medal = rank <= 3 ? `top g${rank}` : "";
+      const col = scoreColor(r.score);
+      const up = r.upside != null ? `${sign(r.upside, 0)}%` : "-";
+      const flag = r.currency === "USD" ? "🇺🇸" : "🇰🇷";
+      return `
+      <div class="rank-row" data-code="${r.code}">
+        <div class="rank-num ${medal}">${rank}</div>
+        <div class="rank-info">
+          <div class="rank-name">${flag} ${r.name}</div>
+          <div class="rank-sector">${r.sector} · ${r.code}</div>
+        </div>
+        <div class="rank-price">
+          <div class="p">${pw(r.price, r.currency)}</div>
+          <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
+        </div>
+        <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
+        <div class="rank-tail">
+          <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
+          <div class="rank-upside">목표가 ${up}</div>
+          <div class="rank-bar"><i style="width:${r.score}%;background:${col}"></i></div>
+        </div>
+      </div>`;
+    }).join("");
+    const missingNote = t.missing > 0
+      ? `<p class="hint-p">${t.missing}개 종목은 아직 랭킹 집계 중이라 빠져 있습니다 — 잠시 후 다시 확인해보세요.</p>` : "";
+    box.innerHTML = rowsHtml + missingNote;
+    box.querySelectorAll(".rank-row").forEach((row) => { row.onclick = () => analyze(row.dataset.code); });
+  } catch (e) {
+    box.innerHTML = `<div class="rank-loading"><span>불러오기 실패: ${e.message}</span></div>`;
+  }
+}
+
 /* ---------------- ranking board ---------------- */
 let currentSector = "전체";
 let currentMarket = "KR";
@@ -1684,6 +1744,7 @@ initTheme();
 renderFavBoard();
 loadRanking();
 loadMe();
+loadThemeChips();
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }

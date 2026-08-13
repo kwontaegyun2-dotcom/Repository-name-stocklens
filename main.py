@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, themes
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -63,6 +63,21 @@ def api_search(q: str, request: Request, market: str = None):
 def api_ranking(market: str = "KR", sector: str = None, request: Request = None):
     _rate_limit(request, limit=60, window=60)
     return ranking.get(market, sector)
+
+
+# ---------------------------------------------------------------- 테마·산업
+@app.get("/api/themes")
+def api_themes():
+    return {"themes": themes.list_themes()}
+
+
+@app.get("/api/themes/{name}")
+def api_theme_detail(name: str, request: Request = None):
+    _rate_limit(request, limit=60, window=60)
+    r = themes.get_theme(name)
+    if not r:
+        raise HTTPException(404, "존재하지 않는 테마입니다.")
+    return r
 
 
 # ---------------------------------------------------------------- realtime price
