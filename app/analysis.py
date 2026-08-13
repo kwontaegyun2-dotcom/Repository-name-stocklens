@@ -2,6 +2,7 @@
 """종합 분석 엔진: 기본적/기술적 분석, 뉴스 감성, 점수화, 목표주가·진입타이밍."""
 from __future__ import annotations
 
+import datetime
 import math
 import re
 
@@ -62,6 +63,30 @@ def _score_low(value, best, worst, floor=15.0, top=96.0):
         return floor
     t = (value - best) / (worst - best)  # 0..1
     return top - t * (top - floor)
+
+
+def next_report_deadline(today=None):
+    """분기·반기·사업보고서 법정 제출기한(자본시장법, 12월 결산 법인 기준).
+
+    ⚠️ 네이버 데이터에는 '실적 발표 예정일'이 없다(직접 확인함 — basic/integration/
+    finance/disclosure 등 어떤 응답에도 미래 발표일 필드가 없음). 대신 법으로 정해진
+    제출 마감일을 계산한다. 실제 잠정실적 발표는 이보다 1~6주 이르게 나오는 경우가
+    많으므로 '발표일'이 아니라 '이 날짜 전후로 나온다'는 참고용 신호로만 써야 한다.
+    3월 결산 등 비 12월 결산 법인에는 안 맞을 수 있다(개별 기업 결산월 데이터 없음).
+    """
+    today = today or datetime.date.today()
+    year = today.year
+    deadlines = [
+        (datetime.date(year, 5, 15), "1분기보고서"),
+        (datetime.date(year, 8, 14), "반기보고서"),
+        (datetime.date(year, 11, 14), "3분기보고서"),
+        (datetime.date(year + 1, 3, 31), "사업보고서(연간)"),
+    ]
+    for d, label in deadlines:
+        if d >= today:
+            return {"date": d.isoformat(), "label": label, "days_left": (d - today).days}
+    d = datetime.date(year + 1, 5, 15)
+    return {"date": d.isoformat(), "label": "1분기보고서", "days_left": (d - today).days}
 
 
 # ---------------------------------------------------------------- indicators

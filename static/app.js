@@ -385,6 +385,34 @@ function render(d) {
       : `<li>판단 근거로 쓸 신호가 충분하지 않습니다.</li>`;
   }
 
+  /* 실적 발표 */
+  const dl = d.report_deadline;
+  const er = (d.valuation && d.valuation.available) ? d.valuation.earnings : null;
+  if (dl || er) {
+    $("earnings-card").classList.remove("hidden");
+    let html = "";
+    if (dl) {
+      const urgent = dl.days_left <= 14;
+      html += `<div class="eg-deadline ${urgent ? "urgent" : ""}">
+        <span class="eg-label">다음 법정 제출기한</span>
+        <span class="eg-date">${dl.date} (D-${dl.days_left})</span>
+        <span class="eg-type">${dl.label}</span>
+      </div>
+      <p class="hint-p">공시 법정 마감일입니다 — 실제 잠정실적 발표는 이보다 1~6주 이를 수 있습니다. 3월 결산 등 12월 결산이 아닌 기업에는 맞지 않을 수 있습니다.</p>`;
+    } else {
+      html += `<p class="hint-p">미국 종목은 제출기한 규정이 달라 이 계산을 제공하지 않습니다.</p>`;
+    }
+    if (er) {
+      html += `<div class="eg-reflection">
+        <b>${er.verdict}</b>
+        <p>${er.note}</p>
+      </div>`;
+    }
+    $("earnings-body").innerHTML = html;
+  } else {
+    $("earnings-card").classList.add("hidden");
+  }
+
   /* opinion */
   $("opinion-head").textContent = d.opinion.headline;
   $("opinion-points").innerHTML = d.opinion.points.map((p) => `<li>${p}</li>`).join("");

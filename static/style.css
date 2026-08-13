@@ -551,3 +551,13 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .pf-add-row { flex-direction: column; }
   .pf-search-wrap, #pf-shares, #pf-add-btn { width: 100%; }
 }
+
+/* ---------- 실적 발표 ---------- */
+.eg-deadline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; }
+.eg-deadline.urgent { border-color: rgba(255,166,77,.4); background: rgba(255,166,77,.08); }
+.eg-label { font-size: 12px; color: var(--muted); }
+.eg-date { font-size: 17px; font-weight: 800; }
+.eg-type { font-size: 12px; color: var(--muted); background: var(--surface2); border-radius: 20px; padding: 3px 10px; }
+.eg-reflection { background: var(--grad-soft); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-top: 10px; }
+.eg-reflection b { font-size: 14px; }
+.eg-reflection p { font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.6; }

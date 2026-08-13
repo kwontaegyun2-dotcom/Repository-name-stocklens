@@ -254,6 +254,7 @@ def api_analyze(code: str, request: Request = None):
         "kis_enabled": kis.is_configured() and not PUBLIC,
         "ai_enabled": ai.available() and AI_ALLOWED,
         "public": PUBLIC,
+        "report_deadline": None if us else analysis.next_report_deadline(),
     }
 
 
