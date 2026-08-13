@@ -1372,7 +1372,8 @@ $("watch-btn").onclick = async () => {
         body: JSON.stringify({ name: $("stock-name").textContent }),
       });
       watchedCodes.add(currentCode);
-      msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번).";
+      msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번). 확인용 테스트 알림을 보냈습니다 — 안 뜨면 브라우저 알림 설정을 확인해주세요.";
+      api("/api/push/test", { method: "POST" }).catch(() => {});
     }
     updateWatchBtn();
   } catch (e) {
