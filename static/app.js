@@ -1632,6 +1632,10 @@ async function showPortfolio() {
 }
 
 async function loadPortfolio() {
+  $("pf-summary-card").classList.remove("hidden");
+  $("pf-total").textContent = "";
+  $("pf-metrics").innerHTML = `<p class="hint-p">불러오는 중... (보유 종목이 많으면 몇 초 걸릴 수 있어요)</p>`;
+  $("pf-warnings").innerHTML = "";
   try {
     const p = await api("/api/portfolio");
     renderPortfolio(p);
@@ -1655,7 +1659,10 @@ function renderPortfolio(p) {
       $("pf-warnings").innerHTML = "";
     }
   } else {
-    $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b>`;
+    const pnlHTML = p.total_pnl != null
+      ? `<span class="${updownClass(p.total_pnl)}">${sign(p.total_pnl)}원 (${sign(p.total_pnl_pct, 1)}%)</span>`
+      : `<span class="hint">평균단가를 입력한 종목이 없습니다</span>`;
+    $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>`;
     const cells = [
       ["종합점수", p.score != null ? `${p.score}점` : "-"],
       ["밸류에이션 점수", p.valuation_score != null ? `${p.valuation_score}점` : "-"],
@@ -1675,12 +1682,16 @@ function renderPortfolio(p) {
       </div>`).join("");
 
     $("pf-holdings-table").innerHTML = tableHTML(
-      ["종목", "수량", "현재가", "평가금액", "비중", "점수", ""],
+      ["종목", "수량", "평균단가", "현재가", "평가금액", "평가손익", "비중", "점수", ""],
       p.items.map((it) => [
         it.name,
         fmt(it.shares) + "주",
+        it.avg_price != null ? won(it.avg_price) : "-",
         won(it.price),
         won(it.value),
+        it.pnl != null
+          ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>`
+          : "-",
         `${it.weight}%`,
         `<span style="color:${scoreColor(it.score)}">${it.score}점</span>`,
         `<button class="ghost-btn small" data-pf-rm="${it.code}">삭제</button>`,
@@ -1729,22 +1740,30 @@ pfInput.addEventListener("input", () => {
 });
 $("pf-add-btn").onclick = async () => {
   const shares = Number($("pf-shares").value);
+  const priceRaw = $("pf-price").value.trim();
+  const avg_price = priceRaw ? Number(priceRaw) : null;
   if (!pfSelected || !shares || shares <= 0) {
     $("pf-add-msg").textContent = "종목과 수량을 모두 입력하세요.";
     return;
   }
+  if (priceRaw && (!avg_price || avg_price <= 0)) {
+    $("pf-add-msg").textContent = "평균단가는 0보다 큰 숫자로 입력하세요.";
+    return;
+  }
+  $("pf-add-btn").disabled = true;
   $("pf-add-msg").textContent = "추가 중...";
   try {
     await api(`/api/portfolio/${pfSelected.code}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: pfSelected.name, shares }),
+      body: JSON.stringify({ name: pfSelected.name, shares, avg_price }),
     });
-    pfInput.value = ""; $("pf-shares").value = ""; pfSelected = null;
-    $("pf-add-btn").disabled = true;
-    $("pf-add-msg").textContent = "";
+    pfInput.value = ""; $("pf-shares").value = ""; $("pf-price").value = ""; pfSelected = null;
+    $("pf-add-msg").textContent = "추가됨. 포트폴리오 불러오는 중...";
     await loadPortfolio();
+    $("pf-add-msg").textContent = "";
   } catch (e) {
+    $("pf-add-btn").disabled = false;
     $("pf-add-msg").textContent = "오류: " + e.message;
   }
 };

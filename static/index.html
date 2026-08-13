@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=30">
+<link rel="stylesheet" href="/static/style.css?v=31">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -444,8 +444,10 @@
         <div id="pf-search-dropdown" class="dropdown hidden"></div>
       </div>
       <input id="pf-shares" type="number" min="1" step="1" placeholder="수량(주)">
+      <input id="pf-price" type="number" min="1" step="1" placeholder="평균단가(원, 선택)">
       <button id="pf-add-btn" class="primary-btn" disabled>추가</button>
     </div>
+    <p class="hint-p">평균단가를 입력하면 평가손익을 계산해 보여드립니다. 이미 보유 중인 종목을 다시 담으면 수량은 더해지고, 단가는 가중평균으로 갱신됩니다.</p>
     <p id="pf-add-msg" class="hint-p"></p>
   </section>
 
@@ -468,6 +470,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=30"></script>
+<script src="/static/app.js?v=31"></script>
 </body>
 </html>

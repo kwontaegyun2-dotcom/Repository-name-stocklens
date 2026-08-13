@@ -504,6 +504,7 @@ def api_push_test(request: Request):
 class PortfolioBody(BaseModel):
     name: str
     shares: float
+    avg_price: float | None = None
 
 
 @app.get("/api/portfolio")
@@ -517,7 +518,7 @@ def api_portfolio(request: Request):
 def api_portfolio_add(code: str, body: PortfolioBody, request: Request):
     user = _require_user(request)
     try:
-        portfolio.upsert(user["id"], code, body.name, body.shares)
+        portfolio.upsert(user["id"], code, body.name, body.shares, body.avg_price)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}

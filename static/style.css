@@ -537,14 +537,17 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   border-radius: 12px; color: var(--text); font-size: 14px; font-family: inherit;
 }
 #pf-search-input:focus { outline: none; border-color: var(--accent); }
-#pf-shares {
+#pf-shares, #pf-price {
   width: 130px; padding: 11px 15px;
   background: var(--surface2); border: 1px solid var(--border);
   border-radius: 12px; color: var(--text); font-size: 14px; font-family: inherit;
 }
-.pf-total { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; }
+#pf-price { width: 170px; }
+.pf-total { display: flex; align-items: baseline; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
 .pf-total label { font-size: 13px; color: var(--muted); }
 .pf-total b { font-size: 28px; font-weight: 900; }
+.pf-pnl { font-size: 15px; font-weight: 700; }
+.pf-pnl .hint { font-size: 12px; font-weight: 400; color: var(--muted); }
 .pf-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .pf-warnings li { font-size: 13px; padding: 9px 13px; border-radius: 10px; background: rgba(255,166,77,.1); border: 1px solid rgba(255,166,77,.3); }
 .pf-sector-bars { display: flex; flex-direction: column; gap: 10px; }
@@ -556,7 +559,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 
 @media (max-width: 640px) {
   .pf-add-row { flex-direction: column; }
-  .pf-search-wrap, #pf-shares, #pf-add-btn { width: 100%; }
+  .pf-search-wrap, #pf-shares, #pf-price, #pf-add-btn { width: 100%; }
 }
 
 /* ---------- 실적 발표 ---------- */

@@ -28,9 +28,13 @@ def init(data_dir: Path):
             code TEXT NOT NULL,
             name TEXT NOT NULL,
             shares REAL NOT NULL,
+            avg_price REAL,
             created_at REAL NOT NULL,
             UNIQUE(user_id, code)
         )""")
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(portfolio)")}
+        if "avg_price" not in cols:
+            c.execute("ALTER TABLE portfolio ADD COLUMN avg_price REAL")
 
 
 def _conn():
@@ -40,20 +44,35 @@ def _conn():
 
 
 # ---------------------------------------------------------------- 보유종목 CRUD
-def upsert(user_id: int, code: str, name: str, shares: float):
+def upsert(user_id: int, code: str, name: str, shares: float, avg_price: float | None = None):
     """이미 보유 중인 종목을 다시 담으면 추가 매수로 간주해 수량을 더한다
-    (버튼이 "추가"인데 값을 덮어쓰면 기존 보유분이 사라진 것처럼 보이는 문제 방지)."""
+    (버튼이 "추가"인데 값을 덮어쓰면 기존 보유분이 사라진 것처럼 보이는 문제 방지).
+    평균단가도 함께 입력되면 (기존수량*기존단가 + 신규수량*신규단가) 가중평균으로 갱신한다.
+    한쪽에만 단가가 있으면(과거에 단가 없이 담았던 경우 등) 정확한 가중평균을 낼 수 없으므로
+    새로 입력된 단가를 그대로 쓴다 — 두 값 다 없으면 단가 없이 수량만 누적한다."""
     if shares <= 0:
         raise ValueError("수량은 0보다 커야 합니다.")
+    if avg_price is not None and avg_price <= 0:
+        raise ValueError("평균단가는 0보다 커야 합니다.")
     with _conn() as c:
         row = c.execute(
-            "SELECT shares FROM portfolio WHERE user_id=? AND code=?", (user_id, code)
+            "SELECT shares, avg_price FROM portfolio WHERE user_id=? AND code=?", (user_id, code)
         ).fetchone()
-        total_shares = (row["shares"] + shares) if row else shares
+        if row:
+            old_shares, old_avg = row["shares"], row["avg_price"]
+            total_shares = old_shares + shares
+            if avg_price is not None and old_avg is not None:
+                total_avg = (old_shares * old_avg + shares * avg_price) / total_shares
+            elif avg_price is not None:
+                total_avg = avg_price
+            else:
+                total_avg = old_avg
+        else:
+            total_shares, total_avg = shares, avg_price
         c.execute(
-            """INSERT INTO portfolio (user_id, code, name, shares, created_at) VALUES (?,?,?,?,?)
-               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares""",
-            (user_id, code, name, total_shares, time.time()),
+            """INSERT INTO portfolio (user_id, code, name, shares, avg_price, created_at) VALUES (?,?,?,?,?,?)
+               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares, avg_price=excluded.avg_price""",
+            (user_id, code, name, total_shares, total_avg, time.time()),
         )
 
 
@@ -65,7 +84,7 @@ def remove(user_id: int, code: str):
 def list_for_user(user_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
-            "SELECT code, name, shares FROM portfolio WHERE user_id=? ORDER BY created_at",
+            "SELECT code, name, shares, avg_price FROM portfolio WHERE user_id=? ORDER BY created_at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -141,9 +160,14 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
         price = d["price"]
         value = row["shares"] * price
         total_value += value
+        avg_price = row["avg_price"]
+        cost = row["shares"] * avg_price if avg_price else None
         items.append({
             "code": row["code"], "name": row["name"], "shares": row["shares"],
             "price": price, "value": value,
+            "avg_price": avg_price, "cost": cost,
+            "pnl": round(value - cost) if cost is not None else None,
+            "pnl_pct": round((value - cost) / cost * 100, 1) if cost else None,
             "score": d["total"]["total_score"],
             "val_score": (d.get("valuation") or {}).get("score"),
             "upside": (d.get("targets") or {}).get("consensus_upside"),
@@ -184,9 +208,17 @@ def compute(holding_rows: list[dict], analyze_fn) -> dict:
         del it["price_by_date"]
     items.sort(key=lambda x: -x["weight"])
 
+    priced = [it for it in items if it["cost"] is not None]
+    total_cost = sum(it["cost"] for it in priced) or None
+    total_pnl = (sum(it["value"] for it in priced) - total_cost) if total_cost else None
+    total_pnl_pct = round(total_pnl / total_cost * 100, 1) if total_cost else None
+
     return {
         "available": True,
         "total_value": round(total_value),
+        "total_cost": round(total_cost) if total_cost else None,
+        "total_pnl": round(total_pnl) if total_pnl is not None else None,
+        "total_pnl_pct": total_pnl_pct,
         "items": items,
         "sector_weight": sector_weight,
         "score": _wavg("score"),
