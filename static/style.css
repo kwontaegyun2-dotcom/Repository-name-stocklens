@@ -588,16 +588,6 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .corr-table td.corr-high { color: var(--down); font-weight: 700; }
 .corr-table td.corr-low { color: var(--up); }
 
-/* ---------- 실적 발표 ---------- */
-.eg-deadline { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 10px; }
-.eg-deadline.urgent { border-color: rgba(255,166,77,.4); background: rgba(255,166,77,.08); }
-.eg-label { font-size: 12px; color: var(--muted); }
-.eg-date { font-size: 17px; font-weight: 800; }
-.eg-type { font-size: 12px; color: var(--muted); background: var(--surface2); border-radius: 20px; padding: 3px 10px; }
-.eg-reflection { background: var(--grad-soft); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-top: 10px; }
-.eg-reflection b { font-size: 14px; }
-.eg-reflection p { font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.6; }
-
 /* ---------- 이상징후 탐지 ---------- */
 .anomaly-board { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22); margin-bottom: 20px; }
 .anomaly-board h2 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }

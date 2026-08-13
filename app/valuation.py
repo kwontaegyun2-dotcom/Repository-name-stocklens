@@ -372,32 +372,6 @@ def per_backtest(hist, current_per):
     }
 
 
-def earnings_reflection(band, growth_fwd):
-    """"실적 서프라이즈가 필요한가?" — 새 데이터 없이 이미 계산된 역사적밸류 배수(band)와
-    컨센서스 성장 전망(growth_fwd)만 재조합한다. 절대 이익 규모(원)를 추정하지 않는 건,
-    영업이익률·주식수까지 끌어와야 해서 오차가 커지기 때문 — PER 배수 비교가 더 안전하다."""
-    if not band or growth_fwd is None:
-        return None
-    ratio = band["ratio"]
-    # 저기반 회복(적자→흑자 등)은 성장률이 수백 %로 튄다 — PEG와 동일한 상한(50%)을 적용해
-    # "컨센서스 성장 전망 +796%" 같은 오해를 부르는 문구가 나오지 않게 한다.
-    g = min(growth_fwd, PEG_GROWTH_CAP)
-    capped_note = " (저기반 회복으로 원래 수치가 더 높아 상한 적용)" if growth_fwd > PEG_GROWTH_CAP else ""
-    if ratio >= 1.3:
-        verdict = "실적 서프라이즈 필요"
-        note = (f"현재 {band['kind']}가 과거 평균보다 {(ratio - 1) * 100:.0f}% 높습니다. "
-                f"컨센서스 성장 전망({g:+.1f}%{capped_note})대로만 나오면 밸류에이션 부담이 남을 수 있어, "
-                f"그 이상의 실적이 나와야 지금 주가가 정당화됩니다.")
-    elif ratio <= 0.8:
-        verdict = "컨센서스만 충족해도 재평가 여지"
-        note = (f"현재 {band['kind']}가 과거 평균보다 {(1 - ratio) * 100:.0f}% 낮습니다. "
-                f"컨센서스 성장 전망({g:+.1f}%{capped_note})만 달성해도 밸류에이션이 정상화(재평가)될 여지가 있습니다.")
-    else:
-        verdict = "밸류에이션과 실적 전망이 대체로 부합"
-        note = f"현재 밸류에이션이 과거 평균과 비슷한 수준이라, 컨센서스 성장 전망({g:+.1f}%{capped_note})에 부합하는 실적이면 무난합니다."
-    return {"verdict": verdict, "note": note}
-
-
 def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, price=None, market="KR"):
     """밸류에이션 종합 분석 → 지표 + 6개 항목 점수 + 종합.
 
@@ -414,7 +388,6 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     # ── 1순위: 현재 FPER ÷ 과거 평균 FPER ────────────────────────
     band = None
     backtest = None
-    earnings = None
     if hist:
         cur = fper if (fper and fper > 0) else per
         backtest = per_backtest(hist, cur)
@@ -449,7 +422,6 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
                 "ok": ratio <= 1.15,
                 "detail": f"현재 {cur:.1f}배 vs 평균 {avg:.1f}배 ({ratio:.2f}배)",
             })
-        earnings = earnings_reflection(band, metrics.get("op_growth_fwd"))
 
     # ── 2순위: PEG ──────────────────────────────────────────────
     peg = peg_analysis(fper, per, metrics.get("op_growth_fwd"), metrics.get("op_growth"))
@@ -551,7 +523,6 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
         "band": band,
         "history": hist,
         "backtest": backtest,
-        "earnings": earnings,
         "peg": peg,
         "peer": peer,
         "ev_ebitda": ev,
