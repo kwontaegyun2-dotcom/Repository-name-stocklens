@@ -314,7 +314,11 @@ def _compute(market):
         # 전부 끝날 때까지 화면이 텅 비어있지 않도록, 완료되는 대로 주기적으로 중간 결과를
         # 공개한다(20종목마다). 종목 수가 늘면서(미국 190개) 전체 완료까지 몇 분씩 걸릴 수
         # 있어, 다 끝난 뒤에야 한번에 보여주면 사용자가 계속 빈 스피너만 보고 이탈하게 된다.
-        with ThreadPoolExecutor(max_workers=16) as ex:
+        # 동시 요청 수가 너무 높으면(예전 16) 서버 재시작 직후 전체 재계산이 개별 종목
+        # analyze() 요청과 네트워크 대역폭을 다퉈서 몇십 초씩 느려지거나 타임아웃난다
+        # (2026-08-13 실측: 재배포 직후 analyze가 19~30초까지 늘어졌다가, 랭킹 계산이
+        # 끝나자마자 1초 미만으로 즉시 복귀 — 랭킹 병렬도를 낮춰 완화).
+        with ThreadPoolExecutor(max_workers=8) as ex:
             futures = [ex.submit(_score, e, market, bench) for e in UNIVERSES[market]]
             for i, fut in enumerate(as_completed(futures), 1):
                 r = fut.result()
