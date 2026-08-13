@@ -41,13 +41,19 @@ def _conn():
 
 # ---------------------------------------------------------------- 보유종목 CRUD
 def upsert(user_id: int, code: str, name: str, shares: float):
+    """이미 보유 중인 종목을 다시 담으면 추가 매수로 간주해 수량을 더한다
+    (버튼이 "추가"인데 값을 덮어쓰면 기존 보유분이 사라진 것처럼 보이는 문제 방지)."""
     if shares <= 0:
         raise ValueError("수량은 0보다 커야 합니다.")
     with _conn() as c:
+        row = c.execute(
+            "SELECT shares FROM portfolio WHERE user_id=? AND code=?", (user_id, code)
+        ).fetchone()
+        total_shares = (row["shares"] + shares) if row else shares
         c.execute(
             """INSERT INTO portfolio (user_id, code, name, shares, created_at) VALUES (?,?,?,?,?)
                ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares""",
-            (user_id, code, name, shares, time.time()),
+            (user_id, code, name, total_shares, time.time()),
         )
 
 
