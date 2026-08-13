@@ -997,6 +997,36 @@ function renderValuation(v) {
       ]));
   } else $("val-history").innerHTML = "";
 
+  /* 과거 유사 밸류에이션 시점 백테스트 */
+  const bt = v.backtest;
+  if (bt && bt.available) {
+    $("backtest-box").classList.remove("hidden");
+    const rows = bt.matches.map((m) =>
+      `<div class="bt-row"><span class="bt-year">${m.year}년</span>
+         <span class="bt-per">PER ${m.per}배 (${pw(m.avg_price)})</span>
+         <span class="bt-arrow">→ 1년 후</span>
+         <span class="bt-ret ${updownClass(m.return_1y)}">${sign(m.return_1y, 1)}%</span></div>`).join("");
+    $("backtest-body").innerHTML = `
+      <p class="hint-p">현재 PER ${bt.current_per}배와 비슷했던 과거 ${bt.matches.length}개 시점 기준
+        (완결된 연도만 사용, 진행 중인 해는 제외)</p>
+      <div class="bt-list">${rows}</div>
+      <div class="bt-summary">
+        <div class="bt-sum-item"><label>평균 1년 후 수익률</label>
+          <b class="${updownClass(bt.avg_return_1y)}">${sign(bt.avg_return_1y, 1)}%</b></div>
+        <div class="bt-sum-item"><label>상승 확률</label><b>${bt.win_rate}%</b></div>
+      </div>
+      ${bt.matches.length < 2 ? '<p class="hint-p">⚠️ 최근 5년 데이터 안에서 비교 가능한 시점이 1개뿐이라 참고용입니다.</p>' : ""}`;
+  } else if (bt) {
+    $("backtest-box").classList.remove("hidden");
+    $("backtest-body").innerHTML = `<p class="hint-p">${
+      v.history && v.history.from_per_row
+        ? "미국 종목은 연도별 평균주가 데이터가 없어 이 비교를 제공하지 않습니다."
+        : "최근 5년 안에서 현재와 비슷한 밸류에이션 시점을 찾지 못했습니다 (현재가 과거 대비 이례적인 수준일 수 있습니다)."
+    }</p>`;
+  } else {
+    $("backtest-box").classList.add("hidden");
+  }
+
   /* 핵심 지표 카드 */
   const cells = [];
   const c = v.current || {};

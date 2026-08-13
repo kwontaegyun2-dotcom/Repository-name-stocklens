@@ -471,6 +471,18 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .peer-per { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
 .peer-per .pp { font-size: 12px; padding: 5px 11px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
 .peer-per .pp.self { background: var(--grad-soft); color: var(--text); border-color: var(--accent); font-weight: 700; }
+
+.backtest-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-bottom: 14px; }
+.bt-head { font-weight: 700; font-size: 14px; margin-bottom: 10px; }
+.bt-list { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+.bt-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; background: var(--surface2); border-radius: 10px; padding: 9px 13px; }
+.bt-year { font-weight: 700; min-width: 44px; }
+.bt-per { color: var(--muted); }
+.bt-arrow { color: var(--muted); font-size: 12px; margin-left: auto; }
+.bt-ret { font-weight: 800; font-size: 14px; min-width: 60px; text-align: right; }
+.bt-summary { display: flex; gap: 20px; padding-top: 10px; border-top: 1px solid var(--border); }
+.bt-sum-item label { font-size: 11px; color: var(--muted); display: block; margin-bottom: 3px; }
+.bt-sum-item b { font-size: 17px; font-weight: 800; }
 .val-check { display: flex; flex-direction: column; gap: 6px; margin: 14px 0; }
 .vc-row { display: grid; grid-template-columns: 26px 1fr auto; gap: 4px 8px; align-items: center; padding: 9px 12px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); }
 .vc-row.no { border-color: rgba(255,176,32,.32); }

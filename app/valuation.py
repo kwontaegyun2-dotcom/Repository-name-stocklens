@@ -19,6 +19,8 @@
   - EBITDA는 **미국 종목만** 제공된다(국내 미제공). 순차입금 데이터가 없어
     EV는 시가총액 기준 근사이며, 라벨에 그 사실을 명시한다.
 """
+import datetime
+
 from app.analysis import _clamp, to_num, parse_eok, _score_low
 
 
@@ -319,6 +321,57 @@ def fair_buy_price(price, band, peer, peg, cons):
     }
 
 
+def per_backtest(hist, current_per):
+    """"이 종목이 과거에 지금과 비슷한 PER이었을 때, 그 이후 1년 수익률은?"
+
+    per_history()가 만든 연도별 평균PER·평균주가를 재사용한다(추가 데이터 조회 없음).
+    실적연도(컨센서스 제외)만 후보로 쓰고, 현재 PER과의 괴리가 작은 순으로 최대 4개를
+    골라 "그 해 평균주가 → 다음 해 평균주가" 수익률을 계산한다. 5년치 일봉만 있어 표본이
+    적으므로, 괴리 50% 이내인 후보가 하나도 없으면 available=False로 솔직하게 알린다.
+    """
+    if not hist or not current_per or current_per <= 0:
+        return None
+    years = hist.get("years") or []
+    by_year = {y["year"]: y for y in years}
+    this_year = datetime.date.today().year   # 진행 중인 해는 평균주가가 아직 완성되지 않아 제외
+
+    candidates = []
+    for y in years:
+        if y.get("consensus") or not y.get("per") or not y.get("avg_price"):
+            continue
+        nxt = by_year.get(y["year"] + 1)
+        # 다음 해가 아직 진행 중이면 "1년 후 수익률"이 아니라 "지금까지의 수익률"이 되어
+        # 최근 상승분이 그대로 끼어든다 — 완결된 해만 종료 시점으로 인정한다.
+        if not nxt or not nxt.get("avg_price") or nxt["year"] >= this_year:
+            continue
+        diff_ratio = abs(y["per"] - current_per) / current_per
+        if diff_ratio > 0.5:
+            continue
+        ret = (nxt["avg_price"] - y["avg_price"]) / y["avg_price"] * 100
+        candidates.append({
+            "year": y["year"], "per": y["per"], "avg_price": y["avg_price"],
+            "return_1y": round(ret, 1), "_diff": diff_ratio,
+        })
+    if not candidates:
+        return {"available": False}
+
+    candidates.sort(key=lambda c: c["_diff"])
+    matches = candidates[:4]
+    for m in matches:
+        del m["_diff"]
+    matches.sort(key=lambda m: m["year"])
+
+    avg_return = sum(m["return_1y"] for m in matches) / len(matches)
+    win_rate = round(sum(1 for m in matches if m["return_1y"] > 0) / len(matches) * 100)
+    return {
+        "available": True,
+        "current_per": round(current_per, 2),
+        "matches": matches,
+        "avg_return_1y": round(avg_return, 1),
+        "win_rate": win_rate,
+    }
+
+
 def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, price=None, market="KR"):
     """밸류에이션 종합 분석 → 지표 + 6개 항목 점수 + 종합.
 
@@ -334,8 +387,10 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
 
     # ── 1순위: 현재 FPER ÷ 과거 평균 FPER ────────────────────────
     band = None
+    backtest = None
     if hist:
         cur = fper if (fper and fper > 0) else per
+        backtest = per_backtest(hist, cur)
         avg = hist["avg_fper"] if (fper and fper > 0 and hist["avg_fper"]) else hist["avg_per"]
         kind = "FPER" if (fper and fper > 0 and hist["avg_fper"]) else "PER"
         cnt = hist["fper_count"] if kind == "FPER" else hist["per_count"]
@@ -467,6 +522,7 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
         "parts": {k: round(v, 1) for k, v in parts.items()},
         "band": band,
         "history": hist,
+        "backtest": backtest,
         "peg": peg,
         "peer": peer,
         "ev_ebitda": ev,
