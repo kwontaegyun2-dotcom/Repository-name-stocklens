@@ -292,7 +292,7 @@ class KisConfig(BaseModel):
 
 @app.get("/api/kis/status")
 def kis_status():
-    return {"configured": kis.is_configured()}
+    return {"configured": kis.is_configured() and not PUBLIC, "public": PUBLIC}
 
 
 @app.post("/api/kis/config")

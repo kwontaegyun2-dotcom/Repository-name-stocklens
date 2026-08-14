@@ -727,7 +727,6 @@ function render(d) {
   $("live-change").textContent = changeStr(d.change, d.rate);
   $("live-badge").textContent = d.market_status === "OPEN" ? "장중" : "장마감";
   $("source-badge").textContent = d.kis_enabled ? "한국투자증권 실시간" : "네이버 시세";
-  if (d.public) $("kis-btn").classList.add("hidden");
   updateFavBtn();
   updateWatchBtn();
   $("watch-msg").classList.add("hidden");
@@ -2188,6 +2187,18 @@ $("pf-add-btn").onclick = async () => {
 $("pf-back").onclick = goHome;
 
 /* ---------------- KIS modal ---------------- */
+// 공개 배포에서는 KIS 키 저장이 백엔드에서 403 차단되므로 버튼 자체를 숨긴다(설정 화면까지
+// 들어갔다가 저장 시점에야 막히는 경험을 방지). 로컬 실행이면 연결 여부에 따라 라벨만 바꾼다.
+async function refreshKisBtn() {
+  try {
+    const r = await api("/api/kis/status");
+    if (r.public) { $("kis-btn").classList.add("hidden"); return; }
+    $("kis-btn").classList.remove("hidden");
+    $("kis-btn").textContent = r.configured ? "⚡ 실시간 시세 연결됨" : "⚙ 실시간 시세 연동";
+  } catch {}
+}
+refreshKisBtn();
+
 $("kis-btn").onclick = () => $("kis-modal").classList.remove("hidden");
 $("kis-close").onclick = () => $("kis-modal").classList.add("hidden");
 $("kis-modal").addEventListener("click", (e) => {
@@ -2206,6 +2217,7 @@ $("kis-save").onclick = async () => {
     });
     $("kis-msg").textContent = r.message;
     $("kis-msg").style.color = r.ok ? "#2ecc71" : "#f5a623";
+    if (r.ok) refreshKisBtn();
   } catch (e) {
     $("kis-msg").textContent = "오류: " + e.message;
   }
