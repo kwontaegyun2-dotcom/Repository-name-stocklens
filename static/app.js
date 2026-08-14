@@ -785,6 +785,13 @@ function render(d) {
     $("hl-grid").innerHTML = items.map((it) => `
       <div class="hl-item"><label>${it.label}</label><div class="${it.cls || ""}">${it.value}</div></div>`).join("");
 
+    // 부문별 6개 아이콘 요약 — "5초 요약"에서 세부 이유(hl-why-split)까지 안 읽어도 어디가
+    // 좋고 나쁜지 색으로 바로 보이게(홈 today-why와 같은 CATEGORY_ICON/점수 구간 재사용).
+    $("hl-cats").innerHTML = Object.entries(d.total.categories || {}).map(([name, catScore]) => {
+      const dot = catScore >= 62 ? "🟢" : catScore >= 42 ? "🟡" : "🔴";
+      return `<span class="hl-cat-chip" title="${name} ${catScore}점">${CATEGORY_ICON[name] || "•"} ${dot}</span>`;
+    }).join("");
+
     // 근거: 이미 계산된 기술적·밸류에이션 신호(bull/bear/warn 태그) + 외국인 수급 추세
     const reasons = [];
     const pick = (arr) => (arr || []).forEach((s) => {

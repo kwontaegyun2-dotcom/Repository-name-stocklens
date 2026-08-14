@@ -361,6 +361,8 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 /* 판단 신뢰도는 hl-grid의 5번째 항목으로 통합되어 별도 라인은 더 이상 안 씀(마크업 하위호환용으로 클래스만 유지) */
 .ai-verdict-confidence { font-size: 13.5px; color: var(--muted); margin-top: 6px; font-weight: 600; }
 .ai-verdict-box .hl-grid { margin: 20px 0 0; }
+.hl-cats { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; }
+.hl-cat-chip { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; border-radius: 20px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; font-weight: 600; cursor: default; }
 .hl-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; opacity: .8; }
 .hl-head h3 { font-size: 13.5px; font-weight: 700; color: var(--muted); }
 .hl-head #hl-score { font-size: 15px; font-weight: 800; color: var(--text); }
