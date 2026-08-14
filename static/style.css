@@ -676,7 +676,13 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-total b { font-size: 28px; font-weight: 900; }
 .pf-pnl { font-size: 15px; font-weight: 700; }
 .pf-pnl .hint { font-size: 12px; font-weight: 400; color: var(--muted); }
-.pf-grade { font-size: 13.5px; font-weight: 800; padding: 5px 12px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); }
+.pf-grade-hero { margin: 4px 0 16px; padding: 16px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
+.pf-grade-label { font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.pf-grade-main { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.pf-grade-emoji { font-size: 26px; line-height: 1; }
+.pf-grade-score { font-size: 32px; font-weight: 900; letter-spacing: -.02em; }
+.pf-grade-score small { font-size: 15px; font-weight: 700; color: var(--muted); margin-left: 2px; }
+.pf-grade-desc { font-size: 15px; font-weight: 800; }
 .pf-today { font-size: 13px; color: var(--muted); font-weight: 600; }
 .pf-today span { font-weight: 800; }
 
@@ -693,6 +699,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-rebal-note { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 .pf-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .pf-warnings li { font-size: 13px; padding: 9px 13px; border-radius: 10px; background: rgba(255,166,77,.1); border: 1px solid rgba(255,166,77,.3); }
+.pf-warnings li.pos { background: rgba(46,230,166,.08); border-color: rgba(46,230,166,.3); }
 .pf-sector-bars { display: flex; flex-direction: column; gap: 10px; }
 .pf-sector-row { display: grid; grid-template-columns: 110px 1fr 50px; align-items: center; gap: 12px; }
 .pf-sector-name { font-size: 13px; font-weight: 600; }

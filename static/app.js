@@ -47,6 +47,9 @@ function scoreColor(s) {
 function verdictColor(tier) {
   return { buy: "#2ee6a6", accumulate: "#f5c518", hold: "#4f8cff", reduce: "#f5a623", sell: "#ff4d6d" }[tier] || "#9aa3ba";
 }
+function gradeEmoji(grade) {
+  return { S: "🟢", A: "🟢", B: "🟡", C: "🟡", D: "🔴", F: "🔴" }[grade] || "⚪";
+}
 
 async function api(path, opts) {
   const r = await fetch(path, opts);
@@ -2064,6 +2067,7 @@ function renderPortfolio(p) {
   if (!p.available) {
     if (hasHoldings) {
       $("pf-total").textContent = "";
+      $("pf-grade-hero").innerHTML = "";
       $("pf-metrics").innerHTML = `<p class="hint-p">${p.reason || "계산할 수 없습니다."}</p>`;
       $("pf-warnings").innerHTML = "";
     }
@@ -2071,11 +2075,23 @@ function renderPortfolio(p) {
     const pnlHTML = p.total_pnl != null
       ? `<span class="${updownClass(p.total_pnl)}">${sign(p.total_pnl)}원 (${sign(p.total_pnl_pct, 1)}%)</span>`
       : `<span class="hint">평균단가를 입력한 종목이 없습니다</span>`;
-    const gradeHTML = p.grade
-      ? `<span class="pf-grade" style="color:${scoreColor(p.score)}">${p.grade}등급 · ${p.grade_desc} (${p.score}점)</span>` : "";
     const todayHTML = p.today_pnl != null
       ? `<div class="pf-today">오늘 <span class="${updownClass(p.today_pnl)}">${sign(p.today_pnl)}원 (${sign(p.today_pnl_pct, 2)}%)</span></div>` : "";
-    $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>${gradeHTML}${todayHTML}`;
+    $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>${todayHTML}`;
+
+    // AI 포트폴리오 점수 — 종목상세 "AI 최종판단"과 같은 철학: 판단(등급)을 숫자 점수보다 크게.
+    if (p.grade) {
+      $("pf-grade-hero").innerHTML = `
+        <div class="pf-grade-label">AI 포트폴리오 점수</div>
+        <div class="pf-grade-main">
+          <span class="pf-grade-emoji">${gradeEmoji(p.grade)}</span>
+          <span class="pf-grade-score" style="color:${scoreColor(p.score)}">${p.score}<small>/100</small></span>
+          <span class="pf-grade-desc" style="color:${scoreColor(p.score)}">${p.grade}등급 · ${p.grade_desc}</span>
+        </div>`;
+    } else {
+      $("pf-grade-hero").innerHTML = "";
+    }
+
     const cells = [
       ["종합점수", p.score != null ? `${p.score}점` : "-"],
       ["밸류에이션 점수", p.valuation_score != null ? `${p.valuation_score}점` : "-"],
@@ -2085,7 +2101,12 @@ function renderPortfolio(p) {
     ];
     $("pf-metrics").innerHTML = cells.map(([l, v]) =>
       `<div class="pro-item"><label>${l}</label><div class="pro-val">${v}</div></div>`).join("");
-    $("pf-warnings").innerHTML = (p.warnings || []).map((w) => `<li>${w}</li>`).join("");
+    // 경고(warnings)만 있으면 부정적 신호만 나열되어 불안해 보일 수 있어, 밸류에이션이 양호하면
+    // 긍정 신호도 한 줄 보태 균형을 맞춘다("경고 목록"이 아니라 "진단 요약"이 되도록).
+    const posNote = (p.valuation_score != null && p.valuation_score >= 60)
+      ? ["🟢 종목별 밸류에이션은 양호한 편입니다"] : [];
+    $("pf-warnings").innerHTML = (p.warnings || []).map((w) => `<li>${w}</li>`).join("")
+      + posNote.map((w) => `<li class="pos">${w}</li>`).join("");
 
     $("pf-sector-bars").innerHTML = Object.entries(p.sector_weight || {}).map(([sector, w]) => `
       <div class="pf-sector-row">

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=43">
+<link rel="stylesheet" href="/static/style.css?v=44">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -496,8 +496,18 @@
 <main id="portfolio-view" class="report hidden">
   <button id="pf-back" class="back-btn">← 돌아가기</button>
 
+  <!-- 내 포트폴리오 AI 진단 (총자산·손익·AI점수·경고를 한 블록에 — 이 화면의 핵심) -->
+  <section class="card hidden" id="pf-summary-card">
+    <h3>💼 내 포트폴리오 <small class="hint">국내 종목만 지원 (해외는 환율 미지원으로 제외)</small></h3>
+    <div class="pf-total" id="pf-total"></div>
+    <div class="pf-grade-hero" id="pf-grade-hero"></div>
+    <ul id="pf-warnings" class="pf-warnings"></ul>
+    <div class="pro-grid" id="pf-metrics"></div>
+    <p id="pf-excluded" class="hint-p"></p>
+  </section>
+
   <section class="card hidden" id="pf-actions-card">
-    <h3>🤖 오늘의 포트폴리오 진단</h3>
+    <h3>🤖 오늘의 Action</h3>
     <p id="pf-actions-summary" class="pf-actions-summary"></p>
     <div id="pf-actions-list" class="pf-actions-list"></div>
     <div id="pf-todo-wrap" class="pf-todo-wrap hidden">
@@ -507,7 +517,7 @@
   </section>
 
   <section class="card">
-    <h3>💼 내 포트폴리오 <small class="hint">국내 종목만 지원 (해외는 환율 미지원으로 제외)</small></h3>
+    <h3>➕ 종목 추가</h3>
     <div class="pf-add-row">
       <div class="pf-search-wrap">
         <input id="pf-search-input" type="text" placeholder="종목명 또는 코드 검색" autocomplete="off">
@@ -519,14 +529,6 @@
     </div>
     <p class="hint-p">평균단가를 입력하면 평가손익을 계산해 보여드립니다. 이미 보유 중인 종목을 다시 담으면 수량은 더해지고, 단가는 가중평균으로 갱신됩니다.</p>
     <p id="pf-add-msg" class="hint-p"></p>
-  </section>
-
-  <section class="card hidden" id="pf-summary-card">
-    <h3>📊 포트폴리오 요약</h3>
-    <div class="pf-total" id="pf-total"></div>
-    <div class="pro-grid" id="pf-metrics"></div>
-    <ul id="pf-warnings" class="pf-warnings"></ul>
-    <p id="pf-excluded" class="hint-p"></p>
   </section>
 
   <section class="card hidden" id="pf-risk-card">
@@ -563,6 +565,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=43"></script>
+<script src="/static/app.js?v=44"></script>
 </body>
 </html>
