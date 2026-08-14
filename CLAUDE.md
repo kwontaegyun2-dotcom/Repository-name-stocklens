@@ -104,12 +104,16 @@ PowerShell은 **한글 키 접근이 안 된다**(`$a.total.categories.'가치�
 
 작업은 **로컬 구현에서 멈추지 않고 배포·반영확인까지** 완료한다 (사용자 기본 기대).
 
+> ⚠️ **Render는 폐기됨(2026-08-13, 사용자가 직접 일시정지).** 지금은 **오라클이 유일한
+> 라이브 배포처**이고, git push만으로는 반영되지 않는다 — SSH/SCP 수동 배포가 필수다.
+> 상세 절차는 [HANDOFF.md](HANDOFF.md) 6장 참고.
+
 ```bash
 git add -A && git commit -m "..." && git push origin main
 ```
-→ Render 자동 재배포(2~4분) → 라이브에서 캐시버전·기능 실제 확인.
+→ (GitHub 백업용, 자동배포 아님) → 오라클에 SCP+SSH로 수동 배포 → 라이브에서 캐시버전·기능 실제 확인.
 
-라이브: https://stocklens-mpr6.onrender.com
+라이브: https://stocklens.161-33-201-126.nip.io
 
 ---
 

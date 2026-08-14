@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, portfolio_alert, themes, anomaly
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, portfolio_alert, themes, anomaly, event_alert
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -27,6 +27,7 @@ def _startup():
     watch.init(_DATA_DIR, api_analyze)
     portfolio.init(_DATA_DIR)
     portfolio_alert.init(_DATA_DIR, api_analyze)
+    event_alert.init(_DATA_DIR, api_analyze)
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
