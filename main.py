@@ -234,6 +234,7 @@ def api_analyze(code: str, request: Request = None):
         market="US" if us else "KR"),
         {"available": False})
     targets["fair_buy"] = val.get("fair_buy") if val.get("available") else None
+    ai_verdict = analysis.final_verdict(total, val, cons)
 
     # 수급 요약 테이블 (최근 10일)
     flows = []
@@ -260,6 +261,7 @@ def api_analyze(code: str, request: Request = None):
         "direction": (b.get("compareToPreviousPrice") or {}).get("name"),
         "market_status": b.get("marketStatus"),
         "total": total,
+        "ai_verdict": ai_verdict,
         "opinion": opinion,
         "metrics": fund["metrics"],
         "finance_rows": fund["finance_rows"],

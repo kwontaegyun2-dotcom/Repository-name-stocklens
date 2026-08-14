@@ -297,6 +297,12 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 
 /* ---------- 매수 매력도 요약 ---------- */
 .highlight-card { border: 1px solid var(--accent); box-shadow: 0 0 30px rgba(139,92,246,.12); }
+.ai-verdict-box { text-align: center; padding: 18px 12px 22px; margin-bottom: 18px; border-bottom: 1px solid var(--border); }
+.ai-verdict-label { font-size: 12.5px; color: var(--muted); font-weight: 700; letter-spacing: .02em; margin-bottom: 8px; }
+.ai-verdict-main { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.ai-verdict-emoji { font-size: 34px; line-height: 1; }
+.ai-verdict-tier { font-size: 30px; font-weight: 900; letter-spacing: -.02em; }
+.ai-verdict-confidence { font-size: 13.5px; color: var(--muted); margin-top: 6px; font-weight: 600; }
 .hl-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .hl-head h3 { font-size: 17px; }
 .hl-head #hl-score { font-size: 22px; font-weight: 900; }

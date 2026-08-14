@@ -275,6 +275,10 @@ def _score(entry, market, bench=None):
         senti = analysis.news_sentiment(news)
         cons = analysis.consensus_info(integ, price)
         total = analysis.total_evaluation(fund, tech, senti, cons, trend, pro)
+        # 밸류에이션 전체 재계산(peers_per 조회 등)은 무거워서 랭킹에서는 생략하고,
+        # 이미 있는 total·cons만으로 확신도를 계산한다(analyze()보다 신호가 적어
+        # 다소 보수적으로 나올 수 있음 — main.py 상세페이지는 valuation까지 반영).
+        ai_verdict = analysis.final_verdict(total, cons=cons)
 
         # 이상징후 탐지(app/anomaly.py)가 재사용할 원신호. 여기서 이미 확보한 데이터로만
         # 계산해서 추가 네트워크 호출이 없다(전체(rank) 재계산 주기 부담을 늘리지 않음).
@@ -305,6 +309,7 @@ def _score(entry, market, bench=None):
             "categories": total["categories"],
             "upside": cons.get("upside"),
             "target_price": cons.get("target_price"),
+            "ai_verdict": ai_verdict,
             "verdict": tech.get("verdict") if tech.get("available") else None,
             "rsi": tech.get("rsi") if tech.get("available") else None,
             "op_growth_fwd": fund["metrics"].get("op_growth_fwd"),

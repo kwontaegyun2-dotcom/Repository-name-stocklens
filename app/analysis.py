@@ -877,6 +877,51 @@ def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend
     }
 
 
+# ---------------------------------------------------------------- AI 최종판단(5단계)
+VERDICT_TIERS = [
+    (80, "buy", "매수", "🟢"),
+    (65, "accumulate", "분할매수", "🟡"),
+    (45, "hold", "보유", "🔵"),
+    (30, "reduce", "분할매도", "🟠"),
+    (0, "sell", "매도", "🔴"),
+]
+
+
+def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dict:
+    """종합점수 하나만 보여주는 대신, 5단계 매매판단(매수~매도)과 확신도로 번역한다.
+
+    확신도는 점수를 다시 보여주는 게 아니라 **신호 간 합치도**를 잰다 — total_evaluation의
+    6개 부문점수(+가능하면 밸류에이션 점수·컨센서스 상승여력)가 판단 방향과 얼마나
+    일치하는지를 센다. 부문점수가 들쭉날쭉하면(강점·약점 혼재) 종합점수는 중간이어도
+    확신도는 낮게 나온다. 과신을 피하기 위해 50~95% 범위로만 제한한다(100% 확신은
+    절대 표시하지 않음).
+    """
+    score = total["total_score"]
+    tier = label = emoji = None
+    for th, t, lb, em in VERDICT_TIERS:
+        if score >= th:
+            tier, label, emoji = t, lb, em
+            break
+
+    signals = list(total["categories"].values())
+    if valuation and valuation.get("available") and valuation.get("score") is not None:
+        signals.append(valuation["score"])
+    if cons and cons.get("upside") is not None:
+        signals.append(_clamp(50 + cons["upside"]))
+
+    if tier in ("buy", "accumulate"):
+        agree = sum(1 for s in signals if s >= 55)
+    elif tier in ("reduce", "sell"):
+        agree = sum(1 for s in signals if s <= 45)
+    else:
+        agree = sum(1 for s in signals if 40 <= s <= 65)
+
+    ratio = agree / len(signals) if signals else 0.5
+    confidence = round(_clamp(50 + ratio * 45, 50, 95))
+
+    return {"tier": tier, "label": label, "emoji": emoji, "confidence": confidence}
+
+
 def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, total: dict) -> dict:
     """규칙 기반 종합 의견 / 미래 사업가치 서술 생성."""
     m = fund["metrics"]

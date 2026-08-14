@@ -44,11 +44,8 @@ function scoreColor(s) {
   if (s >= 45) return "#f5a623";
   return "#ff4d4d";
 }
-function judgeLabel(score) {
-  if (score >= 75) return { label: "적극관심", emoji: "🟢" };
-  if (score >= 60) return { label: "관심", emoji: "🟢" };
-  if (score >= 45) return { label: "관망", emoji: "🟡" };
-  return { label: "매도검토", emoji: "🔴" };
+function verdictColor(tier) {
+  return { buy: "#2ee6a6", accumulate: "#f5c518", hold: "#4f8cff", reduce: "#f5a623", sell: "#ff4d6d" }[tier] || "#9aa3ba";
 }
 
 async function api(path, opts) {
@@ -328,21 +325,21 @@ function renderTodayPick(items) {
   board.classList.remove("hidden");
   const top = items.slice(0, 8);
   const best = top[0];
-  const bj = judgeLabel(best.score);
+  const bv = best.ai_verdict || {};
   $("today-hero").innerHTML = `
     <div class="today-hero-card" data-code="${best.code}">
       <div class="today-hero-label">🔥 지금 가장 주목할 종목</div>
       <div class="today-hero-name">${best.name} <small>${best.code}</small></div>
-      <div class="today-hero-score" style="color:${scoreColor(best.score)}">종합점수 ${best.score}점 / ${bj.emoji} ${bj.label}</div>
+      <div class="today-hero-score" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 확신도 ${bv.confidence ?? "-"}% <small>(종합점수 ${best.score}점)</small></div>
     </div>`;
   $("today-hero").querySelector(".today-hero-card").onclick = () => analyze(best.code);
 
   $("today-rows").innerHTML = top.map((r) => {
-    const j = judgeLabel(r.score);
+    const v = r.ai_verdict || {};
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
     const fair = r.target_price ? pw(r.target_price, r.currency) : "-";
     return `<div class="today-row" data-code="${r.code}">
-      <span class="today-judge" style="color:${scoreColor(r.score)}">${j.emoji} ${j.label}</span>
+      <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="today-name">${r.name}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
       <span class="today-fair">${fair}</span>
@@ -506,6 +503,12 @@ function render(d) {
     $("hl-score").textContent = score;
     $("hl-score").style.color = scoreColor(score);
     $("hl-badge").textContent = score >= 70 ? "🟢" : score >= 55 ? "🟡" : score >= 40 ? "🟠" : "🔴";
+
+    const v = d.ai_verdict || {};
+    $("ai-verdict-emoji").textContent = v.emoji || "";
+    $("ai-verdict-tier").textContent = v.label || "-";
+    $("ai-verdict-tier").style.color = verdictColor(v.tier);
+    $("ai-verdict-confidence").textContent = v.confidence ?? "-";
 
     const fbBase = t.fair_buy ? t.fair_buy.base : null;
     if (fbBase && d.price) {
