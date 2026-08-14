@@ -291,6 +291,12 @@ def _today_actions(items):
                 "detail": f"적정매수가 대비 {it['buy_discount_pct']:.0f}%",
                 "action": f"{it['name']} 추가매수 검토",
             })
+        if it.get("sell_reasons"):
+            cards.append({
+                "level": "red", "code": it["code"], "name": it["name"], "title": "매도 신호",
+                "detail": " · ".join(it["sell_reasons"]),
+                "action": f"{it['name']} 일부 차익실현 고려",
+            })
     order = {"red": 0, "yellow": 1, "green": 2}
     cards.sort(key=lambda c: order[c["level"]])
     return cards
@@ -349,6 +355,22 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         base_price = (fair_buy.get("base") or {}).get("price")
         buy_discount_pct = round((price - base_price) / base_price * 100, 1) if base_price else None
 
+        # 매도 신호 후보: 목표가 도달 / 기술적 과열(RSI) / 외국인 순매도 전환.
+        # 단일 신호는 오탐이 많아(anomaly.py와 동일 원칙) 2개 이상 겹칠 때만 신호로 인정한다.
+        tech = d.get("technical") or {}
+        rsi = tech.get("rsi") if tech.get("available") else None
+        target_price = (d.get("targets") or {}).get("consensus")
+        flows5 = [f.get("foreigner") for f in (d.get("flows") or [])[:5] if f.get("foreigner") is not None]
+        foreign_sell = len(flows5) >= 3 and all(f < 0 for f in flows5)
+        sell_candidates = []
+        if target_price and price >= target_price:
+            sell_candidates.append(f"목표가({target_price:,.0f}원) 도달")
+        if rsi is not None and rsi >= 70:
+            sell_candidates.append(f"기술적 과열(RSI {rsi:.0f})")
+        if foreign_sell:
+            sell_candidates.append("외국인 순매도 전환")
+        sell_reasons = sell_candidates if len(sell_candidates) >= 2 else []
+
         items.append({
             "code": row["code"], "name": row["name"], "shares": row["shares"],
             "price": price, "value": value,
@@ -358,6 +380,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
             "score": score,
             "score_diff": score_diff, "prev_score": prev_score,
             "buy_discount_pct": buy_discount_pct,
+            "sell_reasons": sell_reasons,
             "val_score": (d.get("valuation") or {}).get("score"),
             "upside": (d.get("targets") or {}).get("consensus_upside"),
             "sector": _SECTOR_MAP.get(row["code"], "미분류"),
