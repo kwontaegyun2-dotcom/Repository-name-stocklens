@@ -396,11 +396,58 @@ function directionTag(score) {
   return { text: "매우 부정", arrow: "▼▼", cls: "dir-strong-down" };
 }
 
+// 실시간 랭킹(순수 종합점수 순)과 차별화된 "지금이 진입 타이밍인가"용 재정렬.
+// 랭킹 그대로 top5를 보여주면 아래 실시간 랭킹표와 완전히 같은 리스트가 되어버리므로,
+// 종합점수 상위 후보군(20개) 안에서 밸류·과열여부·수급까지 반영해 다시 추린다.
+// 백엔드 추가 호출 없이 /api/ranking이 이미 주는 필드(upside·rsi·per_ratio·foreign_dir·
+// op_growth_fwd)만으로 계산 — 랭킹 백그라운드 루프에 무거운 계산을 얹지 않는다(CLAUDE.md 규칙).
+function opportunityScore(r) {
+  let s = r.score;
+  if (r.upside != null) s += Math.max(-20, Math.min(60, r.upside)) * 0.25;
+  if (r.rsi != null) {
+    if (r.rsi >= 78) s -= 12;
+    else if (r.rsi >= 70) s -= 6;
+    else if (r.rsi <= 35) s += 6;
+    else if (r.rsi <= 45) s += 3;
+  }
+  if (r.per_ratio != null) {
+    if (r.per_ratio <= 0.8) s += 6;
+    else if (r.per_ratio <= 1.0) s += 2;
+    else if (r.per_ratio >= 1.3) s -= 6;
+  }
+  if (r.foreign_dir === "buy") s += 3;
+  else if (r.foreign_dir === "sell") s -= 3;
+  if (r.op_growth_fwd != null && r.op_growth_fwd >= 20) s += 3;
+  return s;
+}
+
+function opportunityReasons(r) {
+  const reasons = [];
+  if (r.upside != null && r.upside >= 20) reasons.push({ txt: `상승여력 ${sign(r.upside, 0)}%`, w: r.upside });
+  if (r.rsi != null && r.rsi <= 40) reasons.push({ txt: `RSI ${r.rsi.toFixed(0)} 과매도권`, w: 40 - r.rsi + 15 });
+  if (r.per_ratio != null && r.per_ratio <= 0.85) reasons.push({ txt: `PER 저평가 ${Math.round((1 - r.per_ratio) * 100)}%`, w: (1 - r.per_ratio) * 100 });
+  if (r.foreign_dir === "buy") reasons.push({ txt: "외국인 5일 연속 순매수", w: 10 });
+  // op_growth_fwd는 저기반(적자→흑자) 회복 시 수백%까지 왜곡될 수 있어 표시는 50%로 캡(anomaly.py와 동일 관례).
+  if (r.op_growth_fwd != null && r.op_growth_fwd >= 20) {
+    const g = Math.min(r.op_growth_fwd, 50);
+    reasons.push({ txt: `실적전망 +${Math.round(g)}%`, w: g * 0.3 });
+  }
+  reasons.sort((a, b) => b.w - a.w);
+  return reasons.slice(0, 2).map((x) => x.txt);
+}
+
+function pickOpportunities(items) {
+  // 극단적 과열(RSI 78+)은 "지금이 기회"라는 취지와 안 맞으므로 후보군에서 제외.
+  const pool = items.slice(0, 20).filter((r) => !(r.rsi != null && r.rsi >= 78));
+  const base = pool.length ? pool : items.slice(0, 5);
+  return [...base].sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 5);
+}
+
 async function renderTodayPick(items) {
   const board = $("today-board");
   if (!items || !items.length) { board.classList.add("hidden"); return; }
   board.classList.remove("hidden");
-  const top = items.slice(0, 5);
+  const top = pickOpportunities(items);
   const best = top[0];
   const bv = best.ai_verdict || {};
   const bestUp = best.upside != null ? `${sign(best.upside, 1)}%` : "-";
@@ -434,9 +481,11 @@ async function renderTodayPick(items) {
     const v = r.ai_verdict || {};
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
     const target = r.target_price ? pw(r.target_price, r.currency) : "-";
+    const reasons = opportunityReasons(r);
+    const reasonHtml = reasons.length ? `<span class="today-reason">${reasons.join(" · ")}</span>` : "";
     return `<div class="today-row" data-code="${r.code}">
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
-      <span class="today-name">${r.name}</span>
+      <span class="today-name-col"><span class="today-name">${r.name}</span>${reasonHtml}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
       <span class="today-fair">${target}</span>
       <span class="today-upside ${updownClass(r.upside)}">${up}</span>

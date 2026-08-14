@@ -205,7 +205,9 @@ button { cursor: pointer; font-family: inherit; }
 .today-row:not(.today-row-head):hover { background: var(--grad-soft); border-color: var(--border-glow); transform: translateX(4px); }
 .today-row-head { color: var(--muted); font-size: 11.5px; font-weight: 700; padding: 0 14px; }
 .today-judge { font-size: 13px; font-weight: 800; }
+.today-name-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .today-name { font-size: 14px; font-weight: 700; }
+.today-reason { font-size: 11px; font-weight: 600; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .today-price, .today-fair { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .today-upside { font-size: 13px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 
