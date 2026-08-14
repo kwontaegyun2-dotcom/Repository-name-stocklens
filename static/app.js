@@ -672,28 +672,33 @@ async function refreshPrice() {
   } catch {}
 }
 
-/* ---------------- 적정 매수가 구간별 행동 가이드 ---------------- */
-function renderFairBuyBands(fb, price) {
-  const c = fb.conservative.price, b = fb.base.price, o = fb.optimistic.price;
-  const hi = Math.round(o * 1.1);
-  const bands = [
-    { max: c, label: "적극매수", cls: "band-strong-buy", emoji: "🟢" },
-    { max: b, label: "매수", cls: "band-buy", emoji: "🟢" },
-    { max: o, label: "분할매수", cls: "band-partial", emoji: "🟡" },
-    { max: hi, label: "관망", cls: "band-watch", emoji: "🟠" },
-    { max: Infinity, label: "고평가", cls: "band-avoid", emoji: "🔴" },
+/* ---------------- 가격별 투자전략 — 가로 눈금선 + 현재가 세로선 ---------------- */
+function renderPriceLadder(fb, price, target) {
+  const pts = [
+    { label: "적극매수", emoji: "🟢", price: fb.conservative.price, cls: "pl-buy" },
+    { label: "매수", emoji: "🟢", price: fb.base.price, cls: "pl-buy" },
+    { label: "분할매수", emoji: "🟡", price: fb.optimistic.price, cls: "pl-partial" },
   ];
-  let lo = 0;
-  $("fb-bands").innerHTML = bands.map((band) => {
-    const rangeText = band.max === Infinity ? `${pw(lo)} 이상` :
-      (lo === 0 ? `${pw(band.max)} 이하` : `${pw(lo)} ~ ${pw(band.max)}`);
-    const active = price != null && price > lo && price <= band.max;
-    lo = band.max;
-    return `<div class="fb-band-row ${band.cls} ${active ? "active" : ""}">
-      <span class="fb-band-range">${rangeText}</span>
-      <span class="fb-band-judge">${band.emoji} ${band.label}</span>
-    </div>`;
-  }).join("");
+  if (price != null) pts.push({ label: "현재가", emoji: "📍", price, cls: "pl-current" });
+  if (target != null) pts.push({ label: "목표가", emoji: "🎯", price: target, cls: "pl-target" });
+
+  const vals = pts.map((p) => p.price);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.1 || hi * 0.05 || 1;
+  const rangeLo = lo - pad, span = (hi + pad) - (lo - pad) || 1;
+
+  const sorted = [...pts].sort((a, b) => a.price - b.price);
+  $("price-ladder").innerHTML = `<div class="pl-track">
+    <div class="pl-line"></div>
+    ${sorted.map((p) => {
+      const pct = ((p.price - rangeLo) / span) * 100;
+      return `<div class="pl-point ${p.cls}" style="left:${pct.toFixed(1)}%">
+        <div class="pl-price">${pw(p.price)}</div>
+        <div class="pl-tick"></div>
+        <div class="pl-tag">${p.emoji} ${p.label}</div>
+      </div>`;
+    }).join("")}
+  </div>`;
 }
 
 /* ---------------- 단계별 매수 전략 (1차/2차/3차 분할매수) ---------------- */
@@ -840,12 +845,12 @@ function render(d) {
         <div class="fb-upside ${updownClass(v.upside)}">현재가 대비 ${sign(v.upside, 1)}%</div>
       </div>`;
     }).join("");
-    renderFairBuyBands(fb, d.price);
+    renderPriceLadder(fb, d.price, t.consensus);
     const stopLoss = (d.technical.available && d.technical.entry) ? d.technical.entry.stop_loss : null;
     renderBuyPlan(fb, t.consensus, stopLoss);
   } else {
     $("fair-buy-box").classList.add("hidden");
-    $("fb-bands").innerHTML = "";
+    $("price-ladder").innerHTML = "";
     $("buy-plan-box").classList.add("hidden");
   }
 

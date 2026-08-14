@@ -440,17 +440,25 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .fb-item.base { border-color: var(--accent); }
 .fb-item.opt { border-color: rgba(255,77,109,.3); }
 
-.fb-bands { display: flex; flex-direction: column; gap: 5px; margin-top: 14px; }
-.fb-band-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 13px; border-radius: 10px; background: var(--surface2); border: 1px solid transparent; font-size: 13px; }
-.fb-band-range { color: var(--muted); font-variant-numeric: tabular-nums; }
-.fb-band-judge { font-weight: 800; }
-.fb-band-row.active { border-color: var(--border-glow); box-shadow: 0 0 0 1px var(--border-glow) inset; }
-.fb-band-row.active .fb-band-range { color: var(--text); }
-.fb-band-row.band-strong-buy .fb-band-judge { color: #2ee6a6; }
-.fb-band-row.band-buy .fb-band-judge { color: #2ee6a6; }
-.fb-band-row.band-partial .fb-band-judge { color: #f5c518; }
-.fb-band-row.band-watch .fb-band-judge { color: #f5a623; }
-.fb-band-row.band-avoid .fb-band-judge { color: #ff4d6d; }
+/* 가격별 투자전략 — 가로 눈금선 + 세로 마커. 숫자 나열 대신 지금 가격이 밴드 어디쯤인지 한눈에. */
+.price-ladder { margin-top: 18px; overflow-x: auto; }
+.pl-track { position: relative; height: 76px; min-width: 480px; margin: 0 24px; }
+.pl-line { position: absolute; top: 38px; left: 0; right: 0; height: 2px; background: var(--border); border-radius: 2px; }
+.pl-point { position: absolute; top: 0; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; width: 96px; }
+.pl-price { font-size: 12px; font-weight: 700; color: var(--text2); white-space: nowrap; margin-bottom: 4px; font-variant-numeric: tabular-nums; }
+.pl-tick { width: 2px; height: 14px; background: var(--dim); }
+.pl-tag { font-size: 11.5px; font-weight: 700; color: var(--muted); white-space: nowrap; margin-top: 4px; }
+.pl-point.pl-buy .pl-tick { background: #2ee6a6; }
+.pl-point.pl-buy .pl-tag { color: #2ee6a6; }
+.pl-point.pl-partial .pl-tick { background: #f5c518; }
+.pl-point.pl-partial .pl-tag { color: #f5c518; }
+.pl-point.pl-target .pl-tick { background: var(--dim); }
+.pl-point.pl-current { z-index: 2; }
+.pl-point.pl-current .pl-tick { width: 3px; height: 30px; margin-top: -8px; background: var(--accent); box-shadow: 0 0 8px rgba(139,92,246,.6); }
+.pl-point.pl-current .pl-price, .pl-point.pl-current .pl-tag { color: var(--accent); font-weight: 900; }
+@media (max-width: 640px) {
+  .pl-track { min-width: 420px; }
+}
 
 .buy-plan-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
 .buy-plan-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
