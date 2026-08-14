@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=41">
+<link rel="stylesheet" href="/static/style.css?v=42">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -149,28 +149,30 @@
     </div>
   </section>
 
-  <!-- 매수 매력도 요약 (한눈에 보기) -->
+  <!-- AI 최종판단 (한눈에 보기) -->
   <section class="card highlight-card hidden" id="highlight-card">
     <div class="ai-verdict-box">
-      <div class="ai-verdict-label">🤖 AI 최종판단</div>
+      <div class="ai-verdict-label">🤖 StockLens AI</div>
       <div class="ai-verdict-main">
         <span id="ai-verdict-emoji" class="ai-verdict-emoji"></span>
         <span id="ai-verdict-tier" class="ai-verdict-tier"></span>
       </div>
-      <div class="ai-verdict-confidence">확신도 <span id="ai-verdict-confidence"></span>%</div>
+      <div class="hl-grid" id="hl-grid"></div>
     </div>
 
     <div class="verdict-banner" id="verdict-banner">
       <span class="vb-icon">🧭</span>
-      <p id="opinion-head" class="opinion-head"></p>
+      <div>
+        <div class="vb-label">현재 판단</div>
+        <p id="opinion-head" class="opinion-head"></p>
+      </div>
     </div>
 
     <div class="hl-head">
       <span id="hl-badge" class="hl-badge"></span>
-      <h3>매수 매력도 <span id="hl-score"></span>점</h3>
+      <h3>종합점수 <span id="hl-score"></span>점 <small class="hint">기업 자체의 우량도 — 위 판단과는 다른 지표입니다</small></h3>
     </div>
     <p class="hl-discount" id="hl-discount"></p>
-    <div class="hl-grid" id="hl-grid"></div>
     <div class="hl-why-split">
       <div class="hl-why-col hl-why-good">
         <h4>✅ 왜 사야 하나</h4>
@@ -541,7 +543,7 @@
   </section>
 
   <section class="card hidden" id="pf-rebalance-card">
-    <h3>🤖 AI 리밸런싱 <small class="hint">AI판단(매수~매도) 확신도 기준 권장 비중 · 종목당 상한 적용</small></h3>
+    <h3>🤖 AI 리밸런싱 <small class="hint">AI판단(매수~매도) 신뢰도 기준 권장 비중 · 종목당 상한 적용</small></h3>
     <div id="pf-rebalance-list" class="pf-rebalance-list"></div>
   </section>
 
@@ -551,6 +553,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=41"></script>
+<script src="/static/app.js?v=42"></script>
 </body>
 </html>

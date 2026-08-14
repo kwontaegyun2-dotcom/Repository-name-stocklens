@@ -459,7 +459,7 @@ async function renderTodayPick(items) {
       <span class="today-pick-price">${pw(best.price, best.currency)}</span>
       <span class="today-pick-score">종합점수 ${best.score}</span>
     </div>
-    <div class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 확신도 ${bv.confidence ?? "-"}%</div>
+    <div class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 판단 신뢰도 ${bv.confidence ?? "-"}</div>
     <div class="today-pick-stats">
       <div><label>적정매수가</label><span id="today-pick-fair">불러오는 중…</span></div>
       <div><label>목표가</label><span>${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
@@ -739,7 +739,9 @@ function render(d) {
   $("grade").style.color = scoreColor(d.total.total_score);
   $("grade-desc").textContent = d.total.grade_desc + " · " + d.total.total_score + "점";
 
-  /* 매수 매력도 요약 (한눈에 보기) — 이미 계산된 targets/technical/valuation/flows를 재사용 */
+  /* AI 최종판단 요약 (한눈에 보기) — 이미 계산된 targets/technical/valuation/flows를 재사용.
+     "매수 매력도 점수"(=종합점수)보다 "매수 관심" 같은 행동판단을 훨씬 크게 보여주는 게 핵심 —
+     점수가 높다고 지금 사야 하는 건 아니라는 StockLens의 철학(오늘의 AI 투자기회 섹션과 동일). */
   {
     const t = d.targets, tech = d.technical, val = d.valuation;
     const score = d.total.total_score;
@@ -752,7 +754,6 @@ function render(d) {
     $("ai-verdict-emoji").textContent = v.emoji || "";
     $("ai-verdict-tier").textContent = v.label || "-";
     $("ai-verdict-tier").style.color = verdictColor(v.tier);
-    $("ai-verdict-confidence").textContent = v.confidence ?? "-";
 
     const fbBase = t.fair_buy ? t.fair_buy.base : null;
     if (fbBase && d.price) {
@@ -763,14 +764,16 @@ function render(d) {
     } else {
       $("hl-discount").textContent = "";
     }
-    const stopLoss = (tech.available && tech.entry) ? tech.entry.stop_loss : null;
+    // "확신도"는 실제 확률처럼 오해될 수 있어 "판단 신뢰도"로 표기 — 값의 의미(analysis.final_verdict의
+    // confidence 필드)는 그대로, 라벨만 바꾼다. 클릭/포커스 시 설명 툴팁 표시.
+    const confidenceLabel = `판단 신뢰도 <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">실적·밸류·수급·기술적 지표 등 주요 분석 신호의 일치 정도를 나타냅니다.</span></span>`;
     const items = [
       { label: "현재가", value: pw(d.price) },
-      { label: "적정 매수가", value: fbBase ? pw(fbBase.price) : "-" },
+      { label: "적정매수가", value: fbBase ? pw(fbBase.price) : "-" },
       { label: "목표주가", value: t.consensus ? pw(t.consensus) : "-" },
-      { label: "손절 고려가", value: stopLoss ? pw(stopLoss) : "-" },
       { label: "상승여력", value: t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-",
         cls: updownClass(t.consensus_upside) },
+      { label: confidenceLabel, value: v.confidence != null ? v.confidence : "-" },
     ];
     $("hl-grid").innerHTML = items.map((it) => `
       <div class="hl-item"><label>${it.label}</label><div class="${it.cls || ""}">${it.value}</div></div>`).join("");
