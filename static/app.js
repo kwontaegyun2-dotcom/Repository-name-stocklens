@@ -570,6 +570,23 @@ function renderFairBuyBands(fb, price) {
   }).join("");
 }
 
+/* ---------------- 단계별 매수 전략 (1차/2차/3차 분할매수) ---------------- */
+function renderBuyPlan(fb, targetPrice, stopLoss) {
+  $("buy-plan-box").classList.remove("hidden");
+  const stages = [
+    { label: "1차 매수", pct: 30, price: fb.optimistic.price },
+    { label: "2차 매수", pct: 30, price: fb.base.price },
+    { label: "3차 매수", pct: 40, price: fb.conservative.price },
+  ];
+  $("buy-plan-stages").innerHTML = stages.map((s) => `
+    <div class="buy-stage">
+      <div class="buy-stage-label">${s.label} <span class="buy-stage-pct">${s.pct}%</span></div>
+      <div class="buy-stage-price">${pw(s.price)}</div>
+    </div>`).join("");
+  $("buy-plan-target").textContent = targetPrice ? pw(targetPrice) : "-";
+  $("buy-plan-stop").textContent = stopLoss ? pw(stopLoss) : "-";
+}
+
 /* ---------------- render ---------------- */
 function render(d) {
   lastAnalysis = d;
@@ -696,9 +713,12 @@ function render(d) {
       </div>`;
     }).join("");
     renderFairBuyBands(fb, d.price);
+    const stopLoss = (d.technical.available && d.technical.entry) ? d.technical.entry.stop_loss : null;
+    renderBuyPlan(fb, t.consensus, stopLoss);
   } else {
     $("fair-buy-box").classList.add("hidden");
     $("fb-bands").innerHTML = "";
+    $("buy-plan-box").classList.add("hidden");
   }
 
   const tech = d.technical;
@@ -1800,6 +1820,7 @@ async function loadPortfolio() {
   $("pf-risk-card").classList.add("hidden");
   $("pf-exposure-card").classList.add("hidden");
   $("pf-corr-card").classList.add("hidden");
+  $("pf-rebalance-card").classList.add("hidden");
   try {
     const p = await api("/api/portfolio");
     renderPortfolio(p);
@@ -1880,6 +1901,27 @@ function renderCorrelation(p) {
     : "종목 간 상관관계가 특별히 높지는 않습니다 — 분산효과가 어느 정도 작동하고 있습니다.";
 }
 
+function renderRebalance(p) {
+  const items = p.available ? (p.items || []).filter((it) => it.target_weight != null) : [];
+  $("pf-rebalance-card").classList.toggle("hidden", !items.length);
+  if (!items.length) return;
+  $("pf-rebalance-list").innerHTML = items.map((it) => `
+    <div class="pf-rebal-item">
+      <div class="pf-rebal-name">${it.name}</div>
+      <div class="pf-rebal-bar-row">
+        <span class="pf-rebal-bar-label">현재</span>
+        <div class="pf-rebal-track"><div class="pf-rebal-fill cur" style="width:${it.weight}%"></div></div>
+        <span class="pf-rebal-pct">${it.weight}%</span>
+      </div>
+      <div class="pf-rebal-bar-row">
+        <span class="pf-rebal-bar-label">권장</span>
+        <div class="pf-rebal-track"><div class="pf-rebal-fill target" style="width:${it.target_weight}%"></div></div>
+        <span class="pf-rebal-pct">${it.target_weight}%</span>
+      </div>
+      <p class="pf-rebal-note">${it.rebalance_note || ""}</p>
+    </div>`).join("");
+}
+
 function renderPortfolio(p) {
   const hasHoldings = p.available || (p.excluded && p.excluded.length);
   $("pf-summary-card").classList.toggle("hidden", !hasHoldings);
@@ -1889,6 +1931,7 @@ function renderPortfolio(p) {
   renderRiskFlags(p);
   renderExposure(p);
   renderCorrelation(p);
+  renderRebalance(p);
 
   if (!p.available) {
     if (hasHoldings) {
@@ -1900,7 +1943,11 @@ function renderPortfolio(p) {
     const pnlHTML = p.total_pnl != null
       ? `<span class="${updownClass(p.total_pnl)}">${sign(p.total_pnl)}원 (${sign(p.total_pnl_pct, 1)}%)</span>`
       : `<span class="hint">평균단가를 입력한 종목이 없습니다</span>`;
-    $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>`;
+    const gradeHTML = p.grade
+      ? `<span class="pf-grade" style="color:${scoreColor(p.score)}">${p.grade}등급 · ${p.grade_desc} (${p.score}점)</span>` : "";
+    const todayHTML = p.today_pnl != null
+      ? `<div class="pf-today">오늘 <span class="${updownClass(p.today_pnl)}">${sign(p.today_pnl)}원 (${sign(p.today_pnl_pct, 2)}%)</span></div>` : "";
+    $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>${gradeHTML}${todayHTML}`;
     const cells = [
       ["종합점수", p.score != null ? `${p.score}점` : "-"],
       ["밸류에이션 점수", p.valuation_score != null ? `${p.valuation_score}점` : "-"],
@@ -1920,20 +1967,24 @@ function renderPortfolio(p) {
       </div>`).join("");
 
     $("pf-holdings-table").innerHTML = tableHTML(
-      ["종목", "수량", "평균단가", "현재가", "평가금액", "평가손익", "비중", "점수", ""],
-      p.items.map((it) => [
-        it.name,
-        fmt(it.shares) + "주",
-        it.avg_price != null ? won(it.avg_price) : "-",
-        won(it.price),
-        won(it.value),
-        it.pnl != null
-          ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>`
-          : "-",
-        `${it.weight}%`,
-        `<span style="color:${scoreColor(it.score)}">${it.score}점</span>`,
-        `<button class="ghost-btn small" data-pf-rm="${it.code}">삭제</button>`,
-      ]));
+      ["종목", "수량", "평균단가", "현재가", "평가금액", "평가손익", "현재비중", "권장비중", "AI판단", ""],
+      p.items.map((it) => {
+        const v = it.ai_verdict || {};
+        return [
+          it.name,
+          fmt(it.shares) + "주",
+          it.avg_price != null ? won(it.avg_price) : "-",
+          won(it.price),
+          won(it.value),
+          it.pnl != null
+            ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>`
+            : "-",
+          `${it.weight}%`,
+          it.target_weight != null ? `${it.target_weight}%` : "-",
+          `<span style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>`,
+          `<button class="ghost-btn small" data-pf-rm="${it.code}">삭제</button>`,
+        ];
+      }));
     $("pf-holdings-table").querySelectorAll("[data-pf-rm]").forEach((b) => {
       b.onclick = async () => {
         await api(`/api/portfolio/${b.dataset.pfRm}`, { method: "DELETE" });

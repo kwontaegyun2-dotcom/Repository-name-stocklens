@@ -406,6 +406,17 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .fb-band-row.band-partial .fb-band-judge { color: #f5c518; }
 .fb-band-row.band-watch .fb-band-judge { color: #f5a623; }
 .fb-band-row.band-avoid .fb-band-judge { color: #ff4d6d; }
+
+.buy-plan-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
+.buy-plan-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.buy-stage { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 13px; text-align: center; }
+.buy-stage-label { font-size: 12.5px; color: var(--muted); font-weight: 700; }
+.buy-stage-pct { color: var(--accent); font-weight: 800; }
+.buy-stage-price { font-size: 16px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.buy-plan-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.buy-plan-footer div { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; text-align: center; }
+.buy-plan-footer label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.buy-plan-footer span { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .fb-upside.up { color: var(--green); }
 .fb-upside.down { color: var(--up); }
 
@@ -621,6 +632,21 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-total b { font-size: 28px; font-weight: 900; }
 .pf-pnl { font-size: 15px; font-weight: 700; }
 .pf-pnl .hint { font-size: 12px; font-weight: 400; color: var(--muted); }
+.pf-grade { font-size: 13.5px; font-weight: 800; padding: 5px 12px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); }
+.pf-today { font-size: 13px; color: var(--muted); font-weight: 600; }
+.pf-today span { font-weight: 800; }
+
+.pf-rebalance-list { display: flex; flex-direction: column; gap: 16px; }
+.pf-rebal-item { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 16px; }
+.pf-rebal-name { font-size: 14.5px; font-weight: 800; margin-bottom: 10px; }
+.pf-rebal-bar-row { display: grid; grid-template-columns: 38px 1fr 46px; align-items: center; gap: 10px; margin-bottom: 5px; }
+.pf-rebal-bar-label { font-size: 11.5px; color: var(--muted); }
+.pf-rebal-track { height: 9px; background: var(--surface2); border-radius: 5px; overflow: hidden; }
+.pf-rebal-fill { height: 100%; }
+.pf-rebal-fill.cur { background: var(--muted); opacity: .6; }
+.pf-rebal-fill.target { background: var(--grad); }
+.pf-rebal-pct { font-size: 12px; font-weight: 700; text-align: right; }
+.pf-rebal-note { font-size: 12.5px; color: var(--muted); margin-top: 8px; }
 .pf-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .pf-warnings li { font-size: 13px; padding: 9px 13px; border-radius: 10px; background: rgba(255,166,77,.1); border: 1px solid rgba(255,166,77,.3); }
 .pf-sector-bars { display: flex; flex-direction: column; gap: 10px; }

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=37">
+<link rel="stylesheet" href="/static/style.css?v=38">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -179,6 +179,15 @@
       <div class="fb-grid" id="fb-grid"></div>
       <div class="fb-bands" id="fb-bands"></div>
       <p class="hint-p">PER·PEG·업종 평균·역사적 밸류·애널리스트 목표주가를 종합한 추정치이며, 안전마진(20%/10%/0%)을 차등 적용했습니다.</p>
+    </div>
+
+    <div class="buy-plan-box hidden" id="buy-plan-box">
+      <div class="fb-head"><span class="fb-label">🪜 단계별 매수 전략</span></div>
+      <div class="buy-plan-stages" id="buy-plan-stages"></div>
+      <div class="buy-plan-footer">
+        <div><label>목표가</label><span id="buy-plan-target"></span></div>
+        <div><label>위험관리 가격 (손절)</label><span id="buy-plan-stop"></span></div>
+      </div>
     </div>
   </section>
 
@@ -523,12 +532,17 @@
     <div class="table-wrap" id="pf-corr-table"></div>
   </section>
 
+  <section class="card hidden" id="pf-rebalance-card">
+    <h3>🤖 AI 리밸런싱 <small class="hint">AI판단(매수~매도) 확신도 기준 권장 비중 · 종목당 상한 적용</small></h3>
+    <div id="pf-rebalance-list" class="pf-rebalance-list"></div>
+  </section>
+
   <section class="card hidden" id="pf-holdings-card">
     <h3>📋 보유 종목</h3>
     <div class="table-wrap" id="pf-holdings-table"></div>
   </section>
 </main>
 
-<script src="/static/app.js?v=37"></script>
+<script src="/static/app.js?v=38"></script>
 </body>
 </html>

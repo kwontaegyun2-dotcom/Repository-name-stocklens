@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app import ranking, themes
+from app import analysis, ranking, themes
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -302,6 +302,64 @@ def _today_actions(items):
     return cards
 
 
+# ---------------------------------------------------------------- AI 리밸런싱
+_TIER_WEIGHT = {"buy": 1.5, "accumulate": 1.2, "hold": 1.0, "reduce": 0.6, "sell": 0.3}
+_MAX_STOCK_WEIGHT = 30.0
+
+
+def _recommend_weights(items):
+    """종목별 AI판단(ai_verdict.tier)에 배점을 매겨 권장 비중을 만든다. 정밀한 포트폴리오
+    최적화가 아니라 "확신도가 높은 종목에 더 담되 한 종목에 쏠리지 않게"라는 단순하고
+    설명 가능한 원칙만 적용한다.
+
+    ⚠️ 종목 수가 적으면 고정 30% 상한이 수학적으로 불가능해진다(예: 3종목 중 2개가
+    상한(30%)에 걸리면 나머지 1종목이 무조건 40%를 떠안는데, 그 1종목이 하필
+    '매도' 등급이면 매도 등급 종목이 가장 높은 권장비중을 받는 모순이 생긴다 —
+    실제로 이 계산으로 잡아낸 버그). 상한을 `100%/종목수`에 여유를 둔 값과 30% 중
+    큰 쪽으로 동적으로 완화해 이 모순을 막는다. 재분배도 1회가 아니라 반복해
+    (재분배 후 새로 상한을 넘는 경우까지) 수렴시킨다.
+    """
+    if not items:
+        return {}
+    n = len(items)
+    max_weight = max(_MAX_STOCK_WEIGHT, 100.0 / n * 1.4)
+    mult = {it["code"]: _TIER_WEIGHT.get((it.get("ai_verdict") or {}).get("tier"), 1.0) for it in items}
+    total = sum(mult.values())
+    if total <= 0:
+        return {it["code"]: round(100 / n, 1) for it in items}
+    target = {code: v / total * 100 for code, v in mult.items()}
+
+    for _ in range(4):
+        over = {c: w for c, w in target.items() if w > max_weight}
+        if not over:
+            break
+        excess = sum(w - max_weight for w in over.values())
+        for c in over:
+            target[c] = max_weight
+        under_codes = [c for c in target if c not in over]
+        under_total = sum(target[c] for c in under_codes)
+        if under_total <= 0:
+            break
+        for c in under_codes:
+            target[c] += excess * (target[c] / under_total)
+
+    return {c: round(w, 1) for c, w in target.items()}
+
+
+def _rebalance_note(it):
+    """현재비중 vs 권장비중 차이를 '왜'까지 담아 한 줄로 설명한다."""
+    tw = it.get("target_weight")
+    if tw is None:
+        return None
+    diff = round(tw - it["weight"], 1)
+    tier_label = (it.get("ai_verdict") or {}).get("label") or "보통"
+    if abs(diff) < 3:
+        return f"현재 비중이 AI판단({tier_label})에 대체로 부합합니다."
+    if diff > 0:
+        return f"AI판단이 '{tier_label}'이라 비중 확대 여지가 있습니다 ({it['weight']:.0f}%→{tw:.0f}%)."
+    return f"AI판단이 '{tier_label}'이거나 종목 집중도가 높아 비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%)."
+
+
 # ---------------------------------------------------------------- 종합 계산
 def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     """holding_rows: list_for_user() 결과. analyze_fn(code) == main.api_analyze."""
@@ -381,6 +439,8 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
             "score_diff": score_diff, "prev_score": prev_score,
             "buy_discount_pct": buy_discount_pct,
             "sell_reasons": sell_reasons,
+            "ai_verdict": d.get("ai_verdict"),
+            "change": d.get("change"),
             "val_score": (d.get("valuation") or {}).get("score"),
             "upside": (d.get("targets") or {}).get("consensus_upside"),
             "sector": _SECTOR_MAP.get(row["code"], "미분류"),
@@ -393,6 +453,11 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     for it in items:
         it["weight"] = round(it["value"] / total_value * 100, 1)
     items.sort(key=lambda x: -x["weight"])
+
+    target_weights = _recommend_weights(items)
+    for it in items:
+        it["target_weight"] = target_weights.get(it["code"])
+        it["rebalance_note"] = _rebalance_note(it)
 
     def _wavg(key):
         pairs = [(it["weight"], it[key]) for it in items if it.get(key) is not None]
@@ -436,15 +501,32 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     total_pnl = (sum(it["value"] for it in priced) - total_cost) if total_cost else None
     total_pnl_pct = round(total_pnl / total_cost * 100, 1) if total_cost else None
 
+    changed = [it for it in items if it.get("change") is not None]
+    today_pnl = round(sum(it["shares"] * it["change"] for it in changed)) if changed else None
+    prev_value = total_value - today_pnl if today_pnl is not None else None
+    today_pnl_pct = round(today_pnl / prev_value * 100, 2) if prev_value else None
+
+    pf_score = _wavg("score")
+    grade, grade_desc = "F", "위험"
+    if pf_score is not None:
+        for th, g, desc in analysis.GRADE_TABLE:
+            if pf_score >= th:
+                grade, grade_desc = g, desc
+                break
+
     return {
         "available": True,
         "total_value": round(total_value),
         "total_cost": round(total_cost) if total_cost else None,
         "total_pnl": round(total_pnl) if total_pnl is not None else None,
         "total_pnl_pct": total_pnl_pct,
+        "today_pnl": today_pnl,
+        "today_pnl_pct": today_pnl_pct,
         "items": items,
         "sector_weight": sector_weight,
-        "score": _wavg("score"),
+        "score": pf_score,
+        "grade": grade,
+        "grade_desc": grade_desc,
         "valuation_score": _wavg("val_score"),
         "expected_return": _wavg("upside"),
         "volatility": vol,
