@@ -169,9 +169,29 @@ button { cursor: pointer; font-family: inherit; }
 .fav-x { display: inline-flex; width: 20px; height: 20px; align-items: center; justify-content: center; border-radius: 50%; background: var(--surface2); color: var(--muted); font-size: 11px; justify-self: end; }
 .fav-x:hover { background: var(--up); color: #fff; }
 
+/* ---------- 내 포트폴리오 (홈 위젯) ---------- */
+.mypf-board { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 22px 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.18); margin-bottom: 20px; }
+.mypf-board h2 { font-size: 18px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 12px; }
+.mypf-cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.mypf-cta p { color: var(--muted); font-size: 14px; max-width: 480px; }
+.mypf-headline { font-size: 14px; font-weight: 700; color: var(--muted); margin-bottom: 12px; }
+.mypf-list { display: flex; flex-direction: column; gap: 8px; }
+.mypf-action { transition: .16s; }
+.mypf-action:hover { transform: translateX(4px); cursor: pointer; }
+.mypf-ok { padding: 14px 16px; border-radius: 14px; background: rgba(46,230,166,.08); border: 1px solid rgba(46,230,166,.3); font-size: 13.5px; font-weight: 600; }
+.mypf-more { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.mypf-foot { margin-top: 14px; text-align: right; }
+
 /* ---------- 오늘의 AI 투자기회 ---------- */
 .today-board { background: var(--card); border: 1px solid var(--accent); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22), 0 0 30px rgba(139,92,246,.12); margin-bottom: 20px; }
 .today-board h2 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.today-tagline { font-size: 15px; font-weight: 800; color: var(--accent); margin-top: 4px; }
+.today-legend { display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; flex-wrap: wrap; }
+.today-legend-chip { display: flex; flex-direction: column; padding: 8px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 800; line-height: 1.4; }
+.today-legend-chip small { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 1px; }
+.today-legend-chip.accent { background: var(--grad-soft); border-color: var(--border-glow); color: var(--accent); }
+.today-legend-chip.accent small { color: var(--accent); opacity: .75; }
+.today-legend-sep { font-size: 16px; font-weight: 900; color: var(--muted); }
 .today-sub-h { font-size: 15px; font-weight: 800; margin: 22px 0 12px; color: var(--muted); }
 
 .today-pick-card { margin: 16px 0; padding: 22px 24px; border-radius: 18px; background: var(--grad-soft); border: 1px solid var(--border-glow); }
@@ -200,7 +220,7 @@ button { cursor: pointer; font-family: inherit; }
 .today-why-warn { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.3); color: #f5a623; font-size: 13px; font-weight: 700; }
 
 .today-table { display: flex; flex-direction: column; gap: 6px; }
-.today-row { display: grid; grid-template-columns: 96px 1.6fr 1fr 1fr 84px; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; }
+.today-row { display: grid; grid-template-columns: 96px 1.6fr 64px 1fr 84px; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; }
 .today-row:not(.today-row-head) { background: var(--surface); border: 1px solid transparent; cursor: pointer; transition: .16s; }
 .today-row:not(.today-row-head):hover { background: var(--grad-soft); border-color: var(--border-glow); transform: translateX(4px); }
 .today-row-head { color: var(--muted); font-size: 11.5px; font-weight: 700; padding: 0 14px; }
@@ -208,6 +228,7 @@ button { cursor: pointer; font-family: inherit; }
 .today-name-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .today-name { font-size: 14px; font-weight: 700; }
 .today-reason { font-size: 11px; font-weight: 600; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-score { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .today-price, .today-fair { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .today-upside { font-size: 13px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
 
@@ -519,7 +540,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .rank-board, .fav-board, .today-board { padding: 18px 16px; }
   .rank-row { grid-template-columns: 34px 1.5fr 70px 1fr; gap: 8px; padding: 12px 12px; }
   .today-row { grid-template-columns: 70px 1.4fr 1fr; gap: 6px; padding: 10px 12px; }
-  .today-row .today-fair, .today-row .today-upside { display: none; }
+  .today-row .today-score, .today-row .today-fair, .today-row .today-upside { display: none; }
   .rank-price { display: none; }
   .rank-num { font-size: 14px; }
   .rank-info .rank-name { font-size: 14px; }

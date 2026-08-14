@@ -196,6 +196,7 @@ function goHome() {
   setActiveNav("home");
   renderFavBoard();
   loadRanking(currentSector);
+  loadMyPortfolioWidget();
 }
 
 document.querySelectorAll("#main-nav button").forEach((b) => {
@@ -480,14 +481,15 @@ async function renderTodayPick(items) {
   $("today-rows").innerHTML = top.map((r) => {
     const v = r.ai_verdict || {};
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
-    const target = r.target_price ? pw(r.target_price, r.currency) : "-";
     const reasons = opportunityReasons(r);
     const reasonHtml = reasons.length ? `<span class="today-reason">${reasons.join(" · ")}</span>` : "";
+    // 종합점수(기업 자체가 좋은가)와 판단(지금 가격까지 고려했을 때 좋은가)을 같은 행에 나란히 보여줘
+    // "점수 높다 ≠ 지금 사야 한다"를 사용자가 직접 비교할 수 있게 한다.
     return `<div class="today-row" data-code="${r.code}">
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="today-name-col"><span class="today-name">${r.name}</span>${reasonHtml}</span>
+      <span class="today-score" style="color:${scoreColor(r.score)}">${r.score}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
-      <span class="today-fair">${target}</span>
       <span class="today-upside ${updownClass(r.upside)}">${up}</span>
     </div>`;
   }).join("");
@@ -505,6 +507,73 @@ async function renderTodayPick(items) {
   } catch {
     const el = $("today-pick-fair");
     if (el) el.textContent = "-";
+  }
+}
+
+/* ---------------- 내 포트폴리오 (홈 위젯 — "오늘 내가 할 일") ---------------- */
+function mypfLoggedOutHtml() {
+  return `
+    <h2>💼 내 포트폴리오</h2>
+    <div class="mypf-cta">
+      <p>포트폴리오를 등록하면 AI가 보유종목까지 매일 점검해드립니다.</p>
+      <button class="primary-btn" id="mypf-login-btn">로그인하고 시작하기</button>
+    </div>`;
+}
+
+function mypfEmptyHtml() {
+  return `
+    <h2>💼 내 포트폴리오</h2>
+    <div class="mypf-cta">
+      <p>아직 등록된 보유 종목이 없어요. 등록하면 AI가 매수/매도 타이밍을 매일 점검해드립니다.</p>
+      <button class="primary-btn" id="mypf-add-btn">포트폴리오 등록하기</button>
+    </div>`;
+}
+
+function mypfActionCardHtml(a) {
+  return `<div class="pf-action-card pf-action-${a.level} mypf-action" data-code="${a.code}">
+    <div class="pf-action-head">${RISK_LEVEL_ICON[a.level]} <b>${a.name}</b> ${a.title}</div>
+    <div class="pf-action-detail">${a.detail} → ${a.action}</div>
+  </div>`;
+}
+
+function mypfActionsHtml(p) {
+  const actions = p.today_actions || [];
+  const n = actions.length;
+  const shown = actions.slice(0, 4);
+  const headline = n
+    ? `오늘 내 포트폴리오에서 할 일 ${n}건`
+    : "오늘은 특별한 조치가 필요 없어요";
+  const listHtml = shown.length
+    ? `<div class="mypf-list">${shown.map(mypfActionCardHtml).join("")}</div>`
+    : `<div class="mypf-ok">🟢 현재 등록된 ${p.items.length}개 종목 모두 적정 수준을 유지하고 있어요.</div>`;
+  const moreHtml = n > shown.length ? `<p class="mypf-more">+${n - shown.length}건 더 있어요</p>` : "";
+  return `
+    <h2>💼 내 포트폴리오</h2>
+    <p class="mypf-headline">${headline}</p>
+    ${listHtml}${moreHtml}
+    <div class="mypf-foot"><button class="ghost-btn" id="mypf-view-btn">포트폴리오 전체보기 →</button></div>`;
+}
+
+async function loadMyPortfolioWidget() {
+  const board = $("mypf-board");
+  if (!board) return;
+  if (!currentUser) {
+    board.innerHTML = mypfLoggedOutHtml();
+    $("mypf-login-btn").onclick = () => openAuthModal("login");
+    return;
+  }
+  try {
+    const p = await api("/api/portfolio");
+    if (!p.available || !p.items || !p.items.length) {
+      board.innerHTML = mypfEmptyHtml();
+      $("mypf-add-btn").onclick = showPortfolio;
+      return;
+    }
+    board.innerHTML = mypfActionsHtml(p);
+    board.querySelectorAll(".mypf-action").forEach((el) => { el.onclick = () => analyze(el.dataset.code); });
+    $("mypf-view-btn").onclick = showPortfolio;
+  } catch {
+    board.innerHTML = "";   // 실패해도 홈 진입 자체는 막지 않음(조용히 숨김)
   }
 }
 
@@ -1660,6 +1729,7 @@ async function loadMe() {
   renderAuthUI();
   await loadWatchlist();
   updateWatchBtn();
+  loadMyPortfolioWidget();
 }
 
 function openAuthModal(mode) {
@@ -1702,6 +1772,7 @@ $("auth-submit").onclick = async () => {
     $("auth-modal").classList.add("hidden");
     await loadWatchlist();
     updateWatchBtn();
+    loadMyPortfolioWidget();
   } catch (e) {
     $("auth-msg").textContent = "오류: " + e.message;
   }
@@ -1712,6 +1783,7 @@ $("logout-btn").onclick = async () => {
   watchedCodes = new Set();
   renderAuthUI();
   updateWatchBtn();
+  loadMyPortfolioWidget();
   if (!$("admin-view").classList.contains("hidden")) goHome();
 };
 
