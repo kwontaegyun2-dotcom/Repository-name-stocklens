@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=35">
+<link rel="stylesheet" href="/static/style.css?v=36">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -12,6 +12,11 @@
 
 <header class="topbar">
   <div class="logo" id="logo-home">📊 Stock<span>Lens</span></div>
+  <nav class="main-nav" id="main-nav">
+    <button data-view="home" class="active">홈</button>
+    <button data-view="stock">종목분석</button>
+    <button data-view="portfolio">💼 포트폴리오</button>
+  </nav>
   <div class="search-wrap">
     <input id="search-input" type="text" placeholder="종목명 또는 종목코드 검색 (예: 삼성전자, 005930)" autocomplete="off">
     <div id="search-dropdown" class="dropdown hidden"></div>
@@ -21,7 +26,6 @@
   <div id="auth-area" class="auth-area">
     <button id="login-btn" class="ghost-btn">로그인</button>
     <div id="user-chip" class="user-chip hidden">
-      <button id="portfolio-link" class="ghost-btn small">💼 포트폴리오</button>
       <button id="admin-link" class="ghost-btn small hidden">👑 관리자</button>
       <button id="myinfo-link" class="ghost-btn small">👤 <span id="user-name"></span></button>
       <button id="logout-btn" class="ghost-btn small">로그아웃</button>
@@ -46,17 +50,30 @@
     </div>
   </div>
 
-  <!-- 오늘의 투자 판단 -->
+  <!-- 오늘의 AI 투자기회 -->
   <section class="today-board hidden" id="today-board">
-    <h2>🎯 오늘의 투자 판단</h2>
+    <h2>🎯 오늘의 AI 투자기회</h2>
     <p class="rank-sub">지금 랭킹 기준 — "그래서 지금 뭘 하지?"에 대한 답</p>
-    <div class="today-hero" id="today-hero"></div>
+
+    <div class="today-pick-card" id="today-hero"></div>
+
+    <div class="today-why" id="today-why"></div>
+
+    <h3 class="today-sub-h">오늘의 투자기회 TOP 5</h3>
     <div class="today-table">
       <div class="today-row today-row-head">
-        <span>판단</span><span>종목</span><span>현재가</span><span>적정가</span><span>상승여력</span>
+        <span>판단</span><span>종목</span><span>현재가</span><span>목표가</span><span>상승여력</span>
       </div>
       <div id="today-rows"></div>
     </div>
+  </section>
+
+  <!-- 테마·산업 -->
+  <section class="theme-board">
+    <h2>📈 요즘 어디에 돈이 몰리고 있지?</h2>
+    <p class="rank-sub">국내·미국을 섞은 테마별 투자 매력도 TOP 10</p>
+    <div class="theme-chips" id="theme-chips"></div>
+    <div id="theme-result" class="rank-list hidden"></div>
   </section>
 
   <!-- 관심종목 -->
@@ -67,14 +84,6 @@
     <h2>🚨 이상징후 포착</h2>
     <p class="rank-sub">"좋은 종목"이 아니라 "뭔가 이상한 종목" — 신호 3개 이상 겹칠 때만 표시됩니다</p>
     <div id="anomaly-list" class="anomaly-list"></div>
-  </section>
-
-  <!-- 테마·산업 -->
-  <section class="theme-board">
-    <h2>📈 요즘 어디에 돈이 몰리고 있지?</h2>
-    <p class="rank-sub">국내·미국을 섞은 테마별 투자 매력도 TOP 10</p>
-    <div class="theme-chips" id="theme-chips"></div>
-    <div id="theme-result" class="rank-list hidden"></div>
   </section>
 
   <!-- 실시간 랭킹 -->
@@ -519,6 +528,6 @@
   </section>
 </main>
 
-<script src="/static/app.js?v=35"></script>
+<script src="/static/app.js?v=36"></script>
 </body>
 </html>

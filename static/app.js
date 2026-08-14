@@ -85,18 +85,41 @@ function toggleFav(code, name) {
   return isFav(code);
 }
 function removeFav(code) { setFavs(getFavs().filter((f) => f.code !== code)); }
-function renderFavBoard() {
+async function renderFavBoard() {
   const favs = getFavs();
   const el = $("fav-board");
   if (!favs.length) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
-  el.innerHTML = `<h2>⭐ 관심종목</h2><div class="fav-chips">` +
-    favs.map((f) => `<button class="fav-chip" data-code="${f.code}">${f.name}<span class="x" data-x="${f.code}">✕</span></button>`).join("") +
-    `</div>`;
-  el.querySelectorAll(".fav-chip").forEach((c) => {
-    c.onclick = (e) => {
-      if (e.target.classList.contains("x")) { removeFav(e.target.dataset.x); renderFavBoard(); return; }
-      analyze(c.dataset.code);
+  el.innerHTML = `<h2>⭐ 관심종목</h2>
+    <div id="fav-rows" class="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>`;
+
+  // 관심종목은 국내/미국이 섞일 수 있어 두 시장 랭킹을 모두 조회해 매칭한다
+  // (둘 다 백그라운드에서 이미 채점된 데이터라 추가 계산 없음).
+  let byCode = {};
+  try {
+    const [kr, us] = await Promise.all([api("/api/ranking?market=KR"), api("/api/ranking?market=US")]);
+    [...(kr.items || []), ...(us.items || [])].forEach((r) => { byCode[r.code] = r; });
+  } catch {}
+
+  el.querySelector("#fav-rows").innerHTML = favs.map((f) => {
+    const r = byCode[f.code];
+    if (!r) {
+      return `<div class="fav-row" data-code="${f.code}">
+        <span class="fav-name">${f.name}</span><span class="fav-na">데이터 준비 중</span>
+        <button class="fav-x" data-x="${f.code}">✕</button></div>`;
+    }
+    const v = r.ai_verdict || {};
+    return `<div class="fav-row" data-code="${f.code}">
+      <span class="fav-name">${r.name}</span>
+      <span class="fav-price">${pw(r.price, r.currency)}</span>
+      <span class="fav-verdict" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
+      <button class="fav-x" data-x="${f.code}">✕</button>
+    </div>`;
+  }).join("");
+  el.querySelectorAll(".fav-row").forEach((row) => {
+    row.onclick = (e) => {
+      if (e.target.classList.contains("fav-x")) { removeFav(e.target.dataset.x); renderFavBoard(); return; }
+      analyze(row.dataset.code);
     };
   });
 }
@@ -156,6 +179,10 @@ document.querySelectorAll(".quick-picks button").forEach((b) => {
 });
 
 /* ---------------- navigation ---------------- */
+function setActiveNav(view) {
+  document.querySelectorAll("#main-nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+}
+
 function goHome() {
   clearInterval(priceTimer);
   currentCode = null;
@@ -166,9 +193,38 @@ function goHome() {
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
+  setActiveNav("home");
   renderFavBoard();
   loadRanking(currentSector);
 }
+
+document.querySelectorAll("#main-nav button").forEach((b) => {
+  b.onclick = () => {
+    const view = b.dataset.view;
+    if (view === "home") { goHome(); return; }
+    if (view === "portfolio") {
+      if (!currentUser) { openAuthModal("login"); return; }
+      showPortfolio();
+      return;
+    }
+    if (view === "stock") {
+      if (currentCode) {
+        clearInterval(priceTimer);
+        $("landing").classList.add("hidden");
+        $("compare-view").classList.add("hidden");
+        $("admin-view").classList.add("hidden");
+        $("portfolio-view").classList.add("hidden");
+        $("report").classList.remove("hidden");
+        setActiveNav("stock");
+        priceTimer = setInterval(refreshPrice, 4000);
+        window.scrollTo({ top: 0 });
+      } else {
+        goHome();
+        $("search-input").focus();
+      }
+    }
+  };
+});
 
 /* ---------------- 이상징후 탐지 ---------------- */
 async function loadAnomalies() {
@@ -318,37 +374,84 @@ function renderRanking(d) {
   renderTodayPick(d.items);
 }
 
-/* ---------------- 오늘의 투자 판단 (홈) ---------------- */
-function renderTodayPick(items) {
+/* ---------------- 오늘의 AI 투자기회 (홈) ---------------- */
+const CATEGORY_ICON = { "가치평가": "💰", "수익성": "📈", "성장성": "🚀", "재무안정성": "🛡️", "기술적추세": "📊", "수급·심리": "🌊" };
+
+function josa(word, withBatchim, withoutBatchim) {
+  const code = (word || "").charCodeAt((word || "").length - 1) - 0xAC00;
+  if (code < 0 || code > 11171) return withoutBatchim;
+  return code % 28 === 0 ? withoutBatchim : withBatchim;
+}
+
+function directionTag(score) {
+  if (score >= 80) return { text: "매우 긍정", arrow: "▲▲", cls: "dir-strong-up" };
+  if (score >= 62) return { text: "긍정", arrow: "▲", cls: "dir-up" };
+  if (score >= 42) return { text: "보통", arrow: "─", cls: "dir-flat" };
+  if (score >= 25) return { text: "부정", arrow: "▼", cls: "dir-down" };
+  return { text: "매우 부정", arrow: "▼▼", cls: "dir-strong-down" };
+}
+
+async function renderTodayPick(items) {
   const board = $("today-board");
   if (!items || !items.length) { board.classList.add("hidden"); return; }
   board.classList.remove("hidden");
-  const top = items.slice(0, 8);
+  const top = items.slice(0, 5);
   const best = top[0];
   const bv = best.ai_verdict || {};
+  const bestUp = best.upside != null ? `${sign(best.upside, 1)}%` : "-";
   $("today-hero").innerHTML = `
-    <div class="today-hero-card" data-code="${best.code}">
-      <div class="today-hero-label">🔥 지금 가장 주목할 종목</div>
-      <div class="today-hero-name">${best.name} <small>${best.code}</small></div>
-      <div class="today-hero-score" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 확신도 ${bv.confidence ?? "-"}% <small>(종합점수 ${best.score}점)</small></div>
-    </div>`;
-  $("today-hero").querySelector(".today-hero-card").onclick = () => analyze(best.code);
+    <div class="today-pick-label">🔥 TODAY'S PICK</div>
+    <div class="today-pick-name">${best.name} <small>${best.code}</small></div>
+    <div class="today-pick-price-row">
+      <span class="today-pick-price">${pw(best.price, best.currency)}</span>
+      <span class="today-pick-score">종합점수 ${best.score}</span>
+    </div>
+    <div class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 확신도 ${bv.confidence ?? "-"}%</div>
+    <div class="today-pick-stats">
+      <div><label>적정매수가</label><span id="today-pick-fair">불러오는 중…</span></div>
+      <div><label>목표가</label><span>${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
+      <div><label>상승여력</label><span class="${updownClass(best.upside)}">${bestUp}</span></div>
+    </div>
+    <button class="primary-btn today-pick-btn" id="today-pick-btn">종목 자세히 보기</button>`;
+  $("today-pick-btn").onclick = () => analyze(best.code);
+
+  // "왜 주목하는가" — 이미 계산된 6개 부문점수 + RSI를 그대로 재사용(추가 계산 없음)
+  const cats = Object.entries(best.categories || {});
+  const reasonsHtml = cats.map(([name, score]) => {
+    const d = directionTag(score);
+    return `<div class="today-why-row ${d.cls}"><span class="today-why-name">${CATEGORY_ICON[name] || "•"} ${name}</span><span class="today-why-dir">${d.arrow} ${d.text}</span></div>`;
+  }).join("");
+  const overheatWarn = best.rsi != null && best.rsi >= 70
+    ? `<div class="today-why-warn">⚠️ 단기 과열 가능성 (RSI ${best.rsi.toFixed(0)})</div>` : "";
+  $("today-why").innerHTML = `<div class="today-why-title">AI가 오늘 ${best.name}${josa(best.name, "을", "를")} 주목한 이유</div>${reasonsHtml}${overheatWarn}`;
 
   $("today-rows").innerHTML = top.map((r) => {
     const v = r.ai_verdict || {};
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
-    const fair = r.target_price ? pw(r.target_price, r.currency) : "-";
+    const target = r.target_price ? pw(r.target_price, r.currency) : "-";
     return `<div class="today-row" data-code="${r.code}">
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="today-name">${r.name}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
-      <span class="today-fair">${fair}</span>
+      <span class="today-fair">${target}</span>
       <span class="today-upside ${updownClass(r.upside)}">${up}</span>
     </div>`;
   }).join("");
   $("today-rows").querySelectorAll(".today-row").forEach((row) => {
     row.onclick = () => analyze(row.dataset.code);
   });
+
+  // 적정매수가는 랭킹 백그라운드 채점에 없음(peers 조회 등 비용 때문에 의도적으로 생략)
+  // — TODAY'S PICK 1종목에 한해서만 추가로 조회한다.
+  try {
+    const d = await api(`/api/analyze/${best.code}`);
+    const fb = (d.targets && d.targets.fair_buy) ? d.targets.fair_buy.base : null;
+    const el = $("today-pick-fair");
+    if (el) el.textContent = fb ? pw(fb.price, best.currency) : "-";
+  } catch {
+    const el = $("today-pick-fair");
+    if (el) el.textContent = "-";
+  }
 }
 
 function paintRanking() {
@@ -417,6 +520,7 @@ async function analyze(code) {
     render(d);
     $("loading").classList.add("hidden");
     $("report").classList.remove("hidden");
+    setActiveNav("stock");
     window.scrollTo({ top: 0 });
     priceTimer = setInterval(refreshPrice, 4000);
   } catch (err) {
@@ -1067,6 +1171,7 @@ function showCompare() {
   $("landing").classList.add("hidden");
   $("report").classList.add("hidden");
   $("compare-view").classList.remove("hidden");
+  setActiveNav(null);
   window.scrollTo({ top: 0 });
   renderComparePick();
   drawCompareRadar();
@@ -1647,6 +1752,7 @@ async function showAdmin() {
   $("report").classList.add("hidden");
   $("compare-view").classList.add("hidden");
   $("admin-view").classList.remove("hidden");
+  setActiveNav(null);
   window.scrollTo({ top: 0 });
   try {
     const r = await api("/api/admin/users");
@@ -1680,6 +1786,7 @@ async function showPortfolio() {
   $("compare-view").classList.add("hidden");
   $("admin-view").classList.add("hidden");
   $("portfolio-view").classList.remove("hidden");
+  setActiveNav("portfolio");
   window.scrollTo({ top: 0 });
   await loadPortfolio();
 }
@@ -1897,10 +2004,6 @@ $("pf-add-btn").onclick = async () => {
     $("pf-add-btn").disabled = false;
     $("pf-add-msg").textContent = "오류: " + e.message;
   }
-};
-$("portfolio-link").onclick = () => {
-  if (!currentUser) { openAuthModal("login"); return; }
-  showPortfolio();
 };
 $("pf-back").onclick = goHome;
 
