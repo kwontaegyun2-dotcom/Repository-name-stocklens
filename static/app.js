@@ -787,9 +787,10 @@ function render(d) {
 
     // 부문별 6개 아이콘 요약 — "5초 요약"에서 세부 이유(hl-why-split)까지 안 읽어도 어디가
     // 좋고 나쁜지 색으로 바로 보이게(홈 today-why와 같은 CATEGORY_ICON/점수 구간 재사용).
+    // 아이콘+색점만으로는 뭘 뜻하는지 안 보여서(호버 툴팁은 모바일에서 무용지물) 부문명을 항상 텍스트로 같이 표기.
     $("hl-cats").innerHTML = Object.entries(d.total.categories || {}).map(([name, catScore]) => {
       const dot = catScore >= 62 ? "🟢" : catScore >= 42 ? "🟡" : "🔴";
-      return `<span class="hl-cat-chip" title="${name} ${catScore}점">${CATEGORY_ICON[name] || "•"} ${dot}</span>`;
+      return `<span class="hl-cat-chip">${CATEGORY_ICON[name] || "•"} ${name} ${dot}</span>`;
     }).join("");
 
     // 근거: 이미 계산된 기술적·밸류에이션 신호(bull/bear/warn 태그) + 외국인 수급 추세
