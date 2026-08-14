@@ -220,7 +220,12 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
         window.scrollTo({ top: 0 });
       } else {
         goHome();
+        const wrap = $("search-input").closest(".search-wrap");
         $("search-input").focus();
+        wrap.classList.remove("pulse-hint");
+        void wrap.offsetWidth;   // 리플로우 강제 → 같은 애니메이션 재실행 가능하게
+        wrap.classList.add("pulse-hint");
+        setTimeout(() => wrap.classList.remove("pulse-hint"), 900);
       }
     }
   };
