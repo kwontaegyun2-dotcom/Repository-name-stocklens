@@ -109,6 +109,30 @@ def trend(code: str):
     return _get(f"{M}/stock/{code}/trend", ttl=600)
 
 
+_FX_RE = re.compile(r'FX_USDKRW".*?<span class="value">([\d,]+\.?\d*)</span>', re.S)
+
+
+def usd_krw_rate():
+    """원/달러 환율(하나은행 고시 기준, finance.naver.com/marketindex 페이지를 파싱).
+    전용 API 엔드포인트가 없어(시도해본 후보들 전부 404/409) HTML을 정규식으로 읽는다 —
+    candles()의 fchart 파싱과 같은 방식. 실패하면 None(호출부인 portfolio.py가 폴백 처리:
+    환율을 못 구하면 해당 미국 종목은 그 요청에서만 제외하고 다음 조회 때 재시도)."""
+    now = time.time()
+    hit = _cache.get("fx:usdkrw")
+    if hit and now - hit[0] < 600:
+        return hit[1]
+    try:
+        r = requests.get("https://finance.naver.com/marketindex/", headers=HEADERS, timeout=8)
+        r.raise_for_status()
+        m = _FX_RE.search(r.text)
+        rate = float(m.group(1).replace(",", "")) if m else None
+    except Exception:
+        rate = None
+    if rate is not None:
+        _cache["fx:usdkrw"] = (now, rate)
+    return rate
+
+
 _ITEM_RE = re.compile(r'<item data="([^"]+)"')
 
 

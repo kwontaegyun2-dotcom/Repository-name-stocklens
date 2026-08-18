@@ -2132,14 +2132,19 @@ function renderPortfolio(p) {
       ["종목", "수량", "평균단가", "현재가", "평가금액", "평가손익", "현재비중", "권장비중", "AI판단", ""],
       p.items.map((it) => {
         const v = it.ai_verdict || {};
+        const isUS = it.currency === "USD";
+        const flag = isUS ? "🇺🇸 " : "";
+        // 평균단가·현재가는 종목 통화 그대로(달러는 $ 표기) — 평가금액·평가손익은 합산이 필요해
+        // 원화 환산가 그대로 두되, 미국 종목은 "(환산)"을 붙여 환율이 반영된 값임을 알린다.
+        const krwNote = isUS ? ` <small class="hint">(환산)</small>` : "";
         return [
-          it.name,
+          flag + it.name,
           fmt(it.shares) + "주",
-          it.avg_price != null ? won(it.avg_price) : "-",
-          won(it.price),
-          won(it.value),
+          it.avg_price != null ? pw(it.avg_price, it.currency) : "-",
+          isUS ? pw(it.price_native, "USD") : won(it.price),
+          won(it.value) + krwNote,
           it.pnl != null
-            ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>`
+            ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>${krwNote}`
             : "-",
           `${it.weight}%`,
           it.target_weight != null ? `${it.target_weight}%` : "-",
@@ -2155,9 +2160,12 @@ function renderPortfolio(p) {
     });
   }
 
-  $("pf-excluded").textContent = (p.excluded && p.excluded.length)
+  const fxItem = p.available ? (p.items || []).find((it) => it.fx_rate) : null;
+  const fxNote = fxItem ? `환율: $1 = ₩${fmt(fxItem.fx_rate, 2)} 기준으로 환산됨` : "";
+  const excludedNote = (p.excluded && p.excluded.length)
     ? "제외됨: " + p.excluded.map((x) => `${x.name}(${x.reason})`).join(", ")
     : "";
+  $("pf-excluded").innerHTML = [fxNote, excludedNote].filter(Boolean).join("<br>");
 }
 
 /* 종목 검색 (메인 검색과 별개의 작은 드롭다운) */
@@ -2168,20 +2176,23 @@ pfInput.addEventListener("input", () => {
   clearTimeout(pfSearchTimer);
   pfSelected = null;
   $("pf-add-btn").disabled = true;
+  $("pf-price").placeholder = "평균단가(원, 선택)";
   const q = pfInput.value.trim();
   if (!q) { pfDropdown.classList.add("hidden"); return; }
   pfSearchTimer = setTimeout(async () => {
     try {
-      const { items } = await api(`/api/search?q=${encodeURIComponent(q)}&market=KR`);
+      const { items } = await api(`/api/search?q=${encodeURIComponent(q)}`);
       pfDropdown.innerHTML = "";
-      items.filter((it) => it.nation !== "US").forEach((it) => {
+      items.forEach((it) => {
+        const flag = it.nation === "US" ? "🇺🇸" : "🇰🇷";
         const d = document.createElement("div");
-        d.innerHTML = `<b>${it.name}</b><small>${it.code} · ${it.market}</small>`;
+        d.innerHTML = `<b>${flag} ${it.name}</b><small>${it.code} · ${it.market}</small>`;
         d.onclick = () => {
           pfDropdown.classList.add("hidden");
           pfInput.value = it.name;
-          pfSelected = { code: it.code, name: it.name };
+          pfSelected = { code: it.code, name: it.name, nation: it.nation };
           $("pf-add-btn").disabled = false;
+          $("pf-price").placeholder = it.nation === "US" ? "평균단가(달러, 선택)" : "평균단가(원, 선택)";
         };
         pfDropdown.appendChild(d);
       });
@@ -2210,6 +2221,7 @@ $("pf-add-btn").onclick = async () => {
       body: JSON.stringify({ name: pfSelected.name, shares, avg_price }),
     });
     pfInput.value = ""; $("pf-shares").value = ""; $("pf-price").value = ""; pfSelected = null;
+    $("pf-price").placeholder = "평균단가(원, 선택)";
     $("pf-add-msg").textContent = "추가됨. 포트폴리오 불러오는 중...";
     await loadPortfolio();
     $("pf-add-msg").textContent = "";

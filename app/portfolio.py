@@ -1,10 +1,15 @@
 # -*- coding: utf-8 -*-
 """내 포트폴리오 — 보유 종목의 평가금액·비중·업종분산·변동성·최대낙폭을 계산한다.
 
-⚠️ v1은 국내 종목만 지원한다. 해외 종목까지 합산하려면 원/달러 환율이 필요한데
-이 앱은 환율 소스가 없어(추정치를 쓰면 평가금액이 틀릴 수 있음), 정확하지 않은
-숫자를 보여주느니 국내로 범위를 좁혔다 — 해외 보유분은 목록에서 제외하고 그 사실을
-명시한다.
+국내+미국 종목을 함께 지원한다. 미국 종목은 `naver.usd_krw_rate()`(하나은행 고시
+환율, 실시간 조회)로 원화 환산해 KR 보유분과 합산한다 — 총자산·비중·업종분산·
+상관관계 등 "합산이 필요한" 계산은 전부 원화 기준. 다만 적정매수가·목표주가·RSI
+등 종목 자체의 판단 신호는 analyze_fn()이 이미 종목 통화(달러) 그대로 계산해둔
+값이므로, 그 신호와 비교할 때는(예: 매수 타이밍 판단) 반드시 원화 환산 전
+`price_native`(달러)를 써야 한다 — 환산가와 비교하면 단위가 안 맞아 전부 틀린다.
+
+환율 조회가 실패하면(네트워크 문제 등) 그 미국 종목만 이번 계산에서 제외하고
+사유를 명시한다(다음 새로고침 때 재시도되므로 일시적 문제일 뿐).
 """
 import sqlite3
 import statistics
@@ -14,12 +19,12 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app import analysis, ranking, themes
+from app import analysis, naver, ranking, themes
 
 _KST = ZoneInfo("Asia/Seoul")
 
 _db_path = None
-_SECTOR_MAP = {code: sector for code, _name, sector in ranking.UNIVERSE}
+_SECTOR_MAP = {code: sector for code, _name, sector in ranking.UNIVERSE + ranking.US_UNIVERSE}
 
 
 def init(data_dir: Path):
@@ -200,12 +205,12 @@ def _correlation_and_risk(items):
 
 
 def _theme_exposure(items):
-    """themes.py에 큐레이션된 테마(국내분만 매칭 — 포트폴리오가 국내종목만 지원하므로)에
-    보유 비중을 합산해 "실질 노출"을 계산한다. 신규 데이터·네트워크 호출 없음."""
+    """themes.py에 큐레이션된 테마(국내+미국 모두 매칭)에 보유 비중을 합산해 "실질 노출"을
+    계산한다. 신규 데이터·네트워크 호출 없음."""
     exposure = {}
     for name, codes in themes.THEMES.items():
-        kr_codes = {code for market, code in codes if market == "KR"}
-        w = round(sum(it["weight"] for it in items if it["code"] in kr_codes), 1)
+        theme_codes = {code for _market, code in codes}
+        w = round(sum(it["weight"] for it in items if it["code"] in theme_codes), 1)
         if w > 0:
             exposure[name] = w
     return dict(sorted(exposure.items(), key=lambda kv: -kv[1]))
@@ -378,27 +383,43 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
                 row, d = fut.result()
             except Exception:
                 continue
-            if d.get("nation") == "US":
-                excluded.append({"code": row["code"], "name": row["name"], "reason": "해외 종목(환율 미지원)"})
-                continue
             if not d.get("price"):
                 excluded.append({"code": row["code"], "name": row["name"], "reason": "시세 조회 실패"})
                 continue
             results.append((row, d))
 
+    # 미국 보유분이 하나라도 있을 때만 환율을 조회한다(순수 국내 포트폴리오는 네트워크 호출 추가 없음).
+    fx_rate = None
+    if any(d.get("nation") == "US" for _row, d in results):
+        fx_rate = naver.usd_krw_rate()
+
+    kept = []
+    for row, d in results:
+        if d.get("nation") == "US" and fx_rate is None:
+            excluded.append({"code": row["code"], "name": row["name"], "reason": "환율 조회 실패(다음 새로고침 때 재시도됩니다)"})
+            continue
+        kept.append((row, d))
+    results = kept
+
     if not results:
-        return {"available": False, "reason": "계산 가능한 국내 보유 종목이 없습니다.", "excluded": excluded}
+        return {"available": False, "reason": "계산 가능한 보유 종목이 없습니다.", "excluded": excluded}
 
     today_str = datetime.now(_KST).date().isoformat()
     snapshot_updates = []
     items = []
     total_value = 0.0
     for row, d in results:
-        price = d["price"]
+        is_us = d.get("nation") == "US"
+        currency = "USD" if is_us else "KRW"
+        # price_native: 종목 통화 그대로(달러/원) — 적정매수가·목표가·RSI 등 analyze_fn()이
+        # 이미 계산해둔 판단 신호와 반드시 이 값으로 비교해야 한다(둘 다 네이티브 통화).
+        # price: 원화 환산가 — 평가금액·비중 등 "합산"에만 쓴다.
+        price_native = d["price"]
+        price = price_native * fx_rate if is_us else price_native
         value = row["shares"] * price
         total_value += value
-        avg_price = row["avg_price"]
-        cost = row["shares"] * avg_price if avg_price else None
+        avg_price_native = row["avg_price"]
+        cost = row["shares"] * avg_price_native * (fx_rate if is_us else 1) if avg_price_native else None
         score = d["total"]["total_score"]
 
         snap_score, snap_date = row.get("snapshot_score"), row.get("snapshot_date")
@@ -411,28 +432,37 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
 
         fair_buy = (d.get("targets") or {}).get("fair_buy") or {}
         base_price = (fair_buy.get("base") or {}).get("price")
-        buy_discount_pct = round((price - base_price) / base_price * 100, 1) if base_price else None
+        buy_discount_pct = round((price_native - base_price) / base_price * 100, 1) if base_price else None
 
         # 매도 신호 후보: 목표가 도달 / 기술적 과열(RSI) / 외국인 순매도 전환.
         # 단일 신호는 오탐이 많아(anomaly.py와 동일 원칙) 2개 이상 겹칠 때만 신호로 인정한다.
+        # (미국은 naver.trend()가 데이터를 안 줘서 flows가 항상 비어 외국인 신호는 자동 제외됨.)
         tech = d.get("technical") or {}
         rsi = tech.get("rsi") if tech.get("available") else None
         target_price = (d.get("targets") or {}).get("consensus")
         flows5 = [f.get("foreigner") for f in (d.get("flows") or [])[:5] if f.get("foreigner") is not None]
         foreign_sell = len(flows5) >= 3 and all(f < 0 for f in flows5)
         sell_candidates = []
-        if target_price and price >= target_price:
-            sell_candidates.append(f"목표가({target_price:,.0f}원) 도달")
+        if target_price and price_native >= target_price:
+            target_disp = f"${target_price:,.2f}" if is_us else f"{target_price:,.0f}원"
+            sell_candidates.append(f"목표가({target_disp}) 도달")
         if rsi is not None and rsi >= 70:
             sell_candidates.append(f"기술적 과열(RSI {rsi:.0f})")
         if foreign_sell:
             sell_candidates.append("외국인 순매도 전환")
         sell_reasons = sell_candidates if len(sell_candidates) >= 2 else []
 
+        # 변동성·상관관계 계산용 시계열도 원화 환산(현재 환율을 과거에 균일 적용하는 근사치).
+        # 수익률(%)·상관계수는 스케일 불변이라 이 근사가 계산 자체를 왜곡하진 않는다 — 실제
+        # 과거 환율 변동만 반영이 안 될 뿐(환율 이력 소스가 없어 여기까지는 범위 밖).
+        fx_mult = fx_rate if is_us else 1
         items.append({
             "code": row["code"], "name": row["name"], "shares": row["shares"],
-            "price": price, "value": value,
-            "avg_price": avg_price, "cost": cost,
+            "currency": currency,
+            "price": price, "price_native": price_native if is_us else None,
+            "fx_rate": fx_rate if is_us else None,
+            "value": value,
+            "avg_price": avg_price_native, "cost": cost,
             "pnl": round(value - cost) if cost is not None else None,
             "pnl_pct": round((value - cost) / cost * 100, 1) if cost else None,
             "score": score,
@@ -440,11 +470,11 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
             "buy_discount_pct": buy_discount_pct,
             "sell_reasons": sell_reasons,
             "ai_verdict": d.get("ai_verdict"),
-            "change": d.get("change"),
+            "change": d.get("change", 0) * fx_mult if d.get("change") is not None else None,
             "val_score": (d.get("valuation") or {}).get("score"),
             "upside": (d.get("targets") or {}).get("consensus_upside"),
             "sector": _SECTOR_MAP.get(row["code"], "미분류"),
-            "price_by_date": {c["date"]: c["close"] for c in (d.get("candles") or [])},
+            "price_by_date": {c["date"]: c["close"] * fx_mult for c in (d.get("candles") or [])},
         })
 
     if total_value <= 0:
