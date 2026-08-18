@@ -293,6 +293,12 @@ button { cursor: pointer; font-family: inherit; }
 .back-btn { background: var(--surface); color: var(--muted); border: 1px solid var(--border); border-radius: 12px; padding: 9px 16px; font-size: 13px; margin-bottom: 16px; transition: .2s; }
 .back-btn:hover { color: var(--text); border-color: var(--border-glow); transform: translateX(-3px); }
 .card { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 24px 26px; margin-bottom: 18px; backdrop-filter: blur(14px); box-shadow: 0 8px 30px rgba(0,0,0,.2); transition: border-color .25s, box-shadow .25s; animation: rise .5s ease both; }
+/* 종목상세 탭 — 자료가 너무 많다는 지적에 따라 "종합"만 기본 노출하고 나머지는 탭 뒤로 */
+.detail-tabs { display: flex; gap: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 4px; margin-bottom: 18px; overflow-x: auto; }
+.detail-tabs button { background: transparent; color: var(--muted); border: none; padding: 10px 16px; border-radius: 10px; font-size: 13.5px; font-weight: 700; white-space: nowrap; flex-shrink: 0; transition: .16s; }
+.detail-tabs button:hover { color: var(--text); }
+.detail-tabs button.active { background: var(--grad); color: #fff; box-shadow: 0 3px 12px rgba(99,102,241,.35); }
+.tab-hide { display: none; }
 .card:hover { border-color: rgba(139,92,246,.28); box-shadow: 0 12px 42px rgba(99,102,241,.14); }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 .card h3 { font-size: 17px; font-weight: 700; margin-bottom: 15px; }

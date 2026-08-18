@@ -718,10 +718,26 @@ function renderBuyPlan(fb, targetPrice, stopLoss) {
   $("buy-plan-stop").textContent = stopLoss ? pw(stopLoss) : "-";
 }
 
+/* ---------------- 종목상세 탭 ---------------- */
+function showDetailTab(tab) {
+  document.querySelectorAll("#detail-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  // "> [data-tab]"(직계 자식만) — 안 그러면 #detail-tabs 안의 탭 버튼도 [data-tab]이라 같이
+  // 걸려서 비활성 탭 버튼들이 전부 사라지는 버그가 남(실제로 걸렸던 실수, 되돌리지 말 것).
+  document.querySelectorAll("#report > [data-tab]").forEach((el) => el.classList.toggle("tab-hide", el.dataset.tab !== tab));
+  // 캔버스 기반 차트는 숨겨진 상태(display:none)에서 그리면 clientWidth가 0이라 깨진다 —
+  // 그 탭이 실제로 보여질 때 다시 그린다(가벼운 재계산, 추가 네트워크 호출 없음).
+  // 메인 캔들차트(lightweight-charts)는 autoSize:true라 컨테이너가 보이면 스스로 재조정됨.
+  if (tab === "finance" && lastAnalysis) renderFinance(lastAnalysis.finance_rows);
+}
+document.querySelectorAll("#detail-tabs button").forEach((b) => {
+  b.onclick = () => showDetailTab(b.dataset.tab);
+});
+
 /* ---------------- render ---------------- */
 function render(d) {
   lastAnalysis = d;
   curCur = d.currency || "KRW";
+  showDetailTab("overview");   // 종목이 바뀔 때마다 "종합" 탭으로 리셋
   /* header */
   $("stock-logo").src = d.logo || "";
   $("stock-logo").style.display = d.logo ? "" : "none";
@@ -942,6 +958,7 @@ function render(d) {
 
   /* flows (미국은 수급 데이터 없음) */
   const flowCard = $("flow-table").closest(".card");
+  $("tab-btn-flow").classList.toggle("hidden", !d.flows.length);
   if (!d.flows.length) {
     flowCard.classList.add("hidden");
   } else {
@@ -990,6 +1007,7 @@ function render(d) {
     ]));
 
   /* AI */
+  $("tab-btn-ai").classList.toggle("hidden", !d.ai_enabled);
   $("ai-report").classList.add("hidden");
   $("ai-report").innerHTML = "";
   if (d.ai_enabled) {
