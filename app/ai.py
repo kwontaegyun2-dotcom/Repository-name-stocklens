@@ -30,11 +30,18 @@ def deep_report(name: str, code: str, payload: dict) -> str:
     cons = payload.get("consensus", {})
     tech = payload.get("technical", {})
 
+    # 적자→흑자 등 저기반 회복 시 컨센서스 성장률이 수백%로 튈 수 있다(실측: 삼성전자
+    # +796%). 값을 숨기지 않고 그대로 넘기되(AI가 맥락을 판단할 정보이므로 임의로 캡하지
+    # 않음), 극단값이면 주의 문구를 붙여 AI가 "실제 폭발적 성장"처럼 서술하지 않게 한다.
+    gf = m.get("op_growth_fwd")
+    gf_note = "(주의: 저기반 회복 등으로 왜곡됐을 수 있는 수치 — 액면 그대로 강조하지 말 것)" \
+        if isinstance(gf, (int, float)) and abs(gf) > 100 else ""
+
     prompt = f"""당신은 한국 주식시장 전문 애널리스트입니다. 아래 데이터를 바탕으로 {name}({code})에 대한 심층 분석 리포트를 한국어 마크다운으로 작성하세요.
 
 ## 투자지표
 PER {m.get('per')}배 / 선행PER {m.get('cns_per')}배 / PBR {m.get('pbr')}배 / ROE {m.get('roe')}% / 영업이익률 {m.get('op_margin')}% / 부채비율 {m.get('debt_ratio')}% / 배당수익률 {m.get('dividend_yield')}%
-매출성장률(전년) {m.get('rev_growth')}% / 영업이익성장률(전년) {m.get('op_growth')}% / 컨센서스 영업이익성장률(내년) {m.get('op_growth_fwd')}%
+매출성장률(전년) {m.get('rev_growth')}% / 영업이익성장률(전년) {m.get('op_growth')}% / 컨센서스 영업이익성장률(내년) {gf}%{gf_note}
 
 ## 애널리스트 컨센서스
 목표주가 평균 {cons.get('target_price')}원, 투자의견 {cons.get('opinion')}, 상승여력 {cons.get('upside')}%

@@ -483,15 +483,23 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     # 대신 컨센서스 전망이 직전 실적 대비 성장하는지로 방향을 본다.
     gf = metrics.get("op_growth_fwd")
     if gf is not None:
-        # 저기반 회복의 세자릿수 성장이 곧바로 만점이 되지 않게 50%에서 상한
+        # 저기반 회복(적자→흑자 등)의 세자릿수 성장이 곧바로 만점이 되지 않게 50%에서 상한.
+        # ⚠️ 점수(sc)만 상한을 적용하고 신호 텍스트는 원본 gf를 그대로 보여주던 실수가
+        # 있었다(실측 확인: 삼성전자 "컨센서스 영업이익 전망 +796.6%" 같은 왜곡값이 그대로
+        # 사용자에게 노출됨). anomaly.py의 GROWTH_DISPLAY_CAP과 같은 원칙으로 **표시값도
+        # PEG_GROWTH_CAP(50%)으로 캡**하고, 원본이 그보다 크면 "저기반 효과로 상한 표시"임을
+        # 명시한다 — 점수 계산에 쓰는 실제 상한과 항상 같은 값을 쓸 것(따로 관리하면 또 어긋남).
         sc = _clamp(50 + max(-50.0, min(gf, 50.0)) * 0.8)
         parts["실적방향"] = sc
+        gf_disp = max(-PEG_GROWTH_CAP, min(gf, PEG_GROWTH_CAP))
+        gf_capped = abs(gf) > PEG_GROWTH_CAP
+        note = " (저기반 효과로 상한 표시, 실제 수치는 이보다 더 극단적)" if gf_capped else ""
         signals.append(("bull" if gf > 10 else "bear" if gf < 0 else "neutral",
-                        f"컨센서스 영업이익 전망 {gf:+.1f}% "
+                        f"컨센서스 영업이익 전망 {gf_disp:+.1f}%{note} "
                         + ("— 실적 개선 기대" if gf > 0 else "— 실적 둔화 전망")))
         checklist.append({
             "item": "실적 추정치가 성장 방향인가?",
-            "verdict": f"{gf:+.1f}%",
+            "verdict": f"{gf_disp:+.1f}%{note}",
             "ok": gf > 0,
             "detail": "컨센서스 영업이익 전망 (과거 추정치 이력은 미제공)",
         })

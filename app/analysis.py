@@ -922,6 +922,14 @@ def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dic
     return {"tier": tier, "label": label, "emoji": emoji, "confidence": confidence}
 
 
+# 저기반(적자→흑자 등) 회복 시 성장률이 수백%로 튀는 걸 방지하는 표시 상한.
+# app/anomaly.py GROWTH_DISPLAY_CAP·app/valuation.py PEG_GROWTH_CAP과 같은 50%를 쓴다 —
+# 점수 계산(analysis.py 위쪽 _scale 호출들)은 이미 -25~60 구간으로 사실상 상한이 있지만,
+# 서술 문장(build_opinion)은 원본을 그대로 찍고 있었다(실측 확인: 삼성전자 "영업이익
+# 796.6% 증가" 문장이 그대로 노출됨) — 반드시 이 상수로 캡한 값만 문장에 넣을 것.
+GROWTH_DISPLAY_CAP = 50.0
+
+
 def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, total: dict) -> dict:
     """규칙 기반 종합 의견 / 미래 사업가치 서술 생성."""
     m = fund["metrics"]
@@ -939,11 +947,13 @@ def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, to
 
     # 성장성
     if m["op_growth_fwd"] is not None:
+        gf_disp = max(-GROWTH_DISPLAY_CAP, min(m["op_growth_fwd"], GROWTH_DISPLAY_CAP))
+        note = " (저기반 효과로 상한 표시)" if abs(m["op_growth_fwd"]) > GROWTH_DISPLAY_CAP else ""
         if m["op_growth_fwd"] > 20:
-            lines.append(f"증권가 컨센서스는 내년 영업이익이 {m['op_growth_fwd']:.0f}% 증가할 것으로 전망하며, "
+            lines.append(f"증권가 컨센서스는 내년 영업이익이 {gf_disp:.0f}%{note} 증가할 것으로 전망하며, "
                          "미래 사업가치 측면에서 강한 성장 모멘텀이 기대됩니다.")
         elif m["op_growth_fwd"] < 0:
-            lines.append(f"컨센서스 기준 영업이익이 {abs(m['op_growth_fwd']):.0f}% 감소할 것으로 전망되어 실적 둔화 우려가 있습니다.")
+            lines.append(f"컨센서스 기준 영업이익이 {abs(gf_disp):.0f}%{note} 감소할 것으로 전망되어 실적 둔화 우려가 있습니다.")
     if m["roe"] is not None:
         if m["roe"] >= 15:
             lines.append(f"ROE {m['roe']:.1f}%로 자본 효율성이 우수합니다.")

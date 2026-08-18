@@ -1588,6 +1588,11 @@ const _UNIT_LABEL = { eok: "억", pct: "%", x: "배", won: "원" };
 
 function renderFinance(rows) {
   // rows: { 표시이름: { unit, series:[{period,value,consensus}] } }
+  // ⚠️ eok(억) 단위는 국내=원, 미국=달러 그대로다(app/analysis.py _highlight_rows가 미국을
+  // 이미 100으로 나눠 "억 달러" 스케일로 맞춰둠) — 라벨을 "억원"으로 고정하면 미국 종목은
+  // 통화가 완전히 틀려 보인다(실제 발생 확인: AAPL 매출 "4,162"가 "억원"으로 보이면 약
+  // $290M로 오인되지만 실제는 "억 달러" 즉 $416B — 1400배 차이).
+  $("finance-unit-hint").textContent = curCur === "USD" ? "단위: 억 달러 · (E)는 컨센서스" : "단위: 억원 · (E)는 컨센서스";
   const S = (name) => (rows[name] && rows[name].series) || [];
   const rev = S("매출액"), op = S("영업이익");
   const c = $("finance-chart"), ctx = c.getContext("2d");
