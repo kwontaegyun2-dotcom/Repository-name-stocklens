@@ -558,7 +558,12 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .hero h1 { font-size: 32px; }
   .hero p { font-size: 14px; }
   .live-price { font-size: 26px; }
-  .topbar { flex-wrap: wrap; padding: 12px 14px; gap: 10px; }
+  .topbar { flex-wrap: wrap; padding: 12px 14px; gap: 8px 10px; }
+  .logo { font-size: 18px; }
+  /* ⚙ 실시간 시세 버튼은 라벨 텍스트를 숨기고 아이콘만 남겨 헤더 1행에 logo·테마·auth와
+     같이 들어가게 한다(라벨까지 다 보이면 폭이 넘쳐 항상 자기 혼자 한 줄을 차지했었음). */
+  .kis-label { display: none; }
+  #kis-btn { padding: 8px 10px; }
   .main-nav { order: 3; width: 100%; }
   .main-nav button { flex: 1; padding: 9px 6px; font-size: 12.5px; }
   .search-wrap { order: 2; flex: 1 1 auto; }
@@ -579,6 +584,8 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .hero-badge { font-size: 12px; }
   .verdict-banner { padding: 15px 18px; }
   .verdict-banner .opinion-head { font-size: 14.5px; }
+  .mypf-cta { flex-direction: column; align-items: stretch; }
+  .mypf-cta button { width: 100%; }
 }
 
 /* ---------- 기술 점수 4축 분해 바 ---------- */
@@ -719,7 +726,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 
 @media (max-width: 640px) {
   .pf-add-row { flex-direction: column; }
-  .pf-search-wrap, #pf-shares, #pf-price, #pf-add-btn { width: 100%; }
+  .pf-search-wrap, #pf-shares, #pf-price, #pf-add-btn { width: 100%; flex: none; }
 }
 
 /* ---------- 오늘의 진단 / 위험탐지 / 실질노출 / 상관관계 ---------- */

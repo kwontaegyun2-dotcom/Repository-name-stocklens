@@ -2240,7 +2240,11 @@ async function refreshKisBtn() {
     const r = await api("/api/kis/status");
     if (r.public) { $("kis-btn").classList.add("hidden"); return; }
     $("kis-btn").classList.remove("hidden");
-    $("kis-btn").textContent = r.configured ? "⚡ 실시간 시세 연결됨" : "⚙ 실시간 시세 연동";
+    // .kis-label은 좁은 화면에서 CSS로 숨겨 아이콘만 남긴다(헤더가 모바일에서 너무 길어지는 것 방지) —
+    // title로 접근성/툴팁은 유지.
+    const label = r.configured ? "실시간 시세 연결됨" : "실시간 시세 연동";
+    $("kis-btn").innerHTML = `${r.configured ? "⚡" : "⚙"} <span class="kis-label">${label}</span>`;
+    $("kis-btn").title = label;
   } catch {}
 }
 refreshKisBtn();
