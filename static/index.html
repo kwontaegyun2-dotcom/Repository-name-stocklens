@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=55">
+<link rel="stylesheet" href="/static/style.css?v=57">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -15,6 +15,7 @@
   <nav class="main-nav" id="main-nav">
     <button data-view="home" class="active">홈</button>
     <button data-view="stock">종목분석</button>
+    <button data-view="screener">🔎 스크리너</button>
     <button data-view="portfolio">💼 포트폴리오</button>
   </nav>
   <div class="search-wrap">
@@ -81,6 +82,13 @@
     <p class="rank-sub">국내·미국을 섞은 테마별 투자 매력도 TOP 10</p>
     <div class="theme-chips" id="theme-chips"></div>
     <div id="theme-result" class="rank-list hidden"></div>
+  </section>
+
+  <!-- 점수 백테스트: 우리 점수가 실제로 통했는지 매일 실제 데이터로 추적 -->
+  <section class="bt-board" id="bt-board">
+    <h2>📊 이 점수, 실제로 통했을까?</h2>
+    <p class="rank-sub" id="bt-sub">매일 실제 종가로 추적한 결과만 보여드립니다 — 과거를 흉내 낸 백테스트가 아닙니다.</p>
+    <div id="bt-body"><p class="hint-p">불러오는 중…</p></div>
   </section>
 
   <!-- 관심종목 -->
@@ -572,8 +580,46 @@
   </section>
 </main>
 
+<!-- 스크리너 -->
+<main id="screener-view" class="report hidden">
+  <button id="scr-back" class="back-btn">← 돌아가기</button>
+  <section class="card">
+    <h3>🔎 조건 조합 스크리너 <small class="hint">랭킹에 이미 집계된 지표로 필터링 — 조건을 걸고 검색하세요</small></h3>
+    <div class="scr-form" id="scr-form">
+      <div class="scr-field">
+        <label>시장</label>
+        <select id="scr-market"><option value="전체">전체</option><option value="KR">🇰🇷 국내</option><option value="US">🇺🇸 미국</option></select>
+      </div>
+      <div class="scr-field">
+        <label>섹터</label>
+        <select id="scr-sector"><option value="전체">전체</option></select>
+      </div>
+      <div class="scr-field">
+        <label>등급</label>
+        <select id="scr-grade"><option value="">전체</option><option value="S">S 이상</option><option value="A">A 이상</option><option value="B">B 이상</option><option value="C">C 이상</option></select>
+      </div>
+      <div class="scr-field"><label>종합점수 ≥</label><input id="scr-score-min" type="number" placeholder="예: 70"></div>
+      <div class="scr-field"><label>PER ≤</label><input id="scr-per-max" type="number" placeholder="예: 10" step="0.1"></div>
+      <div class="scr-field"><label>PBR ≤</label><input id="scr-pbr-max" type="number" placeholder="예: 1.5" step="0.1"></div>
+      <div class="scr-field"><label>ROE(%) ≥</label><input id="scr-roe-min" type="number" placeholder="예: 15" step="0.1"></div>
+      <div class="scr-field"><label>부채비율(%) ≤</label><input id="scr-debt-max" type="number" placeholder="예: 100" step="1"></div>
+      <div class="scr-field"><label>배당수익률(%) ≥</label><input id="scr-div-min" type="number" placeholder="예: 2" step="0.1"></div>
+      <div class="scr-field"><label>목표가 상승여력(%) ≥</label><input id="scr-upside-min" type="number" placeholder="예: 20" step="1"></div>
+      <div class="scr-field scr-check"><label><input id="scr-foreign-buy" type="checkbox"> 외국인 5일 연속 순매수(국내만)</label></div>
+    </div>
+    <div class="scr-actions">
+      <button id="scr-run" class="primary-btn">조건으로 검색</button>
+      <button id="scr-reset" class="ghost-btn">초기화</button>
+      <span id="scr-count" class="scr-count"></span>
+    </div>
+  </section>
+  <section class="card">
+    <div id="scr-results" class="rank-list"><p class="hint-p">조건을 설정하고 "조건으로 검색"을 눌러주세요.</p></div>
+  </section>
+</main>
+
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=55"></script>
+<script src="/static/app.js?v=57"></script>
 </body>
 </html>

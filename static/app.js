@@ -193,6 +193,7 @@ function goHome(fromPopstate) {
   $("compare-view").classList.add("hidden");
   $("admin-view").classList.add("hidden");
   $("portfolio-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   $("loading").classList.add("hidden");
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
@@ -213,6 +214,7 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
       showPortfolio();
       return;
     }
+    if (view === "screener") { showScreener(); return; }
     if (view === "stock") {
       if (currentCode) {
         clearInterval(priceTimer);
@@ -220,6 +222,7 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
         $("compare-view").classList.add("hidden");
         $("admin-view").classList.add("hidden");
         $("portfolio-view").classList.add("hidden");
+        $("screener-view").classList.add("hidden");
         $("report").classList.remove("hidden");
         setActiveNav("stock");
         priceTimer = setInterval(refreshPrice, 4000);
@@ -236,6 +239,141 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
     }
   };
 });
+
+/* ---------------- 점수 백테스트 ---------------- */
+// 진단리포트 9장: "점수의 과거 성과를 상시 공개하는 것이 유료화의 결정적 근거".
+// 과거 시점 데이터를 재구성할 방법이 없어(재무·컨센서스·기술지표 모두 "현재값"만 제공)
+// 진짜 과거 백테스트는 불가능 — 대신 오늘부터 매일 스냅샷을 쌓아 실제 결과만 보여준다.
+async function loadBacktest() {
+  try {
+    const d = await api("/api/backtest");
+    if (!d.available) {
+      document.getElementById("bt-body").innerHTML =
+        `<div class="bt-empty">📅 오늘부터 점수 추적을 시작했습니다. 매일 자동으로 종가를 기록하고,
+         1주일 뒤부터 이 자리에 실제 수익률이 표시됩니다. 과거 데이터를 흉내 내지 않고
+         정직하게 실현되는 대로만 보여드립니다.</div>`;
+      return;
+    }
+    document.getElementById("bt-sub").textContent =
+      `추적 시작 ${d.start_date} · ${d.days_collected}일째 매일 실제 종가로 기록 중 · 마지막 기록 ${d.latest_date}`;
+    document.getElementById("bt-body").innerHTML = `<div class="bt-grid">${d.periods.map((p) => {
+      if (!p.available) {
+        return `<div class="bt-period bt-period-locked">
+          <div class="bt-period-label">${p.label}</div>
+          <div class="bt-period-locked-msg">🔒 아직 데이터 부족<br><small>추적 ${d.days_collected}/${p.days}일째</small></div>
+        </div>`;
+      }
+      const rows = p.buckets.filter((b) => b.count > 0).map((b) => `
+        <div class="bt-row">
+          <span class="bt-grade">${b.grade}</span>
+          <span class="bt-n">${b.count}종목</span>
+          <span class="bt-ret ${b.avg_return >= 0 ? "up" : "down"}">${sign(b.avg_return, 1)}%</span>
+          <span class="bt-win">승률 ${b.win_rate}%</span>
+          ${b.excess_vs_bench != null ? `<span class="bt-excess ${b.excess_vs_bench >= 0 ? "up" : "down"}">지수대비 ${sign(b.excess_vs_bench, 1)}%p</span>` : ""}
+        </div>`).join("");
+      return `<div class="bt-period">
+        <div class="bt-period-label">${p.label} <small>(${p.base_date} 기준 ${p.sample_size}종목)</small></div>
+        ${rows || `<p class="hint-p">표본 부족</p>`}
+      </div>`;
+    }).join("")}</div>`;
+  } catch {
+    document.getElementById("bt-body").innerHTML = `<p class="hint-p">불러오지 못했습니다.</p>`;
+  }
+}
+
+/* ---------------- 스크리너 ---------------- */
+// 진단리포트 P1 지적사항: "현재 랭킹 필터는 섹터 선택뿐입니다. PER 10배 이하 + ROE 15%
+// 이상 + 외국인 5일 연속 순매수 같은 조건 조합이 유료 전환의 1순위 사유입니다."
+// app/ranking.py가 이미 백그라운드로 채점해 캐시해둔 지표만 쓰므로 추가 분석 호출이 없다.
+let screenerSectorsLoaded = false;
+
+async function showScreener() {
+  $("landing").classList.add("hidden");
+  $("report").classList.add("hidden");
+  $("compare-view").classList.add("hidden");
+  $("admin-view").classList.add("hidden");
+  $("portfolio-view").classList.add("hidden");
+  $("screener-view").classList.remove("hidden");
+  setActiveNav("screener");
+  window.scrollTo({ top: 0 });
+  if (!screenerSectorsLoaded) {
+    screenerSectorsLoaded = true;
+    try {
+      const [kr, us] = await Promise.all([api("/api/ranking?market=KR"), api("/api/ranking?market=US")]);
+      const sectors = [...new Set([...(kr.sectors || []), ...(us.sectors || [])])].sort();
+      $("scr-sector").innerHTML = `<option value="전체">전체</option>` +
+        sectors.map((s) => `<option value="${s}">${s}</option>`).join("");
+    } catch { /* 섹터 목록 실패해도 "전체"로는 검색 가능하니 조용히 무시 */ }
+  }
+}
+
+async function runScreener() {
+  const q = new URLSearchParams();
+  q.set("market", $("scr-market").value);
+  if ($("scr-sector").value && $("scr-sector").value !== "전체") q.set("sector", $("scr-sector").value);
+  if ($("scr-grade").value) q.set("grade_min", $("scr-grade").value);
+  const numField = (id, key) => { const v = $(id).value; if (v !== "") q.set(key, v); };
+  numField("scr-score-min", "score_min");
+  numField("scr-per-max", "per_max");
+  numField("scr-pbr-max", "pbr_max");
+  numField("scr-roe-min", "roe_min");
+  numField("scr-debt-max", "debt_max");
+  numField("scr-div-min", "div_min");
+  numField("scr-upside-min", "upside_min");
+  if ($("scr-foreign-buy").checked) q.set("foreign_buy", "true");
+
+  $("scr-results").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>조건에 맞는 종목을 찾는 중…</span></div>`;
+  $("scr-count").textContent = "";
+  try {
+    const d = await api(`/api/screener?${q.toString()}`);
+    $("scr-count").textContent = `${d.universe_size}종목 중 ${d.total_matched}개 일치` + (d.total_matched > d.items.length ? ` (상위 ${d.items.length}개 표시)` : "");
+    if (!d.items.length) {
+      $("scr-results").innerHTML = `<p class="hint-p">조건에 맞는 종목이 없습니다. 조건을 완화해보세요.</p>`;
+      return;
+    }
+    $("scr-results").innerHTML = d.items.map((r) => {
+      const col = scoreColor(r.score);
+      const up = r.upside != null ? `${sign(r.upside, 0)}%` : "-";
+      const flag = r.currency === "USD" ? "🇺🇸" : "🇰🇷";
+      return `
+      <div class="rank-row" data-code="${r.code}">
+        <div class="rank-num" style="color:${col}">${r.grade}</div>
+        <div class="rank-info">
+          <div class="rank-name">${flag} ${r.name}</div>
+          <div class="rank-sector">${r.sector} · ${r.code}${r.per != null ? ` · PER ${fmt(r.per, 1)}배` : ""}${r.roe != null ? ` · ROE ${fmt(r.roe, 1)}%` : ""}</div>
+        </div>
+        <div class="rank-price">
+          <div class="p">${pw(r.price, r.currency)}</div>
+          <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
+        </div>
+        <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
+        <div class="rank-tail">
+          <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
+          <div class="rank-upside">목표가 ${up}</div>
+          <div class="rank-bar"><i style="width:${r.score}%;background:${col}"></i></div>
+        </div>
+      </div>`;
+    }).join("");
+    $("scr-results").querySelectorAll(".rank-row").forEach((row) => {
+      row.onclick = () => analyze(row.dataset.code);
+    });
+  } catch (e) {
+    $("scr-results").innerHTML = `<p class="hint-p">검색 실패: ${e.message}</p>`;
+  }
+}
+
+function resetScreener() {
+  $("scr-form").querySelectorAll("input").forEach((el) => { el.type === "checkbox" ? (el.checked = false) : (el.value = ""); });
+  $("scr-market").value = "전체";
+  $("scr-sector").value = "전체";
+  $("scr-grade").value = "";
+  $("scr-count").textContent = "";
+  $("scr-results").innerHTML = `<p class="hint-p">조건을 설정하고 "조건으로 검색"을 눌러주세요.</p>`;
+}
+
+$("scr-back").onclick = goHome;
+$("scr-run").onclick = runScreener;
+$("scr-reset").onclick = resetScreener;
 
 /* ---------------- 이상징후 탐지 ---------------- */
 async function loadAnomalies() {
@@ -647,6 +785,14 @@ async function analyze(code, fromPopstate) {
   clearTimeout(rankPollTimer);
   $("landing").classList.add("hidden");
   $("report").classList.add("hidden");
+  // ⚠️ 실제로 잡은 버그: 스크리너·포트폴리오 등 홈이 아닌 화면에서 종목 행을 클릭해도
+  // analyze()는 원래 "종목 상세"만 보여주고 자신을 호출한 화면은 안 닫았다(랭킹·홈에서만
+  // 쓰이던 시절엔 문제없었지만, 스크리너 결과 클릭 시 스크리너 화면이 종목상세 뒤에 계속
+  // 깔려 있는 게 실제로 재현됨). 어디서 호출되든 다른 화면을 전부 닫도록 여기서 통일한다.
+  $("compare-view").classList.add("hidden");
+  $("admin-view").classList.add("hidden");
+  $("portfolio-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   $("loading").classList.remove("hidden");
   try {
     const d = await api(`/api/analyze/${code}`);
@@ -1048,11 +1194,18 @@ function render(d) {
 
   /* news */
   $("senti-badge").textContent = `시장 심리: ${d.sentiment.label} (${d.sentiment.score}점)`;
+  // ⚠️ 진단리포트 지적사항: 종목 뉴스탭에 그 종목과 무관한 기사(증권사 프로모션·타 상품
+  // 세미나 등)가 섞여 심리 점수를 오염시키고 있었음. 백엔드(news_sentiment)가 종목명이
+  // 제목·본문에 있는지로 관련성을 판정해 점수 집계에서는 이미 제외했고, 화면에서는
+  // 숨기지 않되 "관련성 낮음" 배지로 표시한다(정직하게 보여주는 편이 신뢰를 얻는다는
+  // 이 프로젝트의 일관된 원칙). 원문 링크(n.url)가 비어 있는 항목은 죽은 링크를 만들지
+  // 않도록 제목을 링크로 감싸지 않는다.
   $("news-list").innerHTML = d.news.map((n) => `
-    <div class="news-item">
+    <div class="news-item${n.relevant === false ? " news-irrelevant" : ""}">
       <div class="n-top">
         <b><span class="senti-tag ${n.sentiment}">${n.sentiment === "positive" ? "긍정" : n.sentiment === "negative" ? "부정" : "중립"}</span>
-        <a href="${n.url}" target="_blank">${n.title}</a></b>
+        ${n.relevant === false ? `<span class="senti-tag irrelevant">관련성 낮음</span>` : ""}
+        ${n.url ? `<a href="${n.url}" target="_blank" rel="noopener noreferrer">${n.title}</a>` : `<span>${n.title}</span>`}</b>
         <span class="n-meta">${n.press} · ${n.datetime ? n.datetime.slice(4, 6) + "/" + n.datetime.slice(6, 8) : ""}</span>
       </div>
       ${n.body ? `<div class="n-body">${n.body}...</div>` : ""}
@@ -1410,6 +1563,9 @@ function showCompare() {
   clearInterval(priceTimer);
   $("landing").classList.add("hidden");
   $("report").classList.add("hidden");
+  $("portfolio-view").classList.add("hidden");
+  $("admin-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   $("compare-view").classList.remove("hidden");
   setActiveNav(null);
   window.scrollTo({ top: 0 });
@@ -2008,6 +2164,8 @@ async function showAdmin() {
   $("landing").classList.add("hidden");
   $("report").classList.add("hidden");
   $("compare-view").classList.add("hidden");
+  $("portfolio-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   $("admin-view").classList.remove("hidden");
   setActiveNav(null);
   window.scrollTo({ top: 0 });
@@ -2042,6 +2200,7 @@ async function showPortfolio() {
   $("report").classList.add("hidden");
   $("compare-view").classList.add("hidden");
   $("admin-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   $("portfolio-view").classList.remove("hidden");
   setActiveNav("portfolio");
   window.scrollTo({ top: 0 });
@@ -2405,9 +2564,23 @@ loadRanking();
 loadMe();
 loadThemeChips();
 loadAnomalies();
+loadBacktest();
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
+
+// 모바일 헤더 축소(진단리포트 지적사항 — 고정 헤더 3줄이 화면의 22%를 항상 차지해 콘텐츠
+// 영역이 좁았음). 데스크톱은 손대지 않고, 모바일 폭(720px 이하)에서만 아래로 스크롤하면
+// 헤더를 숨기고 위로 스크롤하면 다시 보이게 한다 — 흔한 모바일 웹 패턴.
+let _lastScrollY = window.scrollY;
+window.addEventListener("scroll", () => {
+  if (window.innerWidth > 720) return;
+  const topbar = document.querySelector(".topbar");
+  const y = window.scrollY;
+  if (y > _lastScrollY && y > 80) topbar.classList.add("topbar-hide");
+  else topbar.classList.remove("topbar-hide");
+  _lastScrollY = y;
+}, { passive: true });
 
 // URL 라우팅: 뒤로/앞으로가기 시 주소창만 바뀌고 화면은 그대로였던 문제를 막는다 —
 // popstate가 오면 현재 주소를 다시 읽어 그에 맞는 화면으로 전환한다(pushState 없이).
@@ -2418,6 +2591,7 @@ window.addEventListener("popstate", () => {
   $("compare-view").classList.add("hidden");
   $("admin-view").classList.add("hidden");
   $("portfolio-view").classList.add("hidden");
+  $("screener-view").classList.add("hidden");
   const m = location.pathname.match(/^\/stock\/([^/]+)\/?$/);
   if (m) analyze(decodeURIComponent(m[1]), true);
   else goHome(true);

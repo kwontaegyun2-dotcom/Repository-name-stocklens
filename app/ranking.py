@@ -4,7 +4,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from app import naver, analysis, chart_pro, valuation
+from app import naver, analysis, chart_pro, valuation, backtest
 
 # (종목코드, 표시명, 섹터) — 코스피·코스닥 주요 130여 종목
 UNIVERSE = [
@@ -272,7 +272,7 @@ def _score(entry, market, bench=None):
         tech = analysis.technical_analysis(candles)
         pro = _safe(lambda: chart_pro.analyze(candles, bench), {"available": False})
         fund = analysis.fundamental_analysis(infos, fin_a, market=market)
-        senti = analysis.news_sentiment(news)
+        senti = analysis.news_sentiment(news, stock_name=name)
         cons = analysis.consensus_info(integ, price)
         total = analysis.total_evaluation(fund, tech, senti, cons, trend, pro)
         # 밸류에이션 전체 재계산(peers_per 조회 등)은 무거워서 랭킹에서는 생략하고,
@@ -301,6 +301,7 @@ def _score(entry, market, bench=None):
                 elif all(f < 0 for f in flows):
                     foreign_dir = "sell"
 
+        fm = fund["metrics"]
         return {
             "code": code, "name": name, "sector": sector,
             "price": price, "rate": rate, "currency": currency,
@@ -312,9 +313,14 @@ def _score(entry, market, bench=None):
             "ai_verdict": ai_verdict,
             "verdict": tech.get("verdict") if tech.get("available") else None,
             "rsi": tech.get("rsi") if tech.get("available") else None,
-            "op_growth_fwd": fund["metrics"].get("op_growth_fwd"),
+            "op_growth_fwd": fm.get("op_growth_fwd"),
             "per_ratio": per_ratio,
             "foreign_dir": foreign_dir,
+            # 스크리너(app/screener.py)가 추가 네트워크 호출 없이 조건 필터링만 하도록
+            # fundamental_analysis()가 이미 계산해둔 지표를 그대로 실어 보낸다.
+            "per": fm.get("per"), "pbr": fm.get("pbr"), "roe": fm.get("roe"),
+            "debt_ratio": fm.get("debt_ratio"), "dividend_yield": fm.get("dividend_yield"),
+            "market_cap": fm.get("market_cap"), "market": market,
         }
     except Exception:
         return None
@@ -358,6 +364,9 @@ def _compute(market):
                     out.append(r)
                 if out and (i % 20 == 0 or i == total):
                     _publish(st, out)
+        # 전체 계산이 끝난 뒤(완전한 out)에만 백테스트 스냅샷을 남긴다 — 하루 한 번만
+        # 실제로 기록되므로(app/backtest.py가 idempotent 체크) 30분마다 불려도 무방하다.
+        _safe(lambda: backtest.snapshot(market, out), None)
     finally:
         with _lock:
             st["computing"] = False

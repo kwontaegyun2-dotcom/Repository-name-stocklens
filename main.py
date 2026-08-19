@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, portfolio_alert, themes, anomaly, event_alert
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, portfolio_alert, themes, anomaly, event_alert, screener, backtest
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -21,6 +21,7 @@ _DATA_DIR = Path(os.environ.get("STOCKLENS_DATA_DIR") or (BASE / "data"))
 
 @app.on_event("startup")
 def _startup():
+    backtest.init(_DATA_DIR)   # ranking 백그라운드 스레드가 매 계산마다 스냅샷을 남기므로 먼저 초기화
     ranking.start_background()
     auth.init(_DATA_DIR)
     push.init(_DATA_DIR)
@@ -65,6 +66,32 @@ def api_search(q: str, request: Request, market: str = None):
 def api_ranking(market: str = "KR", sector: str = None, request: Request = None):
     _rate_limit(request, limit=60, window=60)
     return ranking.get(market, sector)
+
+
+# ---------------------------------------------------------------- 스크리너
+@app.get("/api/screener")
+def api_screener(
+    market: str = "전체", sector: str = None, grade_min: str = None,
+    score_min: float = None, per_min: float = None, per_max: float = None,
+    pbr_max: float = None, roe_min: float = None, debt_max: float = None,
+    div_min: float = None, upside_min: float = None, foreign_buy: bool = False,
+    request: Request = None,
+):
+    _rate_limit(request, limit=30, window=60)
+    conditions = {
+        "market": market, "sector": sector, "grade_min": grade_min,
+        "score_min": score_min, "per_min": per_min, "per_max": per_max,
+        "pbr_max": pbr_max, "roe_min": roe_min, "debt_max": debt_max,
+        "div_min": div_min, "upside_min": upside_min, "foreign_buy": foreign_buy,
+    }
+    return screener.run(conditions)
+
+
+# ---------------------------------------------------------------- 점수 백테스트
+@app.get("/api/backtest")
+def api_backtest(request: Request = None):
+    _rate_limit(request, limit=30, window=60)
+    return backtest.dashboard()
 
 
 # ---------------------------------------------------------------- 테마·산업
@@ -178,7 +205,7 @@ def api_analyze(code: str, request: Request = None):
     # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV 등)
     pro = safe(lambda: chart_pro.analyze(candle_data, bench), {"available": False})
     fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
-    senti = analysis.news_sentiment(news_items)
+    senti = analysis.news_sentiment(news_items, stock_name=name)
     cons = analysis.consensus_info(integ, price)
     total = analysis.total_evaluation(fund, tech, senti, cons, deal_trend, pro)
     opinion = analysis.build_opinion(name, fund, tech, senti, cons, total)

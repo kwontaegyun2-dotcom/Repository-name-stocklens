@@ -80,7 +80,12 @@ b { font-weight: 700; }
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 50;
   backdrop-filter: blur(18px) saturate(160%);
+  transition: transform .25s ease;
 }
+/* 모바일 헤더 축소(진단리포트 지적사항 — 로고행·검색창·탭 3줄이 화면의 22%를 항상 차지).
+   아래로 스크롤하면 숨기고 위로 스크롤하면 다시 보인다(static/app.js의 scroll 리스너,
+   720px 이하에서만 동작). */
+.topbar.topbar-hide { transform: translateY(-100%); }
 .logo { font-size: 21px; font-weight: 800; white-space: nowrap; cursor: pointer; letter-spacing: -.02em; }
 .logo span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .main-nav { display: flex; gap: 2px; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 3px; }
@@ -284,6 +289,23 @@ button { cursor: pointer; font-family: inherit; }
 .rank-more-btn span { color: var(--accent2); }
 .rank-more-btn:hover { color: var(--text); border-color: var(--border-glow); background: var(--grad-soft); }
 .rank-more-btn.collapse { color: var(--dim); }
+
+/* ---------- 스크리너 ---------- */
+.scr-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+.scr-field { display: flex; flex-direction: column; gap: 6px; }
+.scr-field label { font-size: 12px; color: var(--muted); }
+.scr-field input, .scr-field select {
+  padding: 10px 12px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); font-size: 13.5px; font-family: inherit;
+}
+.scr-field input:focus, .scr-field select:focus { outline: none; border-color: var(--accent); }
+.scr-field.scr-check { justify-content: flex-end; padding-bottom: 10px; }
+.scr-field.scr-check label { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text2); cursor: pointer; }
+.scr-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+.scr-count { font-size: 13px; color: var(--muted); font-weight: 600; }
+@media (max-width: 640px) {
+  .scr-form { grid-template-columns: repeat(2, 1fr); }
+}
 
 /* ---------- loading ---------- */
 .loading { text-align: center; padding: 130px 0; }
@@ -579,6 +601,8 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .senti-tag.positive { background: rgba(255,77,109,.14); color: var(--up); }
 .senti-tag.negative { background: rgba(77,141,255,.14); color: var(--down); }
 .senti-tag.neutral { background: var(--surface2); color: var(--muted); }
+.senti-tag.irrelevant { background: rgba(255,176,32,.14); color: #ffb020; }
+.news-item.news-irrelevant { opacity: .6; }
 
 /* ---------- AI ---------- */
 .ai-report { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-top: 14px; font-size: 14px; color: var(--text2); }
@@ -809,6 +833,25 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .an-reasons { list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .an-reasons li { font-size: 12.5px; color: var(--text2); padding-left: 14px; position: relative; }
 .an-reasons li::before { content: "·"; position: absolute; left: 2px; color: var(--muted); }
+
+/* ---------- 점수 백테스트 ---------- */
+.bt-board { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22); margin-bottom: 20px; }
+.bt-board h2 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.bt-empty { margin-top: 14px; padding: 16px 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); color: var(--text2); font-size: 13.5px; line-height: 1.6; }
+.bt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 16px; }
+.bt-period { border-radius: 16px; padding: 16px 18px; border: 1px solid var(--border); background: var(--surface); }
+.bt-period-label { font-weight: 800; font-size: 14px; margin-bottom: 10px; }
+.bt-period-label small { font-weight: 400; color: var(--muted); font-size: 11.5px; }
+.bt-period-locked { display: flex; flex-direction: column; opacity: .55; }
+.bt-period-locked-msg { color: var(--muted); font-size: 12.5px; text-align: center; padding: 14px 0; }
+.bt-row { display: grid; grid-template-columns: 34px 56px 1fr 1fr; align-items: center; gap: 6px; padding: 7px 0; font-size: 12.5px; border-top: 1px solid var(--border); }
+.bt-row:first-child { border-top: none; }
+.bt-grade { font-weight: 800; }
+.bt-n { color: var(--muted); }
+.bt-ret.up, .bt-excess.up { color: var(--up); font-weight: 700; }
+.bt-ret.down, .bt-excess.down { color: var(--down); font-weight: 700; }
+.bt-win { color: var(--muted); }
+.bt-excess { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); }
 
 /* ---------- footer ---------- */
 .site-footer { text-align: center; padding: 28px 0 20px; color: var(--dim); font-size: 12px; font-weight: 500; }

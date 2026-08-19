@@ -789,24 +789,32 @@ NEG_WORDS = ["하락", "급락", "부진", "적자", "감소", "우려", "리스
              "신저가", "손실", "감원", "구조조정", "어닝쇼크"]
 
 
-def news_sentiment(news_items: list) -> dict:
+def news_sentiment(news_items: list, stock_name: str = None) -> dict:
+    """뉴스 감성 분석. stock_name이 주어지면 제목·본문에 종목명이 등장하는지로 관련성을
+    판정해, 무관한 기사(예: 증권사 프로모션·타 상품 세미나 안내가 특정 종목 뉴스탭에
+    잘못 태깅된 경우)가 심리 점수를 오염시키지 않게 한다(진단리포트 실측 사례: SK하이닉스
+    뉴스탭에 "카카오페이증권 주식 축의금 캠페인" 등 무관 기사가 섞여 "시장 심리 긍정적
+    70점"의 근거로 쓰이고 있었음). 화면에서는 숨기지 않고 "관련성 낮음" 표시만 한다 —
+    사용자가 직접 판단할 수 있게 정직하게 보여주는 편이 낫다(이 프로젝트의 일관된 원칙)."""
     tagged = []
     total = 0
     for it in news_items:
         text = (it.get("title", "") + " " + it.get("body", ""))[:300]
+        relevant = True if not stock_name else (stock_name in text)
         p = sum(1 for w in POS_WORDS if w in text)
         n = sum(1 for w in NEG_WORDS if w in text)
         if p > n:
             senti = "positive"
-            total += 1
         elif n > p:
             senti = "negative"
-            total -= 1
         else:
             senti = "neutral"
-        tagged.append({**it, "body": it.get("body", "")[:120], "sentiment": senti})
-    count = len(tagged) or 1
-    ratio = total / count  # -1 ~ 1
+        if relevant:   # 심리 점수 집계에는 관련성 있는 기사만 반영
+            if senti == "positive": total += 1
+            elif senti == "negative": total -= 1
+        tagged.append({**it, "body": it.get("body", "")[:120], "sentiment": senti, "relevant": relevant})
+    relevant_count = sum(1 for t in tagged if t["relevant"]) or len(tagged) or 1
+    ratio = total / relevant_count  # -1 ~ 1
     score = _clamp(50 + ratio * 60)
     if score >= 65:
         label = "긍정적"
