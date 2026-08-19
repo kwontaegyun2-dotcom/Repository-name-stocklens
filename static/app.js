@@ -177,10 +177,6 @@ input.addEventListener("keydown", async (e) => {
 document.addEventListener("click", (e) => {
   if (!e.target.closest(".search-wrap")) dropdown.classList.add("hidden");
 });
-document.querySelectorAll(".quick-picks button").forEach((b) => {
-  b.onclick = () => analyze(b.dataset.code);
-});
-
 /* ---------------- navigation ---------------- */
 function setActiveNav(view) {
   document.querySelectorAll("#main-nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
@@ -340,7 +336,7 @@ async function runScreener() {
         <div class="rank-num" style="color:${col}">${r.grade}</div>
         <div class="rank-info">
           <div class="rank-name">${flag} ${r.name}</div>
-          <div class="rank-sector">${r.sector} · ${r.code}${r.per != null ? ` · PER ${fmt(r.per, 1)}배` : ""}${r.roe != null ? ` · ROE ${fmt(r.roe, 1)}%` : ""}</div>
+          <div class="rank-sector">${r.sector} · ${r.code}<span class="scr-extra">${r.per != null ? ` · PER ${fmt(r.per, 1)}배` : ""}${r.roe != null ? ` · ROE ${fmt(r.roe, 1)}%` : ""}</span></div>
         </div>
         <div class="rank-price">
           <div class="p">${pw(r.price, r.currency)}</div>

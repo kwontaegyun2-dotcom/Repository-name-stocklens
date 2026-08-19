@@ -156,13 +156,7 @@ button { cursor: pointer; font-family: inherit; }
 }
 .hero h1 { font-size: 52px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; margin-bottom: 20px; }
 .hero h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
-.hero p { color: var(--muted); font-size: 16px; margin-bottom: 30px; }
-.quick-picks { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-.quick-picks button {
-  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
-  padding: 9px 18px; border-radius: 24px; font-size: 14px; font-weight: 500; transition: .2s;
-}
-.quick-picks button:hover { border-color: var(--accent); background: var(--grad-soft); transform: translateY(-2px); }
+.hero p { color: var(--muted); font-size: 16px; margin-bottom: 0; }
 
 /* ---------- favorites board ---------- */
 .fav-board {
@@ -292,9 +286,15 @@ button { cursor: pointer; font-family: inherit; }
 
 /* ---------- 스크리너 ---------- */
 .scr-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
-.scr-field { display: flex; flex-direction: column; gap: 6px; }
+/* ⚠️ 실제로 잡은 버그(모바일 UX 재점검): min-width:0이 없으면 그리드 아이템이 콘텐츠의
+   최소 크기 아래로 줄어들지 않는 CSS Grid 기본 동작 때문에, select/input이 트랙 폭보다
+   넓게 요구해 트랙 전체가 늘어나며 화면 밖으로 넘쳤다(375px 화면에서 바디 폭이 455px까지
+   벌어져 가로 스크롤이 생기는 게 실제로 재현됨). 그리드 아이템과 내부 폼 요소 모두
+   min-width:0 + width:100%로 트랙 폭을 넘지 않게 강제한다.*/
+.scr-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .scr-field label { font-size: 12px; color: var(--muted); }
 .scr-field input, .scr-field select {
+  width: 100%; min-width: 0; box-sizing: border-box;
   padding: 10px 12px; background: var(--surface2); border: 1px solid var(--border);
   border-radius: 10px; color: var(--text); font-size: 13.5px; font-family: inherit;
 }
@@ -303,8 +303,18 @@ button { cursor: pointer; font-family: inherit; }
 .scr-field.scr-check label { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--text2); cursor: pointer; }
 .scr-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .scr-count { font-size: 13px; color: var(--muted); font-weight: 600; }
+.scr-extra { color: var(--muted); }
 @media (max-width: 640px) {
-  .scr-form { grid-template-columns: repeat(2, 1fr); }
+  /* 라벨이 길어("목표가 상승여력(%) ≥" 등) 2열은 여전히 빡빡해서 1열로 바꾼다. */
+  .scr-form { grid-template-columns: 1fr; }
+  .scr-field.scr-check { justify-content: flex-start; padding-bottom: 0; }
+  #screener-view .scr-actions { flex-direction: column; align-items: stretch; }
+  #screener-view .scr-actions button { width: 100%; }
+  #screener-view .scr-count { text-align: center; }
+  /* 스크리너 결과 행에 넣은 PER·ROE 부가정보는 모바일에서는 숨겨 랭킹표와 같은 높이로
+     맞춘다(안 그러면 sector·code·PER·ROE가 한 줄에 다 안 들어가 줄바꿈되며 행이 들쭉날쭉
+     길어짐 — 실제로 재현됨). */
+  .rank-row .scr-extra { display: none; }
 }
 
 /* ---------- loading ---------- */
@@ -497,10 +507,15 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 
 .buy-plan-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px 18px; margin-top: 14px; }
 .buy-plan-stages { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.buy-stage { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 13px; text-align: center; }
+/* ⚠️ 실제로 잡은 버그(모바일): "1,840,800원"처럼 끊어질 지점이 없는 긴 문자열이 그리드
+   아이템의 최소 콘텐츠 크기를 밀어올려, min-width:0이 없으면 트랙 전체가 화면 밖으로
+   넘친다(스크리너 폼과 같은 원인 — 375px에서 body 폭이 429px까지 벌어지는 게 실제로
+   재현됨). 아이템에 min-width:0을, 안에서도 줄바꿈이 안 되면 글자 단위로라도 끊기게
+   overflow-wrap:anywhere를 안전장치로 둔다. */
+.buy-stage { background: var(--surface2); border: 1px solid var(--border); border-radius: 14px; padding: 13px; text-align: center; min-width: 0; }
 .buy-stage-label { font-size: 12.5px; color: var(--muted); font-weight: 700; }
 .buy-stage-pct { color: var(--accent); font-weight: 800; }
-.buy-stage-price { font-size: 16px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.buy-stage-price { font-size: 16px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .buy-stage.is-reached { border-color: #2ee6a6; background: rgba(46,230,166,.08); }
 .buy-stage-status { font-size: 11px; margin-top: 8px; font-weight: 700; }
 .buy-stage-status.reached { color: #2ee6a6; }
@@ -656,6 +671,9 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .verdict-banner .opinion-head { font-size: 14.5px; }
   .mypf-cta { flex-direction: column; align-items: stretch; }
   .mypf-cta button { width: 100%; }
+  .buy-stage { padding: 9px 6px; }
+  .buy-stage-price { font-size: 13px; }
+  .buy-stage-status { font-size: 10px; }
 }
 
 /* ---------- 기술 점수 4축 분해 바 ---------- */

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=57">
+<link rel="stylesheet" href="/static/style.css?v=59">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -40,15 +40,10 @@
     <h1>분석은 <em>StockLens</em>가. <em>결정</em>은 당신이.</h1>
     <p>흩어진 수백 개의 신호와 뉴스, 증권가의 시선을 하나의 투자 판단으로.<br>
        지금이 기회인지, 잠시 기다릴 때인지 — 복잡한 분석은 저희가 대신합니다.</p>
-    <div class="quick-picks">
-      <button data-code="005930">삼성전자</button>
-      <button data-code="000660">SK하이닉스</button>
-      <button data-code="207940">삼성바이오로직스</button>
-      <button data-code="373220">LG에너지솔루션</button>
-      <button data-code="035420">NAVER</button>
-      <button data-code="259960">크래프톤</button>
-    </div>
   </div>
+
+  <!-- 관심종목: 홈 맨 위 (사용자 지시 — 임의 추천 종목 대신 내가 담은 종목부터) -->
+  <section class="fav-board hidden" id="fav-board"></section>
 
   <!-- 내 포트폴리오 오늘의 할 일 -->
   <section class="mypf-board" id="mypf-board"></section>
@@ -90,9 +85,6 @@
     <p class="rank-sub" id="bt-sub">매일 실제 종가로 추적한 결과만 보여드립니다 — 과거를 흉내 낸 백테스트가 아닙니다.</p>
     <div id="bt-body"><p class="hint-p">불러오는 중…</p></div>
   </section>
-
-  <!-- 관심종목 -->
-  <section class="fav-board hidden" id="fav-board"></section>
 
   <!-- 이상징후 탐지 -->
   <section class="anomaly-board hidden" id="anomaly-board">
@@ -620,6 +612,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=57"></script>
+<script src="/static/app.js?v=59"></script>
 </body>
 </html>
