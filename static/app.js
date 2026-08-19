@@ -191,11 +191,11 @@ async function renderFavBoard() {
     const r = byCode[it.code];
     if (!r) {
       return `<div class="fav-row" data-code="${it.code}">
-        <span><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
-        <span></span>
+        <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
+        <span class="fav-judge"></span>
         <span class="fav-name-col"><span class="fav-name">${it.name}</span><small class="hint">${it.code}</small></span>
         <span class="fav-hide-mobile"></span>
-        <span class="fav-na">데이터 준비 중</span>
+        <span class="fav-price-col"><span class="fav-na">데이터 준비 중</span></span>
         <span class="fav-hide-mobile"></span>
         <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거">✕</button></span>
       </div>`;
@@ -214,7 +214,7 @@ async function renderFavBoard() {
     const tagsLine = (it.tags && it.tags.length) ? `<div class="fav-tags">${it.tags.map((t) => `<span class="fav-tag">${t}</span>`).join("")}</div>` : "";
     const alertOn = it.alert_buy || it.alert_price_target != null || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly;
     return `<div class="fav-row" data-code="${it.code}">
-      <span><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
+      <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
       <span class="fav-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="fav-name-col">
         <span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small>

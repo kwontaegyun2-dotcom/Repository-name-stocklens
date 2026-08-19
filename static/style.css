@@ -175,7 +175,7 @@ button { cursor: pointer; font-family: inherit; }
 .fav-row-head { color: var(--muted); font-size: 11.5px; font-weight: 700; padding: 0 14px; }
 .fav-check { accent-color: var(--accent); cursor: pointer; }
 .fav-judge { font-size: 13px; font-weight: 800; }
-.fav-name-col { display: flex; flex-direction: column; gap: 1px; overflow: hidden; }
+.fav-name-col { display: flex; flex-direction: column; gap: 1px; overflow: hidden; min-width: 0; }
 .fav-name { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fav-name-col small { font-size: 11px; color: var(--muted); }
 .fav-change { font-size: 11px; color: var(--muted); font-weight: 600; margin-top: 2px; }
@@ -183,7 +183,7 @@ button { cursor: pointer; font-family: inherit; }
 .fav-tags { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 3px; }
 .fav-tag { font-size: 10.5px; font-weight: 600; color: var(--accent2); background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 1px 7px; }
 .fav-score { font-size: 13px; font-weight: 800; text-align: center; }
-.fav-price-col { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.fav-price-col { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; min-width: 0; }
 .fav-price { font-size: 13.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .fav-rate { font-size: 11.5px; font-weight: 700; }
 .fav-upside { font-size: 13px; font-weight: 700; text-align: right; }
@@ -720,7 +720,21 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .rank-row { grid-template-columns: 34px 1.5fr 70px 1fr; gap: 8px; padding: 12px 12px; }
   .today-row { grid-template-columns: 70px 1.4fr 1fr; gap: 6px; padding: 10px 12px; }
   .today-row .today-hide-mobile { display: none; }
-  .fav-row { grid-template-columns: 18px 52px 1.4fr 1fr 78px; gap: 6px; padding: 10px 12px; }
+  /* ⚠️ 5개 고정폭 컬럼(체크박스·판단·종목·가격·액션)을 375px 폭에 욱여넣었더니, 가격 텍스트가
+     줄바꿈 안 되는 min-content 때문에 자기 몫보다 넓게 트랙을 차지해 종목명 칸이 거의 0에
+     가깝게 눌렸다(사용자 지적: "종목명이 제대로 안나옴", 실측 42px). 좁은 화면에서 한 줄에
+     다 넣는 대신 이름 위, 가격/액션 아래로 2줄 카드형 레이아웃으로 바꿔 이름에 넉넉한 폭을 준다. */
+  .fav-row-head { display: none; }
+  .fav-row {
+    grid-template-columns: 22px 1fr auto;
+    grid-template-areas: "check name price" "check judge actions";
+    row-gap: 6px; column-gap: 10px; padding: 12px;
+  }
+  .fav-cell-check { grid-area: check; align-self: start; padding-top: 2px; }
+  .fav-judge { grid-area: judge; align-self: center; }
+  .fav-name-col { grid-area: name; }
+  .fav-price-col { grid-area: price; }
+  .fav-row-actions { grid-area: actions; justify-self: end; align-self: center; }
   .fav-row .fav-hide-mobile { display: none; }
   .rank-price { display: none; }
   .rank-num { font-size: 14px; }
