@@ -264,6 +264,15 @@ def api_analyze(code: str, request: Request = None):
     targets["fair_buy"] = val.get("fair_buy") if val.get("available") else None
     ai_verdict = analysis.final_verdict(total, val, cons)
 
+    # ⚠️ 손절가(기술적 지지선 0.96배 기반)와 3차 매수가(밸류에이션 적정가 0.80배 기반)는
+    # 서로 다른 모델이라 손절가가 3차 매수가보다 높아지는 모순이 생길 수 있다
+    # (2차 진단리포트 4-3: 3차 매수가 1,316,277원 > 손절가 1,318,080원 사례). 손절가는
+    # 항상 가장 깊은 매수 단계(3차)보다 아래에 있어야 "계획대로 다 사도 손절선 위"가 된다.
+    if tech.get("available") and targets["fair_buy"]:
+        conservative_price = targets["fair_buy"]["conservative"]["price"]
+        if tech["entry"]["stop_loss"] >= conservative_price:
+            tech["entry"]["stop_loss"] = round(conservative_price * 0.97)
+
     # 수급 요약 테이블 (최근 10일)
     flows = []
     for d in (deal_trend or [])[:10]:
@@ -549,6 +558,19 @@ def api_portfolio_add(code: str, body: PortfolioBody, request: Request):
     user = _require_user(request)
     try:
         portfolio.upsert(user["id"], code, body.name, body.shares, body.avg_price)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
+
+
+@app.put("/api/portfolio/{code}")
+def api_portfolio_edit(code: str, body: PortfolioBody, request: Request):
+    """POST(upsert)는 "추가 매수"로 간주해 수량을 더한다 — 잘못 입력한 값을 고칠 방법이
+    없어(지우고 다시 넣는 수밖에) 매일 쓰는 기능에서 가장 큰 마찰이었다(2차 진단리포트 3-8).
+    PUT은 더하지 않고 입력값으로 그대로 덮어쓴다."""
+    user = _require_user(request)
+    try:
+        portfolio.set_holding(user["id"], code, body.name, body.shares, body.avg_price)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}

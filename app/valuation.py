@@ -300,7 +300,11 @@ def fair_buy_price(price, band, peer, peg, cons):
         components.append((_clamp(price * (peg["growth_used"] / peg["per_used"]), lo, hi), 0.20))
     target = cons.get("target_price") if cons else None
     if target and target > 0:
-        components.append((_clamp(target, lo, hi), 0.25))
+        # 괴리 과대로 플래그된 목표주가(analysis.consensus_info)는 적정가 산정에서도
+        # 가중치를 낮춘다 — 이상치 검증이 재무 추정치에만 적용되고 목표주가에는
+        # 빠져 있던 문제(2차 진단리포트 4-1)를 여기서도 함께 막는다.
+        w = 0.25 * (cons.get("upside_weight", 1.0) if cons else 1.0)
+        components.append((_clamp(target, lo, hi), w))
 
     if not components:
         return None

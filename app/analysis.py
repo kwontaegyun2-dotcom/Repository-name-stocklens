@@ -826,6 +826,9 @@ def news_sentiment(news_items: list, stock_name: str = None) -> dict:
 
 
 # ---------------------------------------------------------------- consensus / report
+TARGET_UPSIDE_OUTLIER = 60.0   # 목표주가 괴리율이 이 이상이면 목표가 자체를 의심(2차 진단리포트 4-1)
+
+
 def consensus_info(integration: dict, price: float):
     c = (integration or {}).get("consensusInfo") or {}
     target = to_num(c.get("priceTargetMean"))
@@ -841,12 +844,28 @@ def consensus_info(integration: dict, price: float):
         elif recomm >= 3.0: opinion = "중립(보유)"
         elif recomm >= 2.0: opinion = "비중 축소"
         else: opinion = "매도"
+
+    # 목표주가는 재무 추정치처럼 검증 레이어가 없어 SK하이닉스 +120% 같은 극단값이
+    # 그대로 "왜 사야 하나" 최상단에 노출되는 문제가 있었다(4-1 지적). 재무 이상치처럼
+    # 완전히 제외하진 않되(목표주가 자체는 유효한 정보이므로), 괴리가 클수록 판단/적정가
+    # 계산에서의 반영 비중을 선형으로 줄인다 — 60%까지는 그대로, 그 이상은 절반 이하로.
+    upside_flagged = upside is not None and abs(upside) >= TARGET_UPSIDE_OUTLIER
+    upside_weight = 1.0
+    if upside_flagged:
+        upside_weight = round(max(0.3, TARGET_UPSIDE_OUTLIER / abs(upside)), 2)
+
     return {
         "target_price": target,
         "recomm_mean": recomm,
         "opinion": opinion,
         "upside": upside,
         "date": c.get("createDate"),
+        "upside_flagged": upside_flagged,
+        "upside_flag_reason": (
+            f"목표주가 괴리 {upside:+.0f}% — 괴리가 커 목표주가의 판단 반영 비중을 낮췄습니다"
+            if upside_flagged else None
+        ),
+        "upside_weight": upside_weight,
     }
 
 
@@ -941,7 +960,9 @@ def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dic
     if valuation and valuation.get("available") and valuation.get("score") is not None:
         signals.append(valuation["score"])
     if cons and cons.get("upside") is not None:
-        signals.append(_clamp(50 + cons["upside"]))
+        # 괴리 과대로 플래그된 목표주가는 확신도 계산에서도 가중치를 낮춰 반영한다(upside_weight).
+        damped_upside = cons["upside"] * cons.get("upside_weight", 1.0)
+        signals.append(_clamp(50 + damped_upside))
 
     if tier in ("buy", "accumulate"):
         agree = sum(1 for s in signals if s >= 55)

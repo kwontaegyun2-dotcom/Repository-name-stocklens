@@ -690,20 +690,30 @@ function mypfActionCardHtml(a) {
 }
 
 function mypfActionsHtml(p) {
+  // ⚠️ today_actions만 읽고 warnings(집중도·업종쏠림·변동성 경고)는 무시했더니 종목이
+  // 하나뿐일 때 today_actions가 비어(1종목은 "비중 과다" 비교 대상이 없어서) 홈은
+  // "적정 수준 유지"라고 하는데 포트폴리오 페이지는 경고 3건 + 손실 -22.7%를 보여주는
+  // 정반대 화면이 나왔다(2차 진단리포트 3-3). warnings까지 함께 반영한다.
   const actions = p.today_actions || [];
+  const warnings = p.warnings || [];
   const n = actions.length;
   const shown = actions.slice(0, 4);
   const headline = n
     ? `오늘 내 포트폴리오에서 할 일 ${n}건`
-    : "오늘은 특별한 조치가 필요 없어요";
+    : warnings.length
+      ? `주의할 점 ${warnings.length}건`
+      : "오늘은 특별한 조치가 필요 없어요";
+  const warnHtml = (!n && warnings.length)
+    ? `<div class="mypf-warn-list">${warnings.map((w) => `<div class="mypf-warn-item">${w}</div>`).join("")}</div>`
+    : "";
   const listHtml = shown.length
     ? `<div class="mypf-list">${shown.map(mypfActionCardHtml).join("")}</div>`
-    : `<div class="mypf-ok">🟢 현재 등록된 ${p.items.length}개 종목 모두 적정 수준을 유지하고 있어요.</div>`;
+    : (warnings.length ? "" : `<div class="mypf-ok">🟢 현재 등록된 ${p.items.length}개 종목 모두 적정 수준을 유지하고 있어요.</div>`);
   const moreHtml = n > shown.length ? `<p class="mypf-more">+${n - shown.length}건 더 있어요</p>` : "";
   return `
     <h2>💼 내 포트폴리오</h2>
     <p class="mypf-headline">${headline}</p>
-    ${listHtml}${moreHtml}
+    ${warnHtml}${listHtml}${moreHtml}
     <div class="mypf-foot"><button class="ghost-btn" id="mypf-view-btn">포트폴리오 전체보기 →</button></div>`;
 }
 
@@ -1006,11 +1016,19 @@ function render(d) {
     // "확신도"는 실제 확률처럼 오해될 수 있어 "판단 신뢰도"로 표기 — 값의 의미(analysis.final_verdict의
     // confidence 필드)는 그대로, 라벨만 바꾼다. 클릭/포커스 시 설명 툴팁 표시.
     const confidenceLabel = `판단 신뢰도 <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">실적·밸류·수급·기술적 지표 등 주요 분석 신호의 일치 정도를 나타냅니다.</span></span>`;
+    // 목표주가는 재무 추정치와 달리 이상치 검증·기준일 표시가 빠져 있어, 후행적인 목표가가
+    // 그대로 "왜 사야 하나"에 노출되는 문제가 있었다(2차 진단리포트 4-1). 기준일을 함께
+    // 보여주고, 괴리가 커 반영 비중을 낮춘 경우(analysis.consensus_info) 배지로 알린다.
+    const cons = d.consensus || {};
+    const targetLabel = "목표주가" + (cons.date ? ` <small class="hint">(${cons.date} 기준)</small>` : "");
+    const upsideFlagBadge = cons.upside_flagged
+      ? ` <span class="info-dot" tabindex="0">⚠️<span class="tooltip-pop">${cons.upside_flag_reason}</span></span>`
+      : "";
     const items = [
       { label: "현재가", value: pw(d.price) },
       { label: "적정매수가", value: fbBase ? pw(fbBase.price) : "-" },
-      { label: "목표주가", value: t.consensus ? pw(t.consensus) : "-" },
-      { label: "상승여력", value: t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-",
+      { label: targetLabel, value: t.consensus ? pw(t.consensus) : "-" },
+      { label: "상승여력", value: (t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-") + upsideFlagBadge,
         cls: updownClass(t.consensus_upside) },
       { label: confidenceLabel, value: v.confidence != null ? v.confidence : "-" },
     ];
@@ -1064,6 +1082,14 @@ function render(d) {
   $("target-consensus").textContent = t.consensus ? pw(t.consensus) : "데이터 없음";
   $("target-consensus-upside").textContent = t.consensus_upside != null ? `상승여력 ${sign(t.consensus_upside, 1)}%` : "";
   $("target-consensus-upside").className = "target-upside " + updownClass(t.consensus_upside);
+  // 목표주가 기준일 + 괴리 과대 시 경고 — 목표가가 뒤처져도(후행성) 사용자가 알 수 있게
+  // 기준일을 그대로 노출한다(2차 진단리포트 4-1: "consensus.date는 있는데 화면에서 안 씀").
+  {
+    const c = d.consensus || {};
+    const dateNote = c.date ? `기준일 ${c.date}` : "";
+    const flagNote = c.upside_flagged ? ` · ⚠️ ${c.upside_flag_reason}` : "";
+    $("target-consensus-date").textContent = dateNote + flagNote;
+  }
   $("target-tech").textContent = t.technical ? pw(t.technical) : "-";
   $("target-tech-upside").textContent = t.technical_upside != null ? `상승여력 ${sign(t.technical_upside, 1)}%` : "";
   $("target-tech-upside").className = "target-upside " + updownClass(t.technical_upside);
@@ -2245,17 +2271,38 @@ function pushSupported() {
   return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
 }
 
+// 알림 권한 요청은 브라우저에 따라 응답이 영영 안 올 수 있다(사용자 상호작용 맥락이
+// 끊기면 브라우저가 프롬프트를 무시하는 경우 등) — 이때 화면은 "요청하는 중..."에서
+// 영원히 멈추고 성공도 실패도 알 수 없었다(2차 진단리포트 3-1, 가장 심각한 지적).
+// 타임아웃으로 반드시 결과가 나오도록 강제한다.
+function withTimeout(promise, ms, timeoutMsg) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(timeoutMsg)), ms)),
+  ]);
+}
+
 async function ensurePushSubscribed() {
   if (!window.isSecureContext) throw new Error("HTTPS로 접속해야 알림을 켤 수 있습니다.");
   if (!pushSupported()) throw new Error("이 브라우저는 웹 알림을 지원하지 않습니다.");
-  const permission = await Notification.requestPermission();
-  if (permission !== "granted") throw new Error("알림이 차단되어 있습니다. 브라우저 설정에서 이 사이트의 알림을 허용해주세요.");
-  const reg = await navigator.serviceWorker.register("/sw.js", { scope: "/" });
-  await navigator.serviceWorker.ready;
+  if (Notification.permission === "denied") {
+    throw new Error("이 브라우저에서 알림이 차단되어 있습니다. 주소창 옆 자물쇠 아이콘에서 알림 권한을 허용으로 바꿔주세요.");
+  }
+  const permission = await withTimeout(
+    Notification.requestPermission(),
+    15000,
+    "알림 권한 요청에 응답이 없습니다. 브라우저 알림 설정을 확인해주세요.",
+  );
+  if (permission !== "granted") throw new Error(`알림 권한이 허용되지 않았습니다 (${permission}).`);
+  const reg = await withTimeout(
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }), 10000, "알림 서비스 등록이 지연되고 있습니다.");
+  await withTimeout(navigator.serviceWorker.ready, 10000, "알림 서비스 준비가 지연되고 있습니다.");
   const key = (await (await fetch("/api/push/key")).json()).key;
   let sub = await reg.pushManager.getSubscription();
   if (!sub) {
-    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) });
+    sub = await withTimeout(
+      reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(key) }),
+      10000, "푸시 구독 생성이 지연되고 있습니다.");
   }
   await api("/api/push/subscribe", {
     method: "POST",
@@ -2268,27 +2315,40 @@ $("watch-btn").onclick = async () => {
   if (!currentCode) return;
   if (!currentUser) { openAuthModal("login"); return; }
   const msg = $("watch-msg");
+  const btn = $("watch-btn");
   msg.classList.remove("hidden");
+  btn.disabled = true;
   try {
     if (watchedCodes.has(currentCode)) {
       await api(`/api/watch/${currentCode}`, { method: "DELETE" });
       watchedCodes.delete(currentCode);
-      msg.textContent = "매수 기회 알림을 껐습니다.";
+      msg.textContent = "관심종목 알림을 껐습니다.";
+      updateWatchBtn();
     } else {
-      msg.textContent = "알림 권한을 요청하는 중...";
-      await ensurePushSubscribed();
+      // 1) 관심종목 저장은 알림 권한과 무관하게 먼저 확정한다 — 예전엔 푸시 구독이
+      // 끝나야만 이 호출에 도달해서, 권한 요청이 멈추면 관심종목 자체가 한 건도
+      // 저장되지 않았다(3-1 "서버 저장" 지적: 두 번 토글해도 items 빈 배열).
       await api(`/api/watch/${currentCode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: $("stock-name").textContent }),
       });
       watchedCodes.add(currentCode);
-      msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번). 확인용 테스트 알림을 보냈습니다 — 안 뜨면 브라우저 알림 설정을 확인해주세요.";
-      api("/api/push/test", { method: "POST" }).catch(() => {});
+      updateWatchBtn();
+      msg.textContent = "✅ 관심종목에 추가했습니다. 알림 권한을 요청하는 중...";
+      // 2) 푸시 알림은 별개 시도 — 실패해도 관심종목 등록 자체는 유지된다.
+      try {
+        await ensurePushSubscribed();
+        msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번). 확인용 테스트 알림을 보냈습니다 — 안 뜨면 브라우저 알림 설정을 확인해주세요.";
+        api("/api/push/test", { method: "POST" }).catch(() => {});
+      } catch (pushErr) {
+        msg.textContent = `⚠️ 관심종목에는 추가됐지만 푸시 알림은 켜지 못했습니다: ${pushErr.message}`;
+      }
     }
-    updateWatchBtn();
   } catch (e) {
     msg.textContent = "오류: " + e.message;
+  } finally {
+    btn.disabled = false;
   }
 };
 
@@ -2327,6 +2387,8 @@ $("admin-back").onclick = goHome;
 
 /* ---------------- 내 포트폴리오 ---------------- */
 let pfSelected = null;
+let pfEditingCode = null;   // 지금 인라인 수정 중인 보유종목 코드(2차 진단리포트 3-8: 수정 기능 없음)
+let lastPortfolioData = null;
 
 async function showPortfolio() {
   $("landing").classList.add("hidden");
@@ -2352,11 +2414,14 @@ async function loadPortfolio() {
   $("pf-rebalance-card").classList.add("hidden");
   try {
     const p = await api("/api/portfolio");
+    lastPortfolioData = p;
     renderPortfolio(p);
+    return p;
   } catch (e) {
     $("pf-summary-card").classList.remove("hidden");
     $("pf-total").textContent = "";
     $("pf-metrics").innerHTML = `<p class="hint-p">불러오기 실패: ${e.message}</p>`;
+    return null;
   }
 }
 
@@ -2478,20 +2543,28 @@ function renderPortfolio(p) {
     $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>${todayHTML}`;
 
     // AI 포트폴리오 점수 — 종목상세 "AI 최종판단"과 같은 철학: 판단(등급)을 숫자 점수보다 크게.
+    // ⚠️ 예전엔 이 점수가 보유종목 점수의 가중평균일 뿐이라 경고를 세 개 띄우고도
+    // "B등급·양호"라고 말하는 모순이 있었다(2차 진단리포트 3-2). 이제 집중도·변동성·
+    // 최대낙폭 감점(risk_penalty)이 반영된 값이라, 감점이 있으면 그 내역을 바로 옆에 밝힌다.
     if (p.grade) {
+      const penaltyNote = p.risk_penalty > 0
+        ? `<div class="pf-grade-penalty">종목 품질 ${p.quality_score}점 − 리스크 감점 ${p.risk_penalty}점 (${(p.risk_penalty_detail || []).join(", ")})</div>`
+        : "";
       $("pf-grade-hero").innerHTML = `
         <div class="pf-grade-label">AI 포트폴리오 점수</div>
         <div class="pf-grade-main">
           <span class="pf-grade-emoji">${gradeEmoji(p.grade)}</span>
           <span class="pf-grade-score" style="color:${scoreColor(p.score)}">${p.score}<small>/100</small></span>
           <span class="pf-grade-desc" style="color:${scoreColor(p.score)}">${p.grade}등급 · ${p.grade_desc}</span>
-        </div>`;
+        </div>
+        ${penaltyNote}`;
     } else {
       $("pf-grade-hero").innerHTML = "";
     }
 
     const cells = [
-      ["종합점수", p.score != null ? `${p.score}점` : "-"],
+      ["종합점수 (리스크 반영)", p.score != null ? `${p.score}점` : "-"],
+      ["종목 품질 점수", p.quality_score != null ? `${p.quality_score}점` : "-"],
       ["밸류에이션 점수", p.valuation_score != null ? `${p.valuation_score}점` : "-"],
       ["기대수익률 (목표주가 기준)", p.expected_return != null ? `${sign(p.expected_return, 1)}%` : "-"],
       ["변동성 (연환산)", p.volatility != null ? `${p.volatility}%` : "데이터 부족"],
@@ -2513,6 +2586,10 @@ function renderPortfolio(p) {
         <span class="pf-sector-pct">${w}%</span>
       </div>`).join("");
 
+    // ⚠️ 예전엔 보유 종목 행에 [삭제] 버튼뿐이라 수량·평균단가를 잘못 입력하면 지우고
+    // 다시 넣는 수밖에 없었고(매일 쓰는 기능에서 가장 큰 마찰), 삭제도 확인창 없이
+    // 즉시·되돌릴 수 없이 실행됐다(2차 진단리포트 3-8). [수정]으로 그 행을 인라인
+    // 입력칸으로 바꿔 PUT(덮어쓰기)으로 저장하고, 삭제는 confirm()으로 한 번 더 확인한다.
     $("pf-holdings-table").innerHTML = tableHTML(
       ["종목", "수량", "평균단가", "현재가", "평가금액", "평가손익", "현재비중", "권장비중", "AI판단", ""],
       p.items.map((it) => {
@@ -2522,6 +2599,20 @@ function renderPortfolio(p) {
         // 평균단가·현재가는 종목 통화 그대로(달러는 $ 표기) — 평가금액·평가손익은 합산이 필요해
         // 원화 환산가 그대로 두되, 미국 종목은 "(환산)"을 붙여 환율이 반영된 값임을 알린다.
         const krwNote = isUS ? ` <small class="hint">(환산)</small>` : "";
+
+        if (it.code === pfEditingCode) {
+          return [
+            flag + it.name,
+            `<input type="number" min="0.0001" step="any" class="pf-edit-input" id="pf-edit-shares" value="${it.shares}">`,
+            `<input type="number" min="0" step="any" class="pf-edit-input" id="pf-edit-price" value="${it.avg_price != null ? it.avg_price : ""}" placeholder="선택">`,
+            isUS ? pw(it.price_native, "USD") : won(it.price),
+            "-", "-", `${it.weight}%`,
+            it.target_weight != null ? `${it.target_weight}%` : "-",
+            `<span style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>`,
+            `<button class="ghost-btn small primary-btn" data-pf-save="${it.code}">저장</button>
+             <button class="ghost-btn small" data-pf-cancel="1">취소</button>`,
+          ];
+        }
         return [
           flag + it.name,
           fmt(it.shares) + "주",
@@ -2534,13 +2625,45 @@ function renderPortfolio(p) {
           `${it.weight}%`,
           it.target_weight != null ? `${it.target_weight}%` : "-",
           `<span style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>`,
-          `<button class="ghost-btn small" data-pf-rm="${it.code}">삭제</button>`,
+          `<button class="ghost-btn small" data-pf-edit="${it.code}">수정</button>
+           <button class="ghost-btn small" data-pf-rm="${it.code}" data-pf-name="${it.name}">삭제</button>`,
         ];
       }));
     $("pf-holdings-table").querySelectorAll("[data-pf-rm]").forEach((b) => {
       b.onclick = async () => {
+        if (!confirm(`${b.dataset.pfName}을(를) 포트폴리오에서 삭제할까요? 거래 이력이 저장되지 않으므로 되돌릴 수 없습니다.`)) return;
         await api(`/api/portfolio/${b.dataset.pfRm}`, { method: "DELETE" });
         loadPortfolio();
+      };
+    });
+    $("pf-holdings-table").querySelectorAll("[data-pf-edit]").forEach((b) => {
+      b.onclick = () => { pfEditingCode = b.dataset.pfEdit; renderPortfolio(lastPortfolioData); };
+    });
+    $("pf-holdings-table").querySelectorAll("[data-pf-cancel]").forEach((b) => {
+      b.onclick = () => { pfEditingCode = null; renderPortfolio(lastPortfolioData); };
+    });
+    $("pf-holdings-table").querySelectorAll("[data-pf-save]").forEach((b) => {
+      b.onclick = async () => {
+        const code = b.dataset.pfSave;
+        const it = p.items.find((x) => x.code === code);
+        const shares = Number($("pf-edit-shares").value);
+        const priceRaw = $("pf-edit-price").value.trim();
+        const avg_price = priceRaw ? Number(priceRaw) : null;
+        if (!shares || shares <= 0) { alert("수량은 0보다 큰 숫자로 입력하세요."); return; }
+        if (priceRaw && (!avg_price || avg_price <= 0)) { alert("평균단가는 0보다 큰 숫자로 입력하세요."); return; }
+        b.disabled = true;
+        try {
+          await api(`/api/portfolio/${code}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: it.name, shares, avg_price }),
+          });
+          pfEditingCode = null;
+          await loadPortfolio();
+        } catch (e) {
+          alert("수정 실패: " + e.message);
+          b.disabled = false;
+        }
       };
     });
   }
@@ -2599,8 +2722,9 @@ $("pf-add-btn").onclick = async () => {
   }
   $("pf-add-btn").disabled = true;
   $("pf-add-msg").textContent = "추가 중...";
+  const addedCode = pfSelected.code;
   try {
-    await api(`/api/portfolio/${pfSelected.code}`, {
+    await api(`/api/portfolio/${addedCode}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: pfSelected.name, shares, avg_price }),
@@ -2608,8 +2732,14 @@ $("pf-add-btn").onclick = async () => {
     pfInput.value = ""; $("pf-shares").value = ""; $("pf-price").value = ""; pfSelected = null;
     $("pf-price").placeholder = "평균단가(원, 선택)";
     $("pf-add-msg").textContent = "추가됨. 포트폴리오 불러오는 중...";
-    await loadPortfolio();
-    $("pf-add-msg").textContent = "";
+    const p = await loadPortfolio();
+    // ⚠️ 서버 저장은 성공했는데 분석(analyze_fn)이 실패하는 종목(ETF 등)은 목록에서
+    // 조용히 사라졌었다(2차 진단리포트 3-8, "무음 실패"). excluded에 이유가 남게
+    // 고쳤으니(portfolio.compute) 여기서 확인해 사용자에게 그대로 알려준다.
+    const excludedHit = p && (p.excluded || []).find((x) => x.code === addedCode);
+    $("pf-add-msg").textContent = excludedHit
+      ? `⚠️ 저장은 됐지만 목록에는 표시되지 않았습니다 (${excludedHit.reason}). 다른 종목/ETF로 시도해보세요.`
+      : "";
   } catch (e) {
     $("pf-add-btn").disabled = false;
     $("pf-add-msg").textContent = "오류: " + e.message;

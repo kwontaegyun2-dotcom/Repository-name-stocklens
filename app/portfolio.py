@@ -89,6 +89,21 @@ def upsert(user_id: int, code: str, name: str, shares: float, avg_price: float |
         )
 
 
+def set_holding(user_id: int, code: str, name: str, shares: float, avg_price: float | None = None):
+    """upsert()와 달리 기존 수량에 더하지 않고 그대로 덮어쓴다 — 잘못 입력한 값을
+    수정하는 용도(PUT /api/portfolio/{code})."""
+    if shares <= 0:
+        raise ValueError("수량은 0보다 커야 합니다.")
+    if avg_price is not None and avg_price <= 0:
+        raise ValueError("평균단가는 0보다 커야 합니다.")
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO portfolio (user_id, code, name, shares, avg_price, created_at) VALUES (?,?,?,?,?,?)
+               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares, avg_price=excluded.avg_price""",
+            (user_id, code, name, shares, avg_price, time.time()),
+        )
+
+
 def remove(user_id: int, code: str):
     with _conn() as c:
         c.execute("DELETE FROM portfolio WHERE user_id=? AND code=?", (user_id, code))
@@ -269,20 +284,24 @@ def _risk_flags(items, sector_weight, corr, contrib):
 
 
 def _today_actions(items):
-    """"그래서 오늘 뭘 하지?"에 답하는 카드 목록. 목표 비중은 종목별 맞춤 목표가
-    없으므로 "균등분산 기준"(100%/종목수)을 쓴다 — 정밀한 자산배분 조언이 아니라
-    쏠림을 알아채기 위한 참고선임을 문구에 명시한다."""
+    """"그래서 오늘 뭘 하지?"에 답하는 카드 목록.
+
+    ⚠️ 목표 비중은 반드시 AI 리밸런싱 섹션(_recommend_weights)의 target_weight와
+    같은 숫자를 써야 한다. 예전엔 여기서만 "균등분산 기준"(100%/종목수)을 따로 계산해
+    같은 페이지 안에서 목표 비중이 두 가지로 제시되는 모순이 있었다(2차 진단리포트
+    3-4: "삼성전자 38%p 축소 검토" vs "88%→44%" AI 리밸런싱이 한 화면에 동시 표시).
+    compute()에서 이 함수는 target_weight가 이미 채워진 뒤 호출된다."""
     n = len(items)
     if not n:
         return []
-    equal_w = 100 / n
     cards = []
     for it in items:
-        if it["weight"] >= max(equal_w * 1.5, 25):
+        tw = it.get("target_weight")
+        if tw is not None and it["weight"] - tw >= 15:
             cards.append({
                 "level": "red", "code": it["code"], "name": it["name"], "title": "비중 과다",
-                "detail": f"목표(균등분산 기준) {equal_w:.0f}% → 현재 {it['weight']:.0f}%",
-                "action": f"{it['name']} {it['weight'] - equal_w:.0f}%p 비중 축소 검토",
+                "detail": f"AI 권장 비중 {tw:.0f}% → 현재 {it['weight']:.0f}%",
+                "action": f"{it['name']} {it['weight'] - tw:.0f}%p 비중 축소 검토",
             })
         if it.get("score_diff") is not None and it["score_diff"] <= -8:
             cards.append({
@@ -365,6 +384,38 @@ def _rebalance_note(it):
     return f"AI판단이 '{tier_label}'이거나 종목 집중도가 높아 비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%)."
 
 
+# ---------------------------------------------------------------- 리스크 감점
+def _risk_penalty(items, vol, mdd):
+    """포트폴리오 종합점수 = 종목 품질 점수(quality_score, 보유종목 가중평균)만으로는
+    "경고를 세 개 띄우면서도 등급은 양호"라는 모순이 생긴다(2차 진단리포트 3-2: 삼성전자
+    100% 집중·연변동성 73%·평가손실 -22.7%인데 "B등급·양호"로 표시됨). 집중도·변동성·
+    최대낙폭을 감점으로 반영해 quality_score에서 뺀 값을 최종 score로 쓴다.
+
+    집중도는 허핀달-허쉬만 지수(HHI = Σ(비중/100)², 0~1)로 잰다. N종목 균등분산의
+    HHI는 1/N이므로 "3종목 균등분산"(0.33)까지는 정상 범위로 보고 그 이상만 감점한다
+    (단일 종목 100% 보유 시 HHI=1.0으로 최대 감점 구간에 들어간다)."""
+    penalty = 0.0
+    detail = []
+
+    hhi = sum((it["weight"] / 100) ** 2 for it in items)
+    if hhi > 0.34:
+        p = min(25.0, (hhi - 0.34) * 40)
+        penalty += p
+        detail.append(f"집중도(HHI {hhi:.2f}) -{p:.0f}점")
+
+    if vol is not None and vol > 25:
+        p = min(20.0, (vol - 25) * 0.5)
+        penalty += p
+        detail.append(f"변동성(연 {vol:.0f}%) -{p:.0f}점")
+
+    if mdd is not None and mdd < -20:
+        p = min(20.0, (abs(mdd) - 20) * 0.5)
+        penalty += p
+        detail.append(f"최대낙폭({mdd:.0f}%) -{p:.0f}점")
+
+    return round(penalty, 1), detail
+
+
 # ---------------------------------------------------------------- 종합 계산
 def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     """holding_rows: list_for_user() 결과. analyze_fn(code) == main.api_analyze."""
@@ -374,14 +425,20 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     results, excluded = [], []
 
     def _fetch(row):
-        return row, analyze_fn(row["code"])
+        # ⚠️ 여기서 던진 예외를 호출부가 통째로 삼키면 "저장은 됐는데 화면에서 조용히
+        # 사라지는" 무음 실패가 된다(2차 진단리포트 3-8, ETF 추가 사례로 실제 발견).
+        # 반드시 (row, 결과, 에러사유) 3-튜플로 돌려줘 실패도 excluded에 이유와 함께 남긴다.
+        try:
+            return row, analyze_fn(row["code"]), None
+        except Exception as e:
+            return row, None, str(e) or e.__class__.__name__
 
     with ThreadPoolExecutor(max_workers=min(8, len(holding_rows))) as ex:
         futs = [ex.submit(_fetch, r) for r in holding_rows]
         for fut in as_completed(futs):
-            try:
-                row, d = fut.result()
-            except Exception:
+            row, d, err = fut.result()
+            if err or not d:
+                excluded.append({"code": row["code"], "name": row["name"], "reason": f"분석 실패: {err}" if err else "분석 실패"})
                 continue
             if not d.get("price"):
                 excluded.append({"code": row["code"], "name": row["name"], "reason": "시세 조회 실패"})
@@ -536,7 +593,9 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     prev_value = total_value - today_pnl if today_pnl is not None else None
     today_pnl_pct = round(today_pnl / prev_value * 100, 2) if prev_value else None
 
-    pf_score = _wavg("score")
+    quality_score = _wavg("score")
+    risk_penalty, risk_penalty_detail = _risk_penalty(items, vol, mdd)
+    pf_score = round(max(0.0, quality_score - risk_penalty), 1) if quality_score is not None else None
     grade, grade_desc = "F", "위험"
     if pf_score is not None:
         for th, g, desc in analysis.GRADE_TABLE:
@@ -555,6 +614,9 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         "items": items,
         "sector_weight": sector_weight,
         "score": pf_score,
+        "quality_score": quality_score,
+        "risk_penalty": risk_penalty,
+        "risk_penalty_detail": risk_penalty_detail,
         "grade": grade,
         "grade_desc": grade_desc,
         "valuation_score": _wavg("val_score"),
