@@ -1224,7 +1224,14 @@ async function refreshPrice() {
   } catch {}
 }
 
-/* ---------------- 가격별 투자전략 — 가로 눈금선 + 현재가 세로선 ---------------- */
+/* ---------------- 가격별 투자전략 — 막대 위 점 + 아래 범례 ---------------- */
+// ⚠️ 기존엔 라벨(가격+태그) 5개를 트랙 위에 절대좌표로 직접 배치하고, 겹치면 세로로
+// 어긋나게 쌓는 방식이었다. 이 방식은 (1) 트랙 최소폭(480px/모바일 420px)이 화면보다
+// 넓어 좌우 라벨이 화면 밖으로 잘려 가로 스크롤 없인 안 보이고, (2) 겹침 판정 기준을
+// JS에 하드코딩한 폭(TRACK_MIN_PX)으로 계산해 실제 CSS 폭(반응형 브레이크포인트마다
+// 다름)과 어긋나면 판정 자체가 틀렸다 — "폰·태블릿에서 깨진다"는 지적의 원인.
+// 점은 얇은 막대 위에 작게 찍고, 라벨은 막대 아래 자연스럽게 줄바꿈되는 범례 목록으로
+// 분리했다 — 화면 폭이 얼마든 가로 스크롤도, 겹침 계산도 필요 없다.
 function renderPriceLadder(fb, price, target) {
   const pts = [
     { label: "적극매수", emoji: "🟢", price: fb.conservative.price, cls: "pl-buy" },
@@ -1242,30 +1249,16 @@ function renderPriceLadder(fb, price, target) {
   const sorted = [...pts].sort((a, b) => a.price - b.price)
     .map((p) => ({ ...p, pct: ((p.price - rangeLo) / span) * 100 }));
 
-  // 겹침 방지: 라벨 폭(약 96px)보다 가까운 지점들은 세로로 어긋나게 쌓는다.
-  // (진단리포트 지적사항 — 가격이 근접하면 "적극매수·매수·분할매수·현재가" 라벨 4개가
-  // 완전히 겹쳐 "1,472,640원1,840,800원1,656,720원"처럼 읽혔음). 실제 렌더 폭을 알 수
-  // 없는 시점(HTML 생성 전)이라 트랙 최소폭(CSS min-width: 480px) 기준으로 보수적으로 추정.
-  const TRACK_MIN_PX = 480, LABEL_PX = 88;
-  const MIN_GAP_PCT = (LABEL_PX / TRACK_MIN_PX) * 100;
-  let lastPct = -Infinity, level = 0, maxLevel = 0;
-  sorted.forEach((p) => {
-    level = (p.pct - lastPct < MIN_GAP_PCT) ? level + 1 : 0;
-    p.level = level;
-    maxLevel = Math.max(maxLevel, level);
-    lastPct = p.pct;
-  });
-
-  const trackH = 76 + maxLevel * 30;
-  $("price-ladder").innerHTML = `<div class="pl-track" style="height:${trackH}px">
-    <div class="pl-line"></div>
-    ${sorted.map((p) => `
-      <div class="pl-point ${p.cls}" style="left:${p.pct.toFixed(1)}%${p.level ? `;margin-top:${p.level * 30}px` : ""}">
-        <div class="pl-price">${pw(p.price)}</div>
-        <div class="pl-tick"></div>
-        <div class="pl-tag">${p.emoji} ${p.label}</div>
-      </div>`).join("")}
-  </div>`;
+  $("price-ladder").innerHTML = `
+    <div class="pl-bar">
+      ${sorted.map((p) => `<div class="pl-dot ${p.cls}" style="left:${p.pct.toFixed(1)}%" title="${p.emoji} ${p.label} ${pw(p.price)}"></div>`).join("")}
+    </div>
+    <div class="pl-legend">
+      ${sorted.map((p) => `
+        <div class="pl-legend-item ${p.cls}">
+          <i class="pl-legend-dot"></i>${p.emoji} ${p.label} <b>${pw(p.price)}</b>
+        </div>`).join("")}
+    </div>`;
 }
 
 /* ---------------- 단계별 매수 전략 (1차/2차/3차 분할매수) ---------------- */
