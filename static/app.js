@@ -775,9 +775,14 @@ function directionTag(score) {
 // 종합점수 상위 후보군(20개) 안에서 밸류·과열여부·수급까지 반영해 다시 추린다.
 // 백엔드 추가 호출 없이 /api/ranking이 이미 주는 필드(upside·rsi·per_ratio·foreign_dir·
 // op_growth_fwd)만으로 계산 — 랭킹 백그라운드 루프에 무거운 계산을 얹지 않는다(CLAUDE.md 규칙).
+// ⚠️ "상승여력(목표주가 기준)이 높다"만으로 사유를 잡으면, 업데이트가 오래된 애널리스트
+// 리포트가 그대로 근거가 될 수 있다(사용자 지적: "과거 애널리스트 분석이 업데이트 안
+// 됐을 수도 있는데"). 대신 더 "단단한"(hard) 신호 — 최근 실제 수급(외국인 연속 순매수),
+// 과거/선행 PER 대비 저평가, 실적전망 개선이 아직 주가에 반영 안 된 괴리 — 를 우선하고
+// 목표주가 상승여력은 비중을 크게 낮춰 보조 신호로만 쓴다.
 function opportunityScore(r) {
   let s = r.score;
-  if (r.upside != null) s += Math.max(-20, Math.min(60, r.upside)) * 0.25;
+  if (r.upside != null) s += Math.max(-10, Math.min(20, r.upside)) * 0.1;
   if (r.rsi != null) {
     if (r.rsi >= 78) s -= 12;
     else if (r.rsi >= 70) s -= 6;
@@ -785,26 +790,44 @@ function opportunityScore(r) {
     else if (r.rsi <= 45) s += 3;
   }
   if (r.per_ratio != null) {
-    if (r.per_ratio <= 0.8) s += 6;
-    else if (r.per_ratio <= 1.0) s += 2;
+    if (r.per_ratio <= 0.8) s += 10;
+    else if (r.per_ratio <= 1.0) s += 4;
     else if (r.per_ratio >= 1.3) s -= 6;
   }
-  if (r.foreign_dir === "buy") s += 3;
-  else if (r.foreign_dir === "sell") s -= 3;
-  if (r.op_growth_fwd != null && r.op_growth_fwd >= 20) s += 3;
+  if (r.foreign_dir === "buy") s += 8;
+  else if (r.foreign_dir === "sell") s -= 5;
+  if (r.op_growth_fwd != null && r.op_growth_fwd >= 20) {
+    s += 6;
+    // 실적전망은 개선되는데(op_growth_fwd) 아직 PER이 그만큼 재평가(re-rating)되지
+    // 않았다면(per_ratio<=1.0) "개선이 주가에 아직 안 반영된" 상태로 보고 추가 가점.
+    if (r.per_ratio != null && r.per_ratio <= 1.0) s += 5;
+  }
   return s;
 }
 
 function opportunityReasons(r) {
   const reasons = [];
-  if (r.upside != null && r.upside >= 20) reasons.push({ txt: `상승여력 ${sign(r.upside, 0)}%`, w: r.upside });
-  if (r.rsi != null && r.rsi <= 40) reasons.push({ txt: `RSI ${r.rsi.toFixed(0)} 과매도권`, w: 40 - r.rsi + 15 });
-  if (r.per_ratio != null && r.per_ratio <= 0.85) reasons.push({ txt: `PER 저평가 ${Math.round((1 - r.per_ratio) * 100)}%`, w: (1 - r.per_ratio) * 100 });
-  if (r.foreign_dir === "buy") reasons.push({ txt: "외국인 5일 연속 순매수", w: 10 });
+  const perLabel = r.per_basis === "fwd" ? "선행PER" : "PER";
+  const growthUnpriced = r.op_growth_fwd != null && r.op_growth_fwd >= 20
+    && r.per_ratio != null && r.per_ratio <= 1.0;
   // op_growth_fwd는 저기반(적자→흑자) 회복 시 수백%까지 왜곡될 수 있어 표시는 50%로 캡(anomaly.py와 동일 관례).
-  if (r.op_growth_fwd != null && r.op_growth_fwd >= 20) {
+  if (growthUnpriced) {
+    const g = Math.min(r.op_growth_fwd, 50);
+    reasons.push({ txt: `실적전망 +${Math.round(g)}%인데 ${perLabel}엔 아직 미반영`, w: 100 + g });
+  }
+  if (r.foreign_dir === "buy") reasons.push({ txt: "외국인 5일 연속 순매수(수급 유입)", w: 90 });
+  if (r.per_ratio != null && r.per_ratio <= 0.85) {
+    reasons.push({ txt: `${perLabel} 과거 평균보다 ${Math.round((1 - r.per_ratio) * 100)}% 낮음`, w: 80 + (1 - r.per_ratio) * 40 });
+  }
+  if (r.rsi != null && r.rsi <= 40) reasons.push({ txt: `RSI ${r.rsi.toFixed(0)} 과매도권`, w: 40 - r.rsi + 15 });
+  if (!growthUnpriced && r.op_growth_fwd != null && r.op_growth_fwd >= 20) {
     const g = Math.min(r.op_growth_fwd, 50);
     reasons.push({ txt: `실적전망 +${Math.round(g)}%`, w: g * 0.3 });
+  }
+  // 목표주가 상승여력은 가장 낮은 우선순위 — 다른 신호가 없을 때만 보조로 노출하고,
+  // "목표주가 기준"임을 명시해 다른 신호(수급·저평가 등)와 근거 성격이 다름을 드러낸다.
+  if (r.upside != null && r.upside >= 20) {
+    reasons.push({ txt: `목표주가 기준 상승여력 +${Math.round(r.upside)}%`, w: r.upside * 0.15 });
   }
   reasons.sort((a, b) => b.w - a.w);
   return reasons.slice(0, 2).map((x) => x.txt);

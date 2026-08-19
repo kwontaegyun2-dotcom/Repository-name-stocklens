@@ -283,13 +283,16 @@ def _score(entry, market, bench=None):
         # 이상징후 탐지(app/anomaly.py)가 재사용할 원신호. 여기서 이미 확보한 데이터로만
         # 계산해서 추가 네트워크 호출이 없다(전체(rank) 재계산 주기 부담을 늘리지 않음).
         per_ratio = None
+        per_basis = None   # "fwd"(선행PER, 컨센서스 EPS 기준) | "trail"(과거 실적 기준) — 홈 화면 사유 문구용
         hist = _safe(lambda: valuation.per_history(fund.get("all_rows") or {}, candles), None)
         if hist:
             m = fund["metrics"]
-            cur = m.get("cns_per") if (m.get("cns_per") and m["cns_per"] > 0) else m.get("per")
-            avg = hist["avg_fper"] if (m.get("cns_per") and m["cns_per"] and hist.get("avg_fper")) else hist.get("avg_per")
+            use_fwd = bool(m.get("cns_per") and m["cns_per"] > 0)
+            cur = m.get("cns_per") if use_fwd else m.get("per")
+            avg = hist["avg_fper"] if (use_fwd and hist.get("avg_fper")) else hist.get("avg_per")
             if cur and cur > 0 and avg and avg > 0:
                 per_ratio = round(cur / avg, 2)
+                per_basis = "fwd" if (use_fwd and hist.get("avg_fper")) else "trail"
 
         foreign_dir = None
         if not us and trend:
@@ -315,6 +318,7 @@ def _score(entry, market, bench=None):
             "rsi": tech.get("rsi") if tech.get("available") else None,
             "op_growth_fwd": fm.get("op_growth_fwd"),
             "per_ratio": per_ratio,
+            "per_basis": per_basis,
             "foreign_dir": foreign_dir,
             # 스크리너(app/screener.py)가 추가 네트워크 호출 없이 조건 필터링만 하도록
             # fundamental_analysis()가 이미 계산해둔 지표를 그대로 실어 보낸다.
