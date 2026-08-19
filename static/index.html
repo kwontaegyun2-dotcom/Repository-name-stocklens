@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=69">
+<link rel="stylesheet" href="/static/style.css?v=70">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -54,14 +54,15 @@
 
     <div class="today-pick-card" id="today-hero"></div>
 
-    <div class="today-why" id="today-why"></div>
-
-    <div class="today-valuation" id="today-valuation"></div>
+    <div class="today-cols">
+      <div class="today-why" id="today-why"></div>
+      <div class="today-valuation" id="today-valuation"></div>
+    </div>
 
     <h3 class="today-sub-h">지금 사기 좋은 종목 TOP 5</h3>
     <div class="today-table">
       <div class="today-row today-row-head">
-        <span>판단</span><span>종목</span><span class="today-hide-mobile">종합점수</span><span>현재가</span><span class="today-hide-mobile">상승여력</span>
+        <span>판단</span><span>종목</span><span>현재가</span><span>상승여력</span><span>사유</span>
       </div>
       <div id="today-rows"></div>
     </div>
@@ -642,6 +643,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=70"></script>
+<script src="/static/app.js?v=71"></script>
 </body>
 </html>

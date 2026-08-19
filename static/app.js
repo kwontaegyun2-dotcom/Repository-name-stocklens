@@ -912,15 +912,13 @@ async function renderTodayPick(items) {
     const v = r.ai_verdict || {};
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
     const reasons = opportunityReasons(r);
-    const reasonHtml = reasons.length ? `<span class="today-reason">${reasons.join(" · ")}</span>` : "";
-    // 종합점수(기업 자체가 좋은가)와 판단(지금 가격까지 고려했을 때 좋은가)을 같은 행에 나란히 보여줘
-    // "점수 높다 ≠ 지금 사야 한다"를 사용자가 직접 비교할 수 있게 한다.
+    const reasonText = reasons.length ? reasons.join(" · ") : "-";
     return `<div class="today-row" data-code="${r.code}">
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
-      <span class="today-name-col"><span class="today-name">${r.name}</span>${reasonHtml}</span>
-      <span class="today-score today-hide-mobile" style="color:${scoreColor(r.score)}">${r.score}</span>
+      <span class="today-name">${r.name}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
-      <span class="today-upside today-hide-mobile ${updownClass(r.upside)}">${up}</span>
+      <span class="today-upside ${updownClass(r.upside)}">${up}</span>
+      <span class="today-reason">${reasonText}</span>
     </div>`;
   }).join("");
   $("today-rows").querySelectorAll(".today-row").forEach((row) => {

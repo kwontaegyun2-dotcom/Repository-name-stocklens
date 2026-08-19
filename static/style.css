@@ -234,39 +234,46 @@ button { cursor: pointer; font-family: inherit; }
 .today-pick-stats span { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .today-pick-btn { margin-top: 14px; width: 100%; }
 
-.today-why { margin: 4px 0 8px; padding: 16px 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
-.today-why-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
-.today-why-intro { font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
-.today-why-row { display: flex; justify-content: space-between; padding: 7px 4px; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+/* ⚠️ "AI가 오늘 주목한 이유"와 "적정주가는 어떻게 나왔나"가 각각 풀폭으로 쌓여 섹션 전체가
+   너무 길었다(사용자 지적: "칸을 너무 많이 차지해") — 같은 선상(2열)에 나란히 배치해
+   세로 높이를 절반 가까이 줄인다. 카드 자체의 padding/줄간격도 함께 소폭 정리. */
+.today-cols { display: flex; gap: 14px; align-items: flex-start; margin: 4px 0 8px; }
+.today-cols > .today-why, .today-cols > .today-valuation { flex: 1 1 0; min-width: 0; margin: 0; }
+@media (max-width: 720px) { .today-cols { flex-direction: column; } }
+
+.today-why { padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.today-why-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.today-why-intro { font-size: 13.5px; line-height: 1.55; margin-bottom: 10px; }
+.today-why-row { display: flex; justify-content: space-between; padding: 6px 4px; font-size: 13px; border-bottom: 1px solid var(--border); }
 .today-why-row:last-of-type { border-bottom: none; }
 .today-why-name { font-weight: 600; }
 .today-why-dir { font-weight: 800; }
 .today-why-row.dir-strong-up .today-why-dir, .today-why-row.dir-up .today-why-dir { color: #2ee6a6; }
 .today-why-row.dir-flat .today-why-dir { color: var(--muted); }
 .today-why-row.dir-down .today-why-dir, .today-why-row.dir-strong-down .today-why-dir { color: #ff4d6d; }
-.today-why-warn { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.3); color: #f5a623; font-size: 13px; font-weight: 700; }
+.today-why-warn { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.3); color: #f5a623; font-size: 12.5px; font-weight: 700; }
 
-.today-valuation { margin: 4px 0 8px; padding: 16px 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
-.today-val-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
-.today-val-summary { font-size: 14px; line-height: 1.6; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
-.today-val-row { display: flex; flex-direction: column; gap: 2px; padding: 7px 4px; font-size: 13px; border-bottom: 1px solid var(--border); }
+.today-valuation { padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.today-val-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.today-val-summary { font-size: 13.5px; line-height: 1.55; margin-bottom: 8px; padding-bottom: 8px; border-bottom: 1px dashed var(--border); }
+.today-val-row { display: flex; flex-direction: column; gap: 2px; padding: 6px 4px; font-size: 12.5px; border-bottom: 1px solid var(--border); }
 .today-val-row:last-child { border-bottom: none; }
 .today-val-label { font-weight: 700; color: var(--muted); font-size: 11.5px; }
 .today-val-text { font-weight: 600; }
 .today-val-row.warn .today-val-text { color: #f5a623; }
 
+/* 지금 사기 좋은 종목 TOP5 — 판단/종목/현재가/상승여력/사유 5열 (기존엔 종합점수·현재가
+   순서가 뒤섞여 있었고 사유가 종목명 아래 좁게 끼어 있었다는 지적으로 정리) */
 .today-table { display: flex; flex-direction: column; gap: 6px; }
-.today-row { display: grid; grid-template-columns: 96px 1.6fr 64px 1fr 84px; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; }
+.today-row { display: grid; grid-template-columns: 84px 1.2fr 92px 76px 1.6fr; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; }
 .today-row:not(.today-row-head) { background: var(--surface); border: 1px solid transparent; cursor: pointer; transition: .16s; }
 .today-row:not(.today-row-head):hover { background: var(--grad-soft); border-color: var(--border-glow); transform: translateX(4px); }
 .today-row-head { color: var(--muted); font-size: 11.5px; font-weight: 700; padding: 0 14px; }
-.today-judge { font-size: 13px; font-weight: 800; }
-.today-name-col { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.today-name { font-size: 14px; font-weight: 700; }
-.today-reason { font-size: 11px; font-weight: 600; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.today-score { font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.today-price, .today-fair { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
-.today-upside { font-size: 13px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.today-judge { font-size: 13px; font-weight: 800; min-width: 0; }
+.today-name { font-size: 14px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-price { font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); min-width: 0; }
+.today-upside { font-size: 13px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 0; }
+.today-reason { font-size: 12px; font-weight: 600; color: var(--accent); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 
 /* ---------- ranking board ---------- */
 .rank-board { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22); }
@@ -718,8 +725,19 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .card { padding: 18px 16px; }
   .rank-board, .fav-board, .today-board { padding: 18px 16px; }
   .rank-row { grid-template-columns: 34px 1.5fr 70px 1fr; gap: 8px; padding: 12px 12px; }
-  .today-row { grid-template-columns: 70px 1.4fr 1fr; gap: 6px; padding: 10px 12px; }
-  .today-row .today-hide-mobile { display: none; }
+  /* fav-row와 동일한 이유(min-content가 좁은 칸을 눌러버리는 grid 버그, 위 참고)로
+     5칸을 억지로 한 줄에 넣는 대신 이름/가격 위, 사유/상승여력 아래 2줄로 나눈다. */
+  .today-row {
+    grid-template-columns: 60px 1fr auto;
+    grid-template-areas: "judge name price" "judge reason upside";
+    row-gap: 4px; column-gap: 8px; padding: 10px 12px;
+  }
+  .today-row-head { display: none; }
+  .today-judge { grid-area: judge; align-self: center; }
+  .today-name { grid-area: name; white-space: normal; }
+  .today-price { grid-area: price; }
+  .today-upside { grid-area: upside; }
+  .today-reason { grid-area: reason; }
   /* ⚠️ 5개 고정폭 컬럼(체크박스·판단·종목·가격·액션)을 375px 폭에 욱여넣었더니, 가격 텍스트가
      줄바꿈 안 되는 min-content 때문에 자기 몫보다 넓게 트랙을 차지해 종목명 칸이 거의 0에
      가깝게 눌렸다(사용자 지적: "종목명이 제대로 안나옴", 실측 42px). 좁은 화면에서 한 줄에
