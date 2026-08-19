@@ -930,18 +930,28 @@ def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend
     }
 
 
-# ---------------------------------------------------------------- AI 최종판단(5단계)
+# ---------------------------------------------------------------- AI 최종판단(8단계)
+# ⚠️ 예전엔 5단계(매수/분할매수/보유/분할매도/매도)라 65~80점, 30~45점처럼 넓은 구간이
+# 전부 같은 한 단어로 뭉뚱그려졌다 — "이 종목은 매수인데 저 종목도 매수"인데 실제로는
+# 확신도 차이가 컸다(사용자 지적: "더 직관적이고 세분화해서"). 8단계로 늘리고, 단순
+# 강도 수식어("적극")가 아니라 "지금 뭘 해야 하는지"가 드러나는 문구로 바꿨다.
 VERDICT_TIERS = [
-    (80, "buy", "매수", "🟢"),
-    (65, "accumulate", "분할매수", "🟡"),
-    (45, "hold", "보유", "🔵"),
-    (30, "reduce", "분할매도", "🟠"),
+    (88, "strong_buy", "적극 매수", "🟢"),
+    (76, "buy", "매수", "🟢"),
+    (64, "watch_buy", "매수 관심", "🟡"),
+    (52, "accumulate", "분할 매수", "🟡"),
+    (40, "hold", "보유·관망", "🔵"),
+    (28, "watch_sell", "비중 축소 검토", "🟠"),
+    (16, "reduce", "분할 매도", "🟠"),
     (0, "sell", "매도", "🔴"),
 ]
+# 확신도(신호 합치도) 계산에서 "매수 방향"/"매도 방향"으로 묶을 tier 그룹.
+_BULLISH_TIERS = {"strong_buy", "buy", "watch_buy", "accumulate"}
+_BEARISH_TIERS = {"watch_sell", "reduce", "sell"}
 
 
 def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dict:
-    """종합점수 하나만 보여주는 대신, 5단계 매매판단(매수~매도)과 확신도로 번역한다.
+    """종합점수 하나만 보여주는 대신, 8단계 매매판단(적극매수~매도)과 확신도로 번역한다.
 
     확신도는 점수를 다시 보여주는 게 아니라 **신호 간 합치도**를 잰다 — total_evaluation의
     6개 부문점수(+가능하면 밸류에이션 점수·컨센서스 상승여력)가 판단 방향과 얼마나
@@ -964,9 +974,9 @@ def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dic
         damped_upside = cons["upside"] * cons.get("upside_weight", 1.0)
         signals.append(_clamp(50 + damped_upside))
 
-    if tier in ("buy", "accumulate"):
+    if tier in _BULLISH_TIERS:
         agree = sum(1 for s in signals if s >= 55)
-    elif tier in ("reduce", "sell"):
+    elif tier in _BEARISH_TIERS:
         agree = sum(1 for s in signals if s <= 45)
     else:
         agree = sum(1 for s in signals if 40 <= s <= 65)

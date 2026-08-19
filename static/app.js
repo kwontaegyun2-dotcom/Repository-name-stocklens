@@ -57,7 +57,14 @@ function scoreColor(s) {
   return "#ff4d4d";
 }
 function verdictColor(tier) {
-  return { buy: "#2ee6a6", accumulate: "#f5c518", hold: "#4f8cff", reduce: "#f5a623", sell: "#ff4d6d" }[tier] || "#9aa3ba";
+  // analysis.py VERDICT_TIERS(8단계)와 짝 맞춤 — 기존 5색(#2ee6a6/#f5c518/#4f8cff/#f5a623/#ff4d6d)은
+  // 그대로 두고 사이 3단계(strong_buy·watch_buy·watch_sell)에 보간색을 추가했다.
+  return {
+    strong_buy: "#17c98b", buy: "#2ee6a6", watch_buy: "#a8e6c8",
+    accumulate: "#f5c518",
+    hold: "#4f8cff",
+    watch_sell: "#f0b23c", reduce: "#f5a623", sell: "#ff4d6d",
+  }[tier] || "#9aa3ba";
 }
 function gradeEmoji(grade) {
   return { S: "🟢", A: "🟢", B: "🟡", C: "🟡", D: "🔴", F: "🔴" }[grade] || "⚪";

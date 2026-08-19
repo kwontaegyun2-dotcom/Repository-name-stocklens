@@ -327,7 +327,14 @@ def _today_actions(items):
 
 
 # ---------------------------------------------------------------- AI 리밸런싱
-_TIER_WEIGHT = {"buy": 1.5, "accumulate": 1.2, "hold": 1.0, "reduce": 0.6, "sell": 0.3}
+# analysis.py의 8단계 AI 최종판단(VERDICT_TIERS)과 짝을 맞춘 배점 — 예전 5단계
+# {buy:1.5, accumulate:1.2, hold:1.0, reduce:0.6, sell:0.3}을 그대로 유지한 채
+# 사이 3단계(strong_buy·watch_buy·watch_sell)를 보간해 넣었다.
+_TIER_WEIGHT = {
+    "strong_buy": 1.7, "buy": 1.5, "watch_buy": 1.35, "accumulate": 1.2,
+    "hold": 1.0,
+    "watch_sell": 0.8, "reduce": 0.6, "sell": 0.3,
+}
 _MAX_STOCK_WEIGHT = 30.0
 
 
