@@ -186,7 +186,7 @@ function setActiveNav(view) {
   document.querySelectorAll("#main-nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
 }
 
-function goHome() {
+function goHome(fromPopstate) {
   clearInterval(priceTimer);
   currentCode = null;
   $("report").classList.add("hidden");
@@ -200,6 +200,8 @@ function goHome() {
   renderFavBoard();
   loadRanking(currentSector);
   loadMyPortfolioWidget();
+  if (!fromPopstate && location.pathname !== "/") history.pushState(null, "", "/");
+  document.title = "StockLens — 주식 종합 분석";
 }
 
 document.querySelectorAll("#main-nav button").forEach((b) => {
@@ -636,7 +638,10 @@ function paintRanking() {
 }
 
 /* ---------------- analyze flow ---------------- */
-async function analyze(code) {
+// fromPopstate: 브라우저 뒤로/앞으로가기로 호출된 경우 true — 이미 주소창이 그 URL이므로
+// history.pushState를 또 하면 안 된다(안 그러면 뒤로가기가 앞으로가기 스택을 매번 새로 쌓아
+// 한 번 눌러도 제자리인 것처럼 보이는 버그가 생긴다).
+async function analyze(code, fromPopstate) {
   currentCode = code;
   clearInterval(priceTimer);
   clearTimeout(rankPollTimer);
@@ -651,9 +656,19 @@ async function analyze(code) {
     setActiveNav("stock");
     window.scrollTo({ top: 0 });
     priceTimer = setInterval(refreshPrice, 4000);
+    // URL 라우팅: 종목 페이지를 북마크·공유·브라우저 뒤로가기로 다시 열 수 있게 주소창을
+    // /stock/{code}로 갱신한다(진단리포트 지적사항 — 이전엔 주소가 항상 "/" 그대로였음).
+    const path = `/stock/${encodeURIComponent(d.code)}`;
+    if (!fromPopstate && location.pathname !== path) history.pushState({ code: d.code }, "", path);
+    document.title = `${d.name} — StockLens`;
   } catch (err) {
     $("loading").classList.add("hidden");
     $("landing").classList.remove("hidden");
+    // 잘못되거나 지원 안 하는 코드로 /stock/{code} 직행 링크를 열었을 때, 주소창에 죽은
+    // 링크가 남아 새로고침해도 계속 실패하지 않도록 홈으로 되돌린다. replaceState를 쓰는 이유:
+    // fromPopstate=true(뒤로가기로 들어온 실패)든 아니든 새 히스토리 항목을 쌓지 않고 그
+    // 자리에서 주소만 고쳐야 뒤로/앞으로가기 스택이 꼬이지 않는다.
+    if (location.pathname !== "/") history.replaceState(null, "", "/");
     alert("분석 실패: " + err.message);
   }
 }
@@ -2393,3 +2408,20 @@ loadAnomalies();
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
+
+// URL 라우팅: 뒤로/앞으로가기 시 주소창만 바뀌고 화면은 그대로였던 문제를 막는다 —
+// popstate가 오면 현재 주소를 다시 읽어 그에 맞는 화면으로 전환한다(pushState 없이).
+window.addEventListener("popstate", () => {
+  // 뒤로가기 시점에 포트폴리오/비교/관리자 화면이 떠 있을 수도 있다 — analyze()는 이 화면들을
+  // 닫지 않으므로(원래 랭킹·홈에서 종목 클릭 시에만 쓰이던 함수라 그럴 필요가 없었음) 여기서
+  // 먼저 정리해야 전환 후 두 화면이 겹쳐 보이는 걸 막을 수 있다.
+  $("compare-view").classList.add("hidden");
+  $("admin-view").classList.add("hidden");
+  $("portfolio-view").classList.add("hidden");
+  const m = location.pathname.match(/^\/stock\/([^/]+)\/?$/);
+  if (m) analyze(decodeURIComponent(m[1]), true);
+  else goHome(true);
+});
+// 최초 진입이 /stock/{code}(공유된 링크·북마크·새로고침)면 그 종목을 바로 연다.
+const _initStockMatch = location.pathname.match(/^\/stock\/([^/]+)\/?$/);
+if (_initStockMatch) analyze(decodeURIComponent(_initStockMatch[1]), true);

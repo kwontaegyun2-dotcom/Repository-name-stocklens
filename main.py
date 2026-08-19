@@ -549,6 +549,16 @@ def index():
     return FileResponse(BASE / "static" / "index.html")
 
 
+# ⚠️ URL 라우팅(2026-08-19, 진단리포트 지적사항): 이전에는 어느 종목을 열어도 주소창이
+# 항상 "/" 그대로라 북마크·공유·브라우저 뒤로가기가 전부 불가능했다(자체 "돌아가기" 버튼으로
+# 대신하고 있었음). 프런트는 SPA 그대로 두고(바닐라 JS 유지 원칙), /stock/{code} 요청에도
+# 같은 index.html을 내려준 뒤 클라이언트에서 location.pathname을 읽어 해당 종목을
+# 자동으로 분석·렌더링하도록 한다(static/app.js 맨 아래 initMatch 처리 참고).
+@app.get("/stock/{code}")
+def stock_page(code: str):
+    return FileResponse(BASE / "static" / "index.html")
+
+
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8899))
