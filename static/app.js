@@ -636,12 +636,14 @@ async function renderTodayPick(items) {
   $("today-hero").innerHTML = `
     <div class="today-pick-label">🔥 TODAY'S PICK</div>
     <button class="today-pick-fav" id="today-pick-fav" title="관심종목에 추가/제거">☆</button>
-    <div class="today-pick-name">${best.name} <small>${best.code}</small></div>
-    <div class="today-pick-price-row">
-      <span class="today-pick-price">${pw(best.price, best.currency)}</span>
-      <span class="today-pick-score">종합점수 ${best.score}</span>
+    <div class="today-pick-head">
+      <div class="today-pick-name">${best.name} <small>${best.code}</small></div>
+      <div class="today-pick-meta">
+        <span class="today-pick-price">${pw(best.price, best.currency)}</span>
+        <span class="today-pick-score">종합점수 ${best.score}</span>
+        <span class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 신뢰도 ${bv.confidence ?? "-"}</span>
+      </div>
     </div>
-    <div class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 판단 신뢰도 ${bv.confidence ?? "-"}</div>
     <div class="today-pick-stats">
       <div><label>적정매수가</label><span id="today-pick-fair">불러오는 중…</span></div>
       <div><label>적정가(밸류에이션)</label><span id="today-pick-fairvalue">불러오는 중…</span></div>
