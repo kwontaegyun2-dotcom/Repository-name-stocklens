@@ -1722,7 +1722,7 @@ function drawRadar(categories) {
 let chartCtx = { code: null, name: "", currency: "KRW", candles: [], targets: {}, technical: {}, pro: {}, tf: "day" };
 let chartApi = null;             // lightweight-charts 인스턴스
 // 고급 차트 오버레이(AVWAP·유동성 스윕·볼륨 프로파일) on/off 상태 — 종목을 바꿔도 유지.
-const chartOverlayState = { avwap: true, sweep: true, vp: true };
+const chartOverlayState = { avwap: true, sweep: true, vp: true, smart: true };
 
 function renderChart(d) {
   chartCtx = { code: d.code, name: d.name, currency: d.currency || "KRW",
@@ -1791,6 +1791,10 @@ function drawChart() {
     upColor: upC, downColor: downC, borderUpColor: upC, borderDownColor: downC,
     wickUpColor: upC, wickDownColor: downC,
     priceLineColor: crossC,
+    // ⚠️ 설계서 22번(3차 미해결 항목) — priceFormat을 지정 안 하면 lightweight-charts 기본값
+    // (소수점 2자리)이 적용돼 "1,500,000.00원"처럼 원화엔 의미 없는 소수점이 붙는다.
+    // 원화는 정수, 달러는 센트 단위 표기가 자연스러워 통화별로 분기한다.
+    priceFormat: curCur === "USD" ? { type: "price", precision: 2, minMove: 0.01 } : { type: "price", precision: 0, minMove: 1 },
   });
   candleSeries.setData(d.candles.map((c) => ({ time: toDate(c.date), open: c.open, high: c.high, low: c.low, close: c.close })));
   // ⚠️ lightweight-charts는 createPriceLine()으로 그린 목표주가 선도 기본적으로 자동스케일에
@@ -1874,25 +1878,49 @@ function drawChart() {
     // 1) 유동성 스윕 — 골든/데드크로스와 같은 마커 배열에 합쳐서 한 번에 setMarkers() 호출
     //    (lightweight-charts v4는 시리즈당 마커셋이 하나뿐이라 따로따로 부르면 덮어써진다).
     if (chartOverlayState.sweep && pro.liquidity_sweeps) {
+      // 강도(strength 0~100)에 따라 마커 크기를 1~2배로 차등하고, 텍스트에 강도 숫자를
+      // 같이 표기(호버 툴팁 대신 — lightweight-charts 마커엔 호버 이벤트가 없다). 실패
+      // 스윕(3봉 안에 재돌파)은 원래 방향의 반대 화살표로 그려 "진짜 돌파"임을 구분한다
+      // (설계서 19번).
       pro.liquidity_sweeps.events.forEach((ev) => {
         const time = toDate(ev.date);
-        if (ev.type === "high_sweep") {
-          markers.push({ time, position: "aboveBar", color: "#ff4d6d", shape: "circle", text: "🧲" });
+        const size = 1 + (ev.strength || 50) / 100;
+        if (ev.status === "breakout_flip") {
+          const wasHigh = ev.type === "high_sweep";
+          markers.push({ time, position: wasHigh ? "belowBar" : "aboveBar", color: wasHigh ? "#2ee6a6" : "#ff4d6d",
+            shape: wasHigh ? "arrowUp" : "arrowDown", text: "돌파전환", size });
+        } else if (ev.type === "high_sweep") {
+          markers.push({ time, position: "aboveBar", color: "#ff4d6d", shape: "circle", text: `🧲${ev.strength}`, size });
         } else {
-          markers.push({ time, position: "belowBar", color: "#2ee6a6", shape: "circle", text: "🧲" });
+          markers.push({ time, position: "belowBar", color: "#2ee6a6", shape: "circle", text: `🧲${ev.strength}`, size });
         }
       });
     }
     // 2) 앵커드 VWAP — 각 앵커 지점부터 끝까지 이어지는 선. 사용자가 어떤 기준점 이후
     //    평균매수단가보다 지금이 위/아래인지 한눈에 보게 한다(브라이언 섀넌 방식).
+    //    앵커 7종(2026-08-19 설계서 4-1 확장)마다 고유 색상을 주고, title로 우측 가격축에
+    //    앵커명 라벨을 띄운다(lightweight-charts 내장 기능 — 별도 캔버스 텍스트 불필요).
+    //    핵심 4개(신고저가·YTD·실적발표)는 굵은 실선, 나머지 3개(갭·거래량폭발·최근스윕)는
+    //    가는 점선으로 그려 7개 선이 한꺼번에 겹쳐도 화면이 덜 어지럽게 한다
+    //    (설계서 17번: "기본은 3개만 켜고 나머지는 토글"의 저비용 대안 — 전부 그리되
+    //    시각적 위계로 구분).
     if (chartOverlayState.avwap && pro.avwap) {
-      const AVWAP_COLOR = { "52주 신고가": "#ff6b9d", "52주 신저가": "#22d3ee", "연초(YTD)": "#f5c518" };
+      const AVWAP_COLOR = {
+        "52주 신고가": "#ff6b9d", "52주 신저가": "#22d3ee", "연초(YTD)": "#f5c518",
+        "최근 실적발표(근사)": "#c084fc", "갭 발생일": "#34d399", "거래량 폭발일": "#fb923c",
+        "최근 스윕": "#60a5fa",
+      };
+      const PRIMARY_ANCHORS = new Set(["52주 신고가", "52주 신저가", "연초(YTD)", "최근 실적발표(근사)"]);
       Object.entries(pro.avwap.lines).forEach(([label, info]) => {
         const anchorIdx = d.candles.findIndex((c) => c.date === info.anchor_date);
         if (anchorIdx < 0 || !info.series || !info.series.length) return;
+        const primary = PRIMARY_ANCHORS.has(label);
         const line = chart.addLineSeries({
-          color: AVWAP_COLOR[label] || "#a855f7", lineWidth: 2, priceLineVisible: false,
-          lastValueVisible: false, crosshairMarkerVisible: false,
+          color: AVWAP_COLOR[label] || "#a855f7",
+          lineWidth: primary ? 2 : 1,
+          lineStyle: primary ? LC.LineStyle.Solid : LC.LineStyle.Dotted,
+          priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+          title: label,
         });
         line.setData(info.series.map((v, i) => ({ time: toDate(d.candles[anchorIdx + i].date), value: v })));
       });
@@ -1909,6 +1937,39 @@ function drawChart() {
   if (d.technical.available) {
     addPriceLine(d.technical.support, "#3e7bfa", "지지");
     addPriceLine(d.technical.resistance, "#9aa3ba", "저항");
+  }
+
+  // 수급 오더플로우 패널 — 누적 스마트머니(외국인+기관) 델타를 차트 하단 서브패널에 겹쳐
+  // 그린다(설계서 20번). 별도 차트 인스턴스 없이 priceScaleId로 아래쪽 18%만 차지하게
+  // 밀어 넣는 lightweight-charts 표준 트릭. 외국인 평단은 가격선으로 겹쳐 표시.
+  if (tf === "day" && chartOverlayState.smart && pro.smart_money) {
+    const sm = pro.smart_money;
+    const smSeries = chart.addLineSeries({
+      color: "#22d3ee", lineWidth: 1.5, priceScaleId: "smart-money",
+      lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
+      priceFormat: { type: "price", precision: 0, minMove: 1 },
+    });
+    chart.priceScale("smart-money").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, borderVisible: false });
+    const days = sm.smart_delta_series.length;
+    const startIdx = d.candles.length - days;
+    if (startIdx >= 0) {
+      smSeries.setData(sm.smart_delta_series.map((v, i) => ({ time: toDate(d.candles[startIdx + i].date), value: v })));
+    }
+    if (sm.foreign_avg_cost) addPriceLine(sm.foreign_avg_cost, "#c084fc", "외국인평단");
+  }
+
+  // 컨플루언스 레벨 — 근거 2개 이상 겹친 구간을 가격선으로 표시(설계서 21번; 겹칠수록
+  // 굵게). 전용 밴드를 새로 그리는 대신 이미 검증된 목표가/지지/저항과 같은 가격선
+  // 방식을 재사용한다.
+  if (tf === "day" && pro.confluence) {
+    pro.confluence.filter((c) => c.sources.length >= 2).slice(0, 5).forEach((c) => {
+      const color = c.type === "지지" ? "#2ee6a6" : "#ff4d6d";
+      const width = Math.min(1 + Math.floor(c.sources.length / 2), 3);
+      candleSeries.createPriceLine({
+        price: c.price, color, lineWidth: width, lineStyle: LC.LineStyle.LargeDashed,
+        axisLabelVisible: true, title: `컨플루언스(${c.sources.length}겹)`,
+      });
+    });
   }
 
   // 기간 선택 — 봉 주기에 따라 기본 구간(bars 수)이 달라진다
