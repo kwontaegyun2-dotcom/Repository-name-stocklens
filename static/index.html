@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=59">
+<link rel="stylesheet" href="/static/style.css?v=60">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -261,16 +261,25 @@
       </div>
       <div id="chart-controls" class="chart-controls"></div>
     </div>
+    <!-- 고급 차트 기법: Anchored VWAP · Liquidity Sweep · Volume Profile (일봉 전용) -->
+    <div class="chart-overlay-toggles" id="chart-overlay-toggles">
+      <button class="ovl-toggle active" data-ovl="avwap">📍 앵커드 VWAP</button>
+      <button class="ovl-toggle active" data-ovl="sweep">🧲 유동성 스윕</button>
+      <button class="ovl-toggle active" data-ovl="vp">📊 볼륨 프로파일</button>
+    </div>
 
     <div class="chart-wrap">
       <div class="chart-ohlc-legend" id="chart-ohlc-legend"></div>
       <div id="chart-container"></div>
+      <canvas id="vp-overlay"></canvas>
     </div>
 
     <div class="chart-legend">
       <span class="lg ma20">SMA20</span><span class="lg ma60">SMA60</span><span class="lg ma120">SMA120</span>
       <span class="lg target">목표주가</span><span class="lg support">지지선</span><span class="lg resist">저항선</span>
       <span class="lg buy">▲ 매수(골든크로스)</span><span class="lg sell">▼ 매도(데드크로스)</span>
+      <span class="lg avwap-hi">AVWAP(52주 신고가)</span><span class="lg avwap-lo">AVWAP(52주 신저가)</span><span class="lg avwap-ytd">AVWAP(연초)</span>
+      <span class="lg sweep">🧲 유동성 스윕</span>
     </div>
 
     <!-- 기술 지표 요약 -->
@@ -280,7 +289,7 @@
     <ul id="tech-signals" class="signal-list"></ul>
 
     <!-- 고급 차트 분석 -->
-    <div class="chart-sub-head" id="pro-head-title">🎓 고급 차트 분석 <small class="hint">스테이지·상대강도·추세템플릿·VCP·OBV</small></div>
+    <div class="chart-sub-head" id="pro-head-title">🎓 고급 차트 분석 <small class="hint">스테이지·상대강도·추세템플릿·VCP·OBV·AVWAP·유동성스윕·볼륨프로파일·오더플로우</small></div>
     <div id="pro-card">
       <div class="pro-head">
         <div class="pro-score-box">
@@ -612,6 +621,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=59"></script>
+<script src="/static/app.js?v=60"></script>
 </body>
 </html>

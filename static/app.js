@@ -38,6 +38,18 @@ function sign(v, digits = 0) {
   if (v == null) return "-";
   return (v > 0 ? "+" : "") + fmt(v, digits);
 }
+// 값 배열 → 인라인 SVG 미니 추세선(오더플로우 누적 델타처럼 숫자 하나로는 안 보이는
+// 흐름을 pro-item 카드 안에 작게 곁들일 때 사용).
+function sparklineSvg(values, w = 70, h = 20) {
+  if (!values || values.length < 2) return "";
+  const lo = Math.min(...values), hi = Math.max(...values);
+  const span = hi - lo || 1;
+  const pts = values.map((v, i) => `${(i / (values.length - 1)) * w},${h - ((v - lo) / span) * h}`).join(" ");
+  const up = values[values.length - 1] >= values[0];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${up ? "#2ee6a6" : "#ff4d6d"}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
+  </svg>`;
+}
 function scoreColor(s) {
   if (s >= 75) return "#2ecc71";
   if (s >= 60) return "#4f8cff";
@@ -1302,13 +1314,15 @@ function drawRadar(categories) {
 }
 
 /* ---------------- candle chart ---------------- */
-let chartCtx = { code: null, name: "", currency: "KRW", candles: [], targets: {}, technical: {}, tf: "day" };
+let chartCtx = { code: null, name: "", currency: "KRW", candles: [], targets: {}, technical: {}, pro: {}, tf: "day" };
 let chartApi = null;             // lightweight-charts 인스턴스
+// 고급 차트 오버레이(AVWAP·유동성 스윕·볼륨 프로파일) on/off 상태 — 종목을 바꿔도 유지.
+const chartOverlayState = { avwap: true, sweep: true, vp: true };
 
 function renderChart(d) {
   chartCtx = { code: d.code, name: d.name, currency: d.currency || "KRW",
                candles: d.candles || [], targets: d.targets || {},
-               technical: d.technical || {}, tf: "day" };
+               technical: d.technical || {}, pro: d.chart_pro || {}, tf: "day" };
   // 봉 주기 버튼 초기화
   $("chart-tf").querySelectorAll("button").forEach((b) =>
     b.classList.toggle("active", b.dataset.tf === "day"));
@@ -1435,6 +1449,7 @@ function drawChart() {
     for (let i = 0; i < closes.length; i++) { sum += closes[i]; if (i >= n) sum -= closes[i - n]; if (i >= n - 1) out[i] = sum / n; }
     return out;
   };
+  const tf = chartCtx.tf;
   const s20 = sma(20), s60 = sma(60);
   const markers = [];
   for (let i = 1; i < closes.length; i++) {
@@ -1445,6 +1460,40 @@ function drawChart() {
     else if (prev >= 0 && cur < 0)
       markers.push({ time: toDate(d.candles[i].date), position: "aboveBar", color: "#f6465d", shape: "arrowDown", text: "매도" });
   }
+
+  // ── 고급 차트 기법(2026-08-19 벤치마킹: Anchored VWAP·Liquidity Sweep·Volume Profile) ──
+  // chart_pro는 일봉 기준으로만 계산돼 있어 주봉/월봉으로 바꾸면 앵커 날짜·봉 인덱스가
+  // 안 맞는다 — 일봉(tf==="day")일 때만 그린다.
+  const pro = chartCtx.pro || {};
+  if (tf === "day" && pro.available) {
+    // 1) 유동성 스윕 — 골든/데드크로스와 같은 마커 배열에 합쳐서 한 번에 setMarkers() 호출
+    //    (lightweight-charts v4는 시리즈당 마커셋이 하나뿐이라 따로따로 부르면 덮어써진다).
+    if (chartOverlayState.sweep && pro.liquidity_sweeps) {
+      pro.liquidity_sweeps.events.forEach((ev) => {
+        const time = toDate(ev.date);
+        if (ev.type === "high_sweep") {
+          markers.push({ time, position: "aboveBar", color: "#ff4d6d", shape: "circle", text: "🧲" });
+        } else {
+          markers.push({ time, position: "belowBar", color: "#2ee6a6", shape: "circle", text: "🧲" });
+        }
+      });
+    }
+    // 2) 앵커드 VWAP — 각 앵커 지점부터 끝까지 이어지는 선. 사용자가 어떤 기준점 이후
+    //    평균매수단가보다 지금이 위/아래인지 한눈에 보게 한다(브라이언 섀넌 방식).
+    if (chartOverlayState.avwap && pro.avwap) {
+      const AVWAP_COLOR = { "52주 신고가": "#ff6b9d", "52주 신저가": "#22d3ee", "연초(YTD)": "#f5c518" };
+      Object.entries(pro.avwap.lines).forEach(([label, info]) => {
+        const anchorIdx = d.candles.findIndex((c) => c.date === info.anchor_date);
+        if (anchorIdx < 0 || !info.series || !info.series.length) return;
+        const line = chart.addLineSeries({
+          color: AVWAP_COLOR[label] || "#a855f7", lineWidth: 2, priceLineVisible: false,
+          lastValueVisible: false, crosshairMarkerVisible: false,
+        });
+        line.setData(info.series.map((v, i) => ({ time: toDate(d.candles[anchorIdx + i].date), value: v })));
+      });
+    }
+  }
+  markers.sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));  // lightweight-charts는 시간 오름차순 필수
   if (markers.length) candleSeries.setMarkers(markers);
 
   const addPriceLine = (price, color, title) => {
@@ -1459,7 +1508,6 @@ function drawChart() {
 
   // 기간 선택 — 봉 주기에 따라 기본 구간(bars 수)이 달라진다
   const len = d.candles.length;
-  const tf = chartCtx.tf;
   const PERIODS = {
     day:   [["3개월", 66], ["6개월", 125], ["1년", 250], ["3년", 750], ["5년", 1250], ["전체", 0]],
     week:  [["6개월", 26], ["1년", 52], ["2년", 104], ["3년", 156], ["5년", 260], ["전체", 0]],
@@ -1478,6 +1526,72 @@ function drawChart() {
       $("chart-controls").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
       b.classList.add("active");
       setRange(+b.dataset.bars);
+      drawVolumeProfile();
+    };
+  });
+
+  // ── 볼륨 프로파일 오버레이 ─────────────────────────────────────────────
+  // lightweight-charts엔 가격축 히스토그램(볼륨 프로파일) 기능이 없어, 캔들 시리즈의
+  // priceToCoordinate()로 각 가격 구간을 실제 화면 y좌표로 변환해 별도 canvas에 직접
+  // 그린다. 확대/축소·구간 이동으로 가격축 스케일이 바뀔 때마다 다시 그려야 막대 위치가
+  // 안 어긋난다(subscribeVisibleLogicalRangeChange·기간 버튼·최초 렌더 시 호출).
+  const vpCanvas = $("vp-overlay");
+  function drawVolumeProfile() {
+    const vp = pro.volume_profile;
+    if (!(tf === "day" && chartOverlayState.vp && vp)) {
+      vpCanvas.width = 0; vpCanvas.height = 0;
+      vpCanvas.style.width = "0px"; vpCanvas.style.height = "0px";
+      return;
+    }
+    const box = el.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const W = Math.round(box.width * 0.22), H = Math.round(box.height);
+    vpCanvas.style.width = `${W}px`; vpCanvas.style.height = `${H}px`;
+    vpCanvas.width = Math.round(W * dpr); vpCanvas.height = Math.round(H * dpr);
+    const ctx2 = vpCanvas.getContext("2d");
+    ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx2.clearRect(0, 0, W, H);
+
+    const maxVol = Math.max(...vp.levels.map((l) => l.volume), 1);
+    const light = document.body.classList.contains("light");
+    vp.levels.forEach((lv) => {
+      const y = candleSeries.priceToCoordinate(lv.price);
+      if (y == null || y < 0 || y > H) return;
+      const barW = Math.max(1, (lv.volume / maxVol) * (W - 4));
+      const isPoc = Math.abs(lv.price - vp.poc) < (vp.levels[1] ? Math.abs(vp.levels[1].price - vp.levels[0].price) : 1) / 2 + 0.01;
+      ctx2.fillStyle = isPoc
+        ? "rgba(245,197,24,.55)"
+        : (light ? "rgba(99,102,241,.22)" : "rgba(99,102,241,.28)");
+      ctx2.fillRect(W - barW, y - 3, barW, 6);
+    });
+    // POC·가치영역(VAH/VAL) 라인
+    const drawHLine = (price, color, dash) => {
+      const y = candleSeries.priceToCoordinate(price);
+      if (y == null) return;
+      ctx2.strokeStyle = color; ctx2.lineWidth = 1;
+      ctx2.setLineDash(dash);
+      ctx2.beginPath(); ctx2.moveTo(0, y); ctx2.lineTo(W, y); ctx2.stroke();
+      ctx2.setLineDash([]);
+    };
+    drawHLine(vp.poc, "#f5c518", []);
+    drawHLine(vp.vah, "#9aa3ba", [3, 3]);
+    drawHLine(vp.val, "#9aa3ba", [3, 3]);
+  }
+  if (tf === "day" && chartOverlayState.vp && pro.volume_profile) {
+    drawVolumeProfile();
+    chart.timeScale().subscribeVisibleLogicalRangeChange(() => drawVolumeProfile());
+  } else {
+    vpCanvas.width = 0; vpCanvas.height = 0;
+    vpCanvas.style.width = "0px"; vpCanvas.style.height = "0px";
+  }
+
+  // 오버레이 켜기/끄기 토글 — 상태만 바꾸고 차트 전체를 다시 그려 반영(가장 단순하고 안전).
+  document.querySelectorAll("#chart-overlay-toggles .ovl-toggle").forEach((b) => {
+    b.onclick = () => {
+      const key = b.dataset.ovl;
+      chartOverlayState[key] = !chartOverlayState[key];
+      b.classList.toggle("active", chartOverlayState[key]);
+      drawChart();
     };
   });
 
@@ -1799,6 +1913,29 @@ function renderChartPro(p) {
     "이동평균 대비 괴리율"]);
   if (p.vcp) cells.push(["VCP 변동성 수축", p.vcp.contracting ? "수축 진행" : "미형성",
     `구간 변동폭 ${(p.vcp.ranges || []).join("% → ")}%`]);
+  // ── 2026-08-19 벤치마킹 추가: Anchored VWAP · Liquidity Sweep · Volume Profile · Order Flow ──
+  if (p.avwap) {
+    const rows = Object.entries(p.avwap.lines).map(([label, v]) =>
+      `${label} <b class="${v.above ? "up" : "down"}">${v.above ? "위" : "아래"}</b>`).join(" · ");
+    cells.push(["앵커드 VWAP(AVWAP)", `${p.avwap.above_count}/${p.avwap.total} 위`, rows]);
+  }
+  if (p.liquidity_sweeps) {
+    const ls = p.liquidity_sweeps;
+    const last = ls.recent[ls.recent.length - 1];
+    cells.push(["유동성 스윕(최근)",
+      last ? `<span class="${last.type === "low_sweep" ? "up" : "down"}">${last.type === "low_sweep" ? "저점 스윕↑" : "고점 스윕↓"}</span>` : "최근 없음",
+      last ? `${last.date.slice(0, 4)}-${last.date.slice(4, 6)}-${last.date.slice(6, 8)} · ${fmt(last.level)} 부근` : `최근 ${ls.events.length ? "스윕 감지됨(오래 전)" : "감지 안됨"}`]);
+  }
+  if (p.volume_profile) {
+    const vp = p.volume_profile;
+    cells.push(["볼륨 프로파일 POC", fmt(vp.poc), `가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position.split(" — ")[0]}`]);
+  }
+  if (p.order_flow) {
+    const fl = p.order_flow;
+    cells.push(["오더플로우 근사 <span class=\"info-dot\" tabindex=\"0\">ⓘ<span class=\"tooltip-pop\">실제 매수·매도 체결(호가·틱) 데이터가 없어, 하루 저가~고가 범위 안에서 종가 위치(CLV)에 거래량을 곱한 근사치입니다. 진짜 오더플로우가 아닙니다.</span></span>",
+      `<span class="${fl.trend_up ? "up" : "down"}">${fl.trend_up ? "매수세 우위" : "매도세 우위"}</span>${sparklineSvg(fl.cum_delta_series)}`,
+      fl.divergence === "bullish" ? "가격↓ 델타↑ 강세 다이버전스" : fl.divergence === "bearish" ? "가격↑ 델타↓ 약세 다이버전스" : "가격과 동행"]);
+  }
   $("pro-grid").innerHTML = cells.map(([label, val, sub]) =>
     `<div class="pro-item"><label>${label}</label><div class="pro-val">${val}</div><small>${sub}</small></div>`).join("");
 

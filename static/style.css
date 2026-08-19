@@ -541,6 +541,19 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .chart-controls button.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 3px 12px rgba(99,102,241,.35); }
 .chart-wrap { position: relative; }
 #chart-container { height: 440px; }
+/* 고급 차트 기법 오버레이(2026-08-19 벤치마킹: Anchored VWAP·Liquidity Sweep·Volume
+   Profile) — 캔들 위에 그리는 AVWAP선·유동성 스윕 마커는 lightweight-charts 자체 API로
+   그리지만, 볼륨 프로파일(가격대별 거래량 히스토그램)은 그 라이브러리에 없는 기능이라
+   좌표를 직접 계산해 별도 canvas로 얹는다. */
+.chart-overlay-toggles { display: flex; gap: 6px; flex-wrap: wrap; }
+.ovl-toggle {
+  background: var(--surface); color: var(--muted); border: 1px solid var(--border);
+  border-radius: 9px; padding: 6px 12px; font-size: 12px; font-weight: 600; transition: .15s;
+  opacity: .55;
+}
+.ovl-toggle:hover { color: var(--text); border-color: var(--border-glow); }
+.ovl-toggle.active { opacity: 1; border-color: var(--accent); color: var(--text); background: var(--grad-soft); }
+#vp-overlay { position: absolute; top: 0; right: 0; pointer-events: none; z-index: 4; }
 /* 크로스헤어에 따라 갱신되는 OHLC 정보 박스(TradingView류 차트의 표준 UX) — 값 없이 색점+범례만
    있던 예전보다 "지금 이 캔들이 얼마였는지"를 바로 알 수 있어 훨씬 완성도 있어 보인다. */
 .chart-ohlc-legend {
@@ -568,6 +581,9 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .lg.ma120::before { background: #a855f7; } .lg.target::before { background: #ff4d6d; }
 .lg.support::before { background: #4d8dff; } .lg.resist::before { background: #9aa3ba; }
 .lg.buy::before { background: #2ee6a6; } .lg.sell::before { background: #ff4d6d; }
+.lg.avwap-hi::before { background: #ff6b9d; } .lg.avwap-lo::before { background: #22d3ee; }
+.lg.avwap-ytd::before { background: #f5c518; }
+.lg.sweep::before { content: none; } .lg.sweep { padding-left: 0; }
 
 /* ---------- tech ---------- */
 .tech-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -696,6 +712,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pro-item label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 3px; }
 .pro-item .pro-val { font-size: 16px; font-weight: 700; margin-bottom: 2px; }
 .pro-item small { font-size: 10.5px; color: var(--muted); line-height: 1.35; display: block; }
+.pro-item .spark { vertical-align: middle; margin-left: 6px; }
 .pro-details { margin-bottom: 12px; }
 .pro-details summary { cursor: pointer; font-size: 13px; font-weight: 600; padding: 8px 0; color: var(--text); }
 .pro-details summary span { color: var(--muted); font-weight: 500; }

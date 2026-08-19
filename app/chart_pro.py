@@ -15,6 +15,18 @@
   8. 피보나치 되돌림 (Elliott/Fibonacci)
   9. 이동평균 이격도 (평균회귀)
  10. 신고가 근접도 (52주 신고가 모멘텀)
+ 11. 앵커드 VWAP (Anchored VWAP, Brian Shannon) — 주요 기준점 이후 거래량가중평균가
+ 12. 유동성 스윕 (Liquidity Sweep, ICT/Smart Money Concepts) — 직전 스윙 고/저 훑기
+ 13. 볼륨 프로파일 (Volume Profile) — 가격대별 거래량 분포, POC·Value Area
+ 14. 오더플로우 근사 (Order Flow proxy) — CLV 기반 매수/매도세 추정(⚠️ 근사치, 아래 설명)
+
+⚠️ 11~14는 2026-08-19 벤치마킹 요청(Anchored VWAP·Liquidity Sweep·Volume Profile·
+Order Flow)으로 추가됨. 이 프로젝트는 네이버의 **일봉 OHLCV**만 쓸 수 있고 틱·호가
+(Level 2) 데이터가 없다 — 11·12·13은 일봉만으로도 원래 기법 그대로 정확히 계산 가능하지만,
+14(Order Flow)는 원래 매수/매도 체결 데이터(틱)가 있어야 하는 기법이라 **진짜 오더플로우는
+계산 불가능**하다. 대신 CLV(Close Location Value, Chaikin Money Flow와 같은 원리)로
+근사치를 만들고 화면·데이터 어디에도 "근사치"임을 숨기지 않는다 — 이 프로젝트의 일관된
+원칙(정직하게 보여주되 과장하지 않는다).
 """
 import math
 
@@ -290,6 +302,227 @@ def disparity(price, mas):
     return out or None
 
 
+# ---------------------------------------------------------------- 앵커드 VWAP
+def _avwap_series(candles, anchor_idx):
+    """anchor_idx부터 끝까지, 그 시점 이후 매수한 모든 참여자의 평균 단가(거래량가중).
+    typical price = (고가+저가+종가)/3 을 표준으로 쓴다(일반적인 VWAP 관례)."""
+    if anchor_idx is None or anchor_idx < 0 or anchor_idx >= len(candles):
+        return None
+    cum_pv, cum_v = 0.0, 0.0
+    out = []
+    for c in candles[anchor_idx:]:
+        tp = (c["high"] + c["low"] + c["close"]) / 3.0
+        v = c.get("volume") or 0
+        cum_pv += tp * v
+        cum_v += v
+        out.append(cum_pv / cum_v if cum_v else tp)
+    return out
+
+
+def anchored_vwap(candles):
+    """앵커드 VWAP(브라이언 섀넌) — "의미 있는 기준점 이후 평균 매수단가"를 여러 앵커로
+    계산한다. 현재가가 AVWAP 위면 그 시점 이후 진입자는 평균적으로 수익 중 → 되돌림 시
+    지지로 작용하는 경향, 아래면 저항으로 작용하는 경향(실전에서 널리 쓰이는 해석).
+
+    앵커 선정: 실적발표일 같은 이벤트는 이 프로젝트가 보유한 데이터로 특정할 수 없어(뉴스는
+    있지만 "실적발표"로 명확히 태깅되지 않음), 객관적으로 계산 가능한 3개를 쓴다 —
+    52주 신고가·52주 신저가(주요 스윙 기준점으로 흔히 쓰임)·연초(YTD, 기관들이 관용적으로
+    쓰는 앵커).
+    """
+    n = len(candles)
+    if n < 30:
+        return None
+    lookback = min(n, 252)
+    window = candles[-lookback:]
+    base = n - lookback
+    hi_off = max(range(len(window)), key=lambda i: window[i]["high"])
+    lo_off = min(range(len(window)), key=lambda i: window[i]["low"])
+    anchors = {"52주 신고가": base + hi_off, "52주 신저가": base + lo_off}
+
+    cur_year = candles[-1]["date"][:4]
+    ytd_idx = next((i for i, c in enumerate(candles) if c["date"][:4] == cur_year), None)
+    if ytd_idx is not None and ytd_idx < n - 5:   # 연초 앵커가 최근 5봉 이내면 의미 없음
+        anchors["연초(YTD)"] = ytd_idx
+
+    price = candles[-1]["close"]
+    lines, above_count = {}, 0
+    for label, idx in anchors.items():
+        series = _avwap_series(candles, idx)
+        if not series:
+            continue
+        avwap_now = series[-1]
+        above = price > avwap_now
+        above_count += 1 if above else 0
+        lines[label] = {
+            "anchor_date": candles[idx]["date"], "value": round(avwap_now, 1),
+            "above": above, "series": [round(v, 2) for v in series],
+        }
+    if not lines:
+        return None
+    total = len(lines)
+    score = _clamp(50 + (above_count - total / 2) / (total / 2) * 40) if total else 50.0
+    return {"lines": lines, "above_count": above_count, "total": total, "score": round(score, 1)}
+
+
+# ---------------------------------------------------------------- 유동성 스윕
+def _pivots(candles, window=5):
+    """단순 프랙탈 피벗 — 좌우 window개 봉보다 고가가 높으면 스윙고점, 저가가 낮으면 스윙저점."""
+    highs, lows = [], []
+    n = len(candles)
+    for i in range(window, n - window):
+        seg = candles[i - window:i + window + 1]
+        if candles[i]["high"] == max(c["high"] for c in seg):
+            highs.append(i)
+        if candles[i]["low"] == min(c["low"] for c in seg):
+            lows.append(i)
+    return highs, lows
+
+
+def liquidity_sweeps(candles, pivot_window=5, lookback=180, recent_n=15):
+    """유동성 스윕(ICT/Smart Money Concepts) — 직전 스윙 고점/저점 부근에는 손절·역지정가
+    주문이 몰려 있다("유동성 풀"). 가격이 그 레벨을 살짝 뚫었다가 곧바로 반대로 마감하면
+    "그 유동성만 훑고(sweep) 원래 방향과 반대로 움직인" 것으로 본다 — 스윙고점 스윕 후
+    하락 마감은 약세 신호(가짜 돌파로 매수 스탑을 턴 뒤 하락), 스윙저점 스윕 후 상승 마감은
+    강세 신호."""
+    if len(candles) < pivot_window * 2 + 10:
+        return None
+    seg_start = max(0, len(candles) - lookback)
+    seg = candles[seg_start:]
+    highs, lows = _pivots(seg, pivot_window)
+
+    events = []
+    for hi in highs:
+        level = seg[hi]["high"]
+        for j in range(hi + 1, min(hi + 30, len(seg))):
+            if seg[j]["high"] > level and seg[j]["close"] < level:
+                events.append({"type": "high_sweep", "idx": seg_start + j, "date": seg[j]["date"], "level": round(level, 1)})
+                break
+    for lo in lows:
+        level = seg[lo]["low"]
+        for j in range(lo + 1, min(lo + 30, len(seg))):
+            if seg[j]["low"] < level and seg[j]["close"] > level:
+                events.append({"type": "low_sweep", "idx": seg_start + j, "date": seg[j]["date"], "level": round(level, 1)})
+                break
+    events.sort(key=lambda e: e["idx"])
+
+    recent_cut = len(candles) - recent_n
+    recent = [e for e in events if e["idx"] >= recent_cut]
+    bull = sum(1 for e in recent if e["type"] == "low_sweep")
+    bear = sum(1 for e in recent if e["type"] == "high_sweep")
+    score = _clamp(50 + (bull - bear) * 12)
+    return {"events": events[-60:], "recent": recent, "bull_recent": bull, "bear_recent": bear, "score": round(score, 1)}
+
+
+# ---------------------------------------------------------------- 볼륨 프로파일
+def volume_profile(candles, lookback=120, bins=24):
+    """볼륨 프로파일 — 가격대별 거래량 분포(시간이 아닌 "가격" 축 히스토그램).
+    ⚠️ 진짜 볼륨 프로파일은 틱(체결) 데이터로 만들지만, 이 프로젝트엔 일봉만 있다.
+    실전에서도 분봉 이하 데이터가 없을 때 흔히 쓰는 근사법 — 하루 거래량을 그 날의
+    고가~저가 범위에 걸쳐 균등 분배해 누적한다. 정확한 틱별 분포는 아니지만, 어느
+    가격대에 거래가 몰렸는지(POC)와 가치영역(Value Area, 거래량 70% 구간)의 큰 그림은
+    유의미하게 근사된다."""
+    if len(candles) < 20:
+        return None
+    seg = candles[-min(lookback, len(candles)):]
+    hi = max(c["high"] for c in seg)
+    lo = min(c["low"] for c in seg)
+    if hi <= lo:
+        return None
+    bin_size = (hi - lo) / bins
+    vol_bins = [0.0] * bins
+    for c in seg:
+        c_hi, c_lo, v = c["high"], c["low"], c.get("volume") or 0
+        if v <= 0:
+            continue
+        if c_hi <= c_lo:
+            idx = min(max(int((c["close"] - lo) / bin_size), 0), bins - 1)
+            vol_bins[idx] += v
+            continue
+        b_lo = min(max(int((c_lo - lo) / bin_size), 0), bins - 1)
+        b_hi = min(max(int((c_hi - lo) / bin_size), 0), bins - 1)
+        span = b_hi - b_lo + 1
+        per_bin = v / span
+        for b in range(b_lo, b_hi + 1):
+            vol_bins[b] += per_bin
+
+    total_vol = sum(vol_bins)
+    if total_vol <= 0:
+        return None
+    poc_idx = max(range(bins), key=lambda i: vol_bins[i])
+    poc_price = lo + (poc_idx + 0.5) * bin_size
+
+    target = total_vol * 0.70
+    acc = vol_bins[poc_idx]
+    lo_i, hi_i = poc_idx, poc_idx
+    while acc < target and (lo_i > 0 or hi_i < bins - 1):
+        up_v = vol_bins[hi_i + 1] if hi_i + 1 < bins else -1.0
+        down_v = vol_bins[lo_i - 1] if lo_i > 0 else -1.0
+        if up_v >= down_v:
+            hi_i += 1
+            acc += vol_bins[hi_i]
+        else:
+            lo_i -= 1
+            acc += vol_bins[lo_i]
+    vah = lo + (hi_i + 1) * bin_size
+    val = lo + lo_i * bin_size
+
+    price = candles[-1]["close"]
+    if price > vah:
+        pos, score = "가치영역 위 — 고평가 구간(되돌림 시 저항 재진입 가능)", 42.0
+    elif price < val:
+        pos, score = "가치영역 아래 — 저평가 구간(되돌림 시 지지 재진입 가능)", 58.0
+    else:
+        pos, score = "가치영역 내부 — 적정가 부근(박스권 가능성)", 50.0
+
+    levels = [{"price": round(lo + (i + 0.5) * bin_size, 1), "volume": round(vol_bins[i], 0)} for i in range(bins)]
+    return {
+        "poc": round(poc_price, 1), "vah": round(vah, 1), "val": round(val, 1),
+        "levels": levels, "position": pos, "lookback": len(seg), "score": score,
+    }
+
+
+# ---------------------------------------------------------------- 오더플로우 근사
+def order_flow_proxy(candles, n=90):
+    """오더플로우 근사 — ⚠️ 진짜 오더플로우(매수/매도 체결 델타)는 호가창·틱 데이터가
+    있어야 계산 가능한데 이 프로젝트엔 없다. 대신 CLV(Close Location Value: 그 날
+    저가~고가 범위에서 종가가 어디에 마감했는지, -1~+1)에 거래량을 곱해 "매수세/매도세
+    추정치"를 근사한다(Chaikin Money Flow와 동일 원리) — 종가 방향만 보는 OBV(이진 가산)
+    보다 하루 안에서의 마감 위치까지 반영해 조금 더 정밀하지만, 여전히 근사치일 뿐 실제
+    체결 데이터가 아니다. 이 사실을 화면에서 감추지 않는다."""
+    if len(candles) < n + 5:
+        return None
+    deltas = []
+    for c in candles:
+        h, l, cl, v = c["high"], c["low"], c["close"], c.get("volume") or 0
+        rng = h - l
+        clv = ((cl - l) - (h - cl)) / rng if rng else 0.0
+        deltas.append(clv * v)
+    cum = []
+    acc = 0.0
+    for d in deltas:
+        acc += d
+        cum.append(acc)
+
+    seg = cum[-n:]
+    slope = _lin_slope(seg)
+    closes = [c["close"] for c in candles[-n:]]
+    p_slope = _lin_slope(closes)
+    diverge = None
+    if p_slope < -3 and slope > 0:
+        diverge = "bullish"
+    elif p_slope > 3 and slope < 0:
+        diverge = "bearish"
+    trend_up = seg[-1] > seg[0]
+    score = _clamp(50 + (12 if trend_up else -12) + (15 if diverge == "bullish" else -15 if diverge == "bearish" else 0))
+    return {
+        "cum_delta_series": [round(x, 0) for x in cum[-min(len(cum), 250):]],
+        "today_delta": round(deltas[-1], 0),
+        "trend_up": trend_up,
+        "divergence": diverge,
+        "score": round(score, 1),
+    }
+
+
 # ---------------------------------------------------------------- 통합
 def analyze(candles, bench_closes=None):
     """고급 차트 분석 통합 실행 → 기법별 결과 + 종합 점수."""
@@ -320,6 +553,10 @@ def analyze(candles, bench_closes=None):
     fib = fibonacci(candles)
     a = atr(candles)
     disp = disparity(price, mas)
+    avwap = anchored_vwap(candles)
+    sweeps = liquidity_sweeps(candles)
+    vp = volume_profile(candles)
+    flow = order_flow_proxy(candles)
 
     atr_pct = round(a / price * 100, 2) if a and price else None
 
@@ -364,9 +601,39 @@ def analyze(candles, bench_closes=None):
             parts["박스"] = 50.0
     if fib:
         signals.append(("neutral", f"피보나치 {fib['retrace_pct']:.0f}% 되돌림 — {fib['zone']}"))
+    if avwap:
+        parts["AVWAP"] = avwap["score"]
+        above = [label for label, v_ in avwap["lines"].items() if v_["above"]]
+        below = [label for label, v_ in avwap["lines"].items() if not v_["above"]]
+        if avwap["above_count"] == avwap["total"]:
+            signals.append(("bull", f"모든 앵커드 VWAP({', '.join(avwap['lines'])}) 위 — 매수 진입자 전원 수익권, 지지 기대"))
+        elif avwap["above_count"] == 0:
+            signals.append(("bear", f"모든 앵커드 VWAP({', '.join(avwap['lines'])}) 아래 — 매수 진입자 전원 손실권, 저항 우려"))
+        elif above and below:
+            signals.append(("neutral", f"AVWAP 엇갈림 — {', '.join(above)} 위 / {', '.join(below)} 아래"))
+    if sweeps:
+        parts["유동성스윕"] = sweeps["score"]
+    if sweeps and sweeps["recent"]:
+        if sweeps["bull_recent"] > sweeps["bear_recent"]:
+            e = next(x for x in reversed(sweeps["recent"]) if x["type"] == "low_sweep")
+            signals.append(("bull", f"최근 저점 유동성 스윕({e['level']:,.0f} 부근) 후 반등 — 매도 스탑 훑고 상승 전환 신호"))
+        elif sweeps["bear_recent"] > sweeps["bull_recent"]:
+            e = next(x for x in reversed(sweeps["recent"]) if x["type"] == "high_sweep")
+            signals.append(("bear", f"최근 고점 유동성 스윕({e['level']:,.0f} 부근) 후 하락 — 매수 스탑 훑고 하락 전환 신호"))
+    if vp:
+        parts["볼륨프로파일"] = vp["score"]
+        signals.append(("neutral", f"볼륨 프로파일: POC {vp['poc']:,.0f} · 가치영역 {vp['val']:,.0f}~{vp['vah']:,.0f} — {vp['position']}"))
+    if flow:
+        parts["오더플로우근사"] = flow["score"]
+        if flow["divergence"] == "bullish":
+            signals.append(("bull", "오더플로우 근사치 강세 다이버전스 — 가격은 하락했지만 추정 매수세 우위(⚠️ 근사치, 체결 데이터 아님)"))
+        elif flow["divergence"] == "bearish":
+            signals.append(("bear", "오더플로우 근사치 약세 다이버전스 — 가격은 상승했지만 추정 매도세 우위(⚠️ 근사치, 체결 데이터 아님)"))
 
-    weights = {"스테이지": 0.30, "추세템플릿": 0.25, "상대강도": 0.20,
-               "VCP": 0.10, "OBV": 0.10, "박스": 0.05}
+    weights = {"스테이지": 0.22, "추세템플릿": 0.19, "상대강도": 0.15,
+               "VCP": 0.08, "OBV": 0.07, "박스": 0.04,
+               "AVWAP": 0.08, "볼륨프로파일": 0.05, "오더플로우근사": 0.06,
+               "유동성스윕": 0.06}
     tw = sum(w for k, w in weights.items() if k in parts)
     score = sum(parts[k] * weights[k] for k in parts) / tw if tw else 50.0
 
@@ -387,6 +654,10 @@ def analyze(candles, bench_closes=None):
         "atr": round(a, 1) if a else None,
         "atr_pct": atr_pct,
         "disparity": disp,
+        "avwap": avwap,
+        "liquidity_sweeps": sweeps,
+        "volume_profile": vp,
+        "order_flow": flow,
         "signals": [{"type": t, "text": s} for t, s in signals],
         "bars": len(candles),
     }
