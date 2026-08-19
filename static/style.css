@@ -192,24 +192,20 @@ button { cursor: pointer; font-family: inherit; }
 /* ---------- 오늘의 AI 투자기회 ---------- */
 .today-board { background: var(--card); border: 1px solid var(--accent); border-radius: 22px; padding: 26px; backdrop-filter: blur(14px); box-shadow: 0 10px 40px rgba(0,0,0,.22), 0 0 30px rgba(139,92,246,.12); margin-bottom: 20px; }
 .today-board h2 { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
-.today-tagline { font-size: 15px; font-weight: 800; color: var(--accent); margin-top: 4px; }
-.today-legend { display: flex; align-items: center; gap: 10px; margin: 12px 0 6px; flex-wrap: wrap; }
-.today-legend-chip { display: flex; flex-direction: column; padding: 8px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 800; line-height: 1.4; }
-.today-legend-chip small { font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 1px; }
-.today-legend-chip.accent { background: var(--grad-soft); border-color: var(--border-glow); color: var(--accent); }
-.today-legend-chip.accent small { color: var(--accent); opacity: .75; }
-.today-legend-sep { font-size: 16px; font-weight: 900; color: var(--muted); }
 .today-sub-h { font-size: 15px; font-weight: 800; margin: 22px 0 12px; color: var(--muted); }
 
-.today-pick-card { margin: 16px 0; padding: 22px 24px; border-radius: 18px; background: var(--grad-soft); border: 1px solid var(--border-glow); }
+.today-pick-card { position: relative; margin: 16px 0; padding: 22px 24px; border-radius: 18px; background: var(--grad-soft); border: 1px solid var(--border-glow); }
 .today-pick-label { font-size: 13px; color: var(--muted); font-weight: 800; letter-spacing: .04em; }
-.today-pick-name { font-size: 24px; font-weight: 900; margin-top: 6px; }
+.today-pick-fav { position: absolute; top: 18px; right: 20px; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 19px; line-height: 1; cursor: pointer; transition: .16s; }
+.today-pick-fav:hover { transform: scale(1.08); border-color: var(--border-glow); }
+.today-pick-fav.on { color: #f5c518; border-color: #f5c518; background: rgba(245,197,24,.12); }
+.today-pick-name { font-size: 24px; font-weight: 900; margin-top: 6px; padding-right: 46px; }
 .today-pick-name small { font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 6px; }
 .today-pick-price-row { display: flex; align-items: baseline; gap: 14px; margin-top: 8px; }
 .today-pick-price { font-size: 19px; font-weight: 800; }
 .today-pick-score { font-size: 13.5px; color: var(--muted); font-weight: 600; }
 .today-pick-verdict { font-size: 16px; font-weight: 800; margin-top: 6px; }
-.today-pick-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 16px 0 4px; }
+.today-pick-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 16px 0 4px; }
 .today-pick-stats div { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; text-align: center; }
 .today-pick-stats label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
 .today-pick-stats span { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
@@ -217,6 +213,7 @@ button { cursor: pointer; font-family: inherit; }
 
 .today-why { margin: 4px 0 8px; padding: 16px 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
 .today-why-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
+.today-why-intro { font-size: 14px; line-height: 1.6; margin-bottom: 12px; }
 .today-why-row { display: flex; justify-content: space-between; padding: 7px 4px; font-size: 13.5px; border-bottom: 1px solid var(--border); }
 .today-why-row:last-of-type { border-bottom: none; }
 .today-why-name { font-weight: 600; }
@@ -225,6 +222,15 @@ button { cursor: pointer; font-family: inherit; }
 .today-why-row.dir-flat .today-why-dir { color: var(--muted); }
 .today-why-row.dir-down .today-why-dir, .today-why-row.dir-strong-down .today-why-dir { color: #ff4d6d; }
 .today-why-warn { margin-top: 10px; padding: 9px 12px; border-radius: 10px; background: rgba(245,166,35,.1); border: 1px solid rgba(245,166,35,.3); color: #f5a623; font-size: 13px; font-weight: 700; }
+
+.today-valuation { margin: 4px 0 8px; padding: 16px 18px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border); }
+.today-val-title { font-size: 13px; font-weight: 700; color: var(--muted); margin-bottom: 10px; }
+.today-val-summary { font-size: 14px; line-height: 1.6; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px dashed var(--border); }
+.today-val-row { display: flex; flex-direction: column; gap: 2px; padding: 7px 4px; font-size: 13px; border-bottom: 1px solid var(--border); }
+.today-val-row:last-child { border-bottom: none; }
+.today-val-label { font-weight: 700; color: var(--muted); font-size: 11.5px; }
+.today-val-text { font-weight: 600; }
+.today-val-row.warn .today-val-text { color: #f5a623; }
 
 .today-table { display: flex; flex-direction: column; gap: 6px; }
 .today-row { display: grid; grid-template-columns: 96px 1.6fr 64px 1fr 84px; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; }

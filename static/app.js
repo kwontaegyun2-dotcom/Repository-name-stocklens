@@ -607,6 +607,7 @@ async function renderTodayPick(items) {
   const bestUp = best.upside != null ? `${sign(best.upside, 1)}%` : "-";
   $("today-hero").innerHTML = `
     <div class="today-pick-label">🔥 TODAY'S PICK</div>
+    <button class="today-pick-fav" id="today-pick-fav" title="관심종목에 추가/제거">☆</button>
     <div class="today-pick-name">${best.name} <small>${best.code}</small></div>
     <div class="today-pick-price-row">
       <span class="today-pick-price">${pw(best.price, best.currency)}</span>
@@ -615,21 +616,48 @@ async function renderTodayPick(items) {
     <div class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 판단 신뢰도 ${bv.confidence ?? "-"}</div>
     <div class="today-pick-stats">
       <div><label>적정매수가</label><span id="today-pick-fair">불러오는 중…</span></div>
-      <div><label>목표가</label><span>${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
-      <div><label>상승여력</label><span class="${updownClass(best.upside)}">${bestUp}</span></div>
+      <div><label>적정가(밸류에이션)</label><span id="today-pick-fairvalue">불러오는 중…</span></div>
+      <div><label>목표주가(애널리스트)</label><span id="today-pick-target">${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
+      <div><label>상승여력</label><span id="today-pick-upside" class="${updownClass(best.upside)}">${bestUp}</span></div>
     </div>
     <button class="primary-btn today-pick-btn" id="today-pick-btn">종목 자세히 보기</button>`;
   $("today-pick-btn").onclick = () => analyze(best.code);
 
-  // "왜 주목하는가" — 이미 계산된 6개 부문점수 + RSI를 그대로 재사용(추가 계산 없음)
+  // 즐겨찾기(로그인 불필요, localStorage 기반) — 오늘의 PICK에서 바로 담을 수 있게.
+  const favBtn = $("today-pick-fav");
+  const syncFavBtn = () => {
+    const on = isFav(best.code);
+    favBtn.textContent = on ? "★" : "☆";
+    favBtn.classList.toggle("on", on);
+  };
+  syncFavBtn();
+  favBtn.onclick = (e) => {
+    e.stopPropagation();
+    toggleFav(best.code, best.name);
+    syncFavBtn();
+    renderFavBoard();
+  };
+
+  // ⚠️ "종합점수 ≠ 투자기회" 범례 칩과 "지금 사기 좋은 종목"이라는 짧은 태그라인만 있고 왜
+  // 이 종목이 오늘의 PICK인지 구체적 근거가 없었다(사용자 지적) — opportunityReasons()로
+  // 이미 계산된 근거(상승여력·RSI·PER저평가·수급·실적전망)를 문장으로 풀어 보여준다.
+  const pickReasons = opportunityReasons(best);
+  const reasonSentence = pickReasons.length ? pickReasons.join(", ") : "종합점수와 최근 가격 흐름";
   const cats = Object.entries(best.categories || {});
+  const posCount = cats.filter(([, s]) => s >= 62).length;
+  const introText = `${best.name}${josa(best.name, "은", "는")} <b>${reasonSentence}</b>${josa(reasonSentence.split(", ").pop(), "이", "가")} 겹쳐 오늘의 AI 투자기회로 선정됐습니다. `
+    + `6개 분석 부문 중 ${posCount}개에서 긍정 신호가 나왔고, AI 최종판단은 '${bv.label || "-"}'`
+    + `(판단 신뢰도 ${bv.confidence ?? "-"})입니다.`;
+
+  // "왜 주목하는가" — 이미 계산된 6개 부문점수 + RSI를 그대로 재사용(추가 계산 없음)
   const reasonsHtml = cats.map(([name, score]) => {
     const d = directionTag(score);
     return `<div class="today-why-row ${d.cls}"><span class="today-why-name">${CATEGORY_ICON[name] || "•"} ${name}</span><span class="today-why-dir">${d.arrow} ${d.text}</span></div>`;
   }).join("");
   const overheatWarn = best.rsi != null && best.rsi >= 70
     ? `<div class="today-why-warn">⚠️ 단기 과열 가능성 (RSI ${best.rsi.toFixed(0)})</div>` : "";
-  $("today-why").innerHTML = `<div class="today-why-title">AI가 오늘 ${best.name}${josa(best.name, "을", "를")} 주목한 이유</div>${reasonsHtml}${overheatWarn}`;
+  $("today-why").innerHTML = `<div class="today-why-title">AI가 오늘 ${best.name}${josa(best.name, "을", "를")} 주목한 이유</div>`
+    + `<p class="today-why-intro">${introText}</p>${reasonsHtml}${overheatWarn}`;
 
   $("today-rows").innerHTML = top.map((r) => {
     const v = r.ai_verdict || {};
@@ -650,17 +678,90 @@ async function renderTodayPick(items) {
     row.onclick = () => analyze(row.dataset.code);
   });
 
-  // 적정매수가는 랭킹 백그라운드 채점에 없음(peers 조회 등 비용 때문에 의도적으로 생략)
-  // — TODAY'S PICK 1종목에 한해서만 추가로 조회한다.
+  // 적정매수가·밸류에이션 상세는 랭킹 백그라운드 채점에 없음(peers 조회 등 비용 때문에
+  // 의도적으로 생략) — TODAY'S PICK 1종목에 한해서만 추가로 조회한다.
   try {
     const d = await api(`/api/analyze/${best.code}`);
-    const fb = (d.targets && d.targets.fair_buy) ? d.targets.fair_buy.base : null;
-    const el = $("today-pick-fair");
-    if (el) el.textContent = fb ? pw(fb.price, best.currency) : "-";
+    const val = d.valuation;
+    const fb = (val && val.available) ? val.fair_buy : null;
+    const cons = d.consensus || {};
+
+    $("today-pick-fair").textContent = fb ? pw(fb.base.price, best.currency) : "-";
+    $("today-pick-fairvalue").textContent = fb ? pw(fb.fair_value, best.currency) : "-";
+    $("today-pick-target").innerHTML = cons.target_price
+      ? pw(cons.target_price, best.currency) + (cons.date ? ` <small class="hint">(${cons.date} 기준)</small>` : "")
+      : "-";
+
+    // ⚠️ "상승여력이 그냥 애널리스트 목표가 평균이라 의미 없어 보인다"는 지적 — 목표가는
+    // 후행 경향이 있어(analysis.py 주석 참고) 그것만 단독으로 보여주면 근거가 약하다.
+    // 우리가 직접 계산한 밸류에이션 적정가(fair_value) 기준 상승여력을 주 지표로 쓰고,
+    // 애널리스트 목표가 기준은 참고치로 함께 보여준다 — 둘이 크게 다르면 그 자체가
+    // "시장 기대 vs 우리 모델"의 괴리라는 정보가 된다. 괴리가 과대해 반영비중이 낮아진
+    // 경우(consensus_info.upside_flagged, 2차 진단리포트 4-1 조치)는 배지로 표시.
+    const upsideEl = $("today-pick-upside");
+    if (fb && fb.optimistic.upside != null) {
+      const valUp = fb.optimistic.upside;
+      const consUp = cons.upside;
+      const flagBadge = cons.upside_flagged
+        ? ` <span class="info-dot" tabindex="0">⚠️<span class="tooltip-pop">${cons.upside_flag_reason}</span></span>`
+        : "";
+      let html = `<span class="${updownClass(valUp)}">${sign(valUp, 1)}%</span> <small class="hint">밸류에이션 기준</small>`;
+      if (consUp != null) {
+        html += `<br><span class="${updownClass(consUp)}" style="font-size:12px">${sign(consUp, 1)}% 애널리스트 목표가 기준${flagBadge}</span>`;
+      }
+      upsideEl.innerHTML = html;
+    }
+
+    renderTodayValuation(val, best);
   } catch {
-    const el = $("today-pick-fair");
-    if (el) el.textContent = "-";
+    $("today-pick-fair").textContent = "-";
+    $("today-pick-fairvalue").textContent = "-";
+    $("today-valuation").classList.add("hidden");
   }
+}
+
+// "적정주가는 어떻게 나왔나" — valuation.analyze()가 이미 계산한 과거 PER밴드·동종업계·
+// PEG(미래 성장 반영)·EV/EBITDA 근거를 그대로 노출한다(사용자 요청: "과거대비 PER, PBR
+// 또는 미래가치, 종합지표 등을 분석했을 때 얼마가 적정주가인지" — PBR은 별도 밸류에이션
+// 모델은 없지만 참고 수치로 함께 표기).
+function renderTodayValuation(val, best) {
+  const el = $("today-valuation");
+  if (!val || !val.available || !val.fair_buy) { el.classList.add("hidden"); el.innerHTML = ""; return; }
+  el.classList.remove("hidden");
+
+  const rows = [];
+  if (val.band) {
+    rows.push({ label: `과거 대비 ${val.band.kind}`, ok: val.band.ratio <= 1.15,
+      text: `현재 ${val.band.current}배 vs 과거 ${val.band.years}년 평균 ${val.band.hist_avg}배 — ${val.band.label}` });
+  }
+  if (val.peer) {
+    rows.push({ label: "동종업계 PER 비교", ok: val.peer.ratio <= 1.15,
+      text: `내 PER ${val.peer.my_per}배 vs 업종 평균 ${val.peer.peer_avg}배 — ${val.peer.label}` });
+  }
+  if (val.peg) {
+    rows.push({ label: "PEG (성장 대비 밸류, 미래가치)", ok: val.peg.peg <= 1.0,
+      text: `PEG ${val.peg.peg} = PER ${val.peg.per_used}배 ÷ 성장률 ${val.peg.growth_used}% — ${val.peg.label}` });
+  }
+  if (val.ev_ebitda) {
+    rows.push({ label: "EV/EBITDA", ok: val.ev_ebitda.ev_ebitda <= 12,
+      text: `${val.ev_ebitda.ev_ebitda}배 (${val.ev_ebitda.basis})` });
+  }
+  const rowsHtml = rows.map((r) => `
+    <div class="today-val-row ${r.ok ? "ok" : "warn"}">
+      <span class="today-val-label">${r.label}</span>
+      <span class="today-val-text">${r.text}</span>
+    </div>`).join("");
+
+  const fb = val.fair_buy;
+  const cur = val.current || {};
+  const pbrNote = cur.pbr != null ? ` · PBR ${cur.pbr}배(참고)` : "";
+  const summaryHtml = `
+    <div class="today-val-summary">
+      <b>${val.verdict}</b> — 종합 밸류에이션 ${val.score}점 · 적정가 <b>${pw(fb.fair_value, best.currency)}</b>
+      (지표 ${fb.sources}개 종합, 현재가 대비 ${sign(fb.optimistic.upside, 1)}%)${pbrNote}
+    </div>`;
+
+  el.innerHTML = `<div class="today-val-title">📐 적정주가는 어떻게 나왔나</div>${summaryHtml}${rowsHtml}`;
 }
 
 /* ---------------- 내 포트폴리오 (홈 위젯 — "오늘 내가 할 일") ---------------- */
