@@ -2335,11 +2335,19 @@ function renderChartPro(p) {
     const vp = p.volume_profile;
     cells.push(["볼륨 프로파일 POC", fmt(vp.poc), `가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position.split(" — ")[0]}`]);
   }
-  if (p.order_flow) {
-    const fl = p.order_flow;
-    cells.push(["오더플로우 근사 <span class=\"info-dot\" tabindex=\"0\">ⓘ<span class=\"tooltip-pop\">실제 매수·매도 체결(호가·틱) 데이터가 없어, 하루 저가~고가 범위 안에서 종가 위치(CLV)에 거래량을 곱한 근사치입니다. 진짜 오더플로우가 아닙니다.</span></span>",
-      `<span class="${fl.trend_up ? "up" : "down"}">${fl.trend_up ? "매수세 우위" : "매도세 우위"}</span>${sparklineSvg(fl.cum_delta_series)}`,
-      fl.divergence === "bullish" ? "가격↓ 델타↑ 강세 다이버전스" : fl.divergence === "bearish" ? "가격↑ 델타↓ 약세 다이버전스" : "가격과 동행"]);
+  if (p.smart_money) {
+    // ⚠️ 예전 "오더플로우 근사"(CLV×거래량)는 캔들 몸통·꼬리를 다시 쓴 것뿐이라 새 정보가
+    // 없었다(설계서 지적, 실측 최저점수). 한국거래소만 공개하는 외국인+기관 순매수
+    // 누적델타로 교체 — 미국 서비스가 절대 만들 수 없는 한국형 지표.
+    const sm = p.smart_money;
+    const up = sm.smart_delta_series[sm.smart_delta_series.length - 1] > sm.smart_delta_series[0];
+    cells.push(["수급 오더플로우 <span class=\"info-dot\" tabindex=\"0\">ⓘ<span class=\"tooltip-pop\">외국인+기관 순매수 누적델타(최근 60영업일). 체결 데이터는 아니지만 한국거래소만 공개하는 실제 수급 데이터입니다.</span></span>",
+      `<span class="${up ? "up" : "down"}">${up ? "매수세 우위" : "매도세 우위"}</span>${sparklineSvg(sm.smart_delta_series)}`,
+      sm.divergence === "bullish" ? "가격↓ 델타↑ 강세 다이버전스" : sm.divergence === "bearish" ? "가격↑ 델타↓ 약세 다이버전스" : "가격과 동행"]);
+    if (sm.foreign_avg_cost) {
+      cells.push(["외국인 추정 평균단가", pw(sm.foreign_avg_cost),
+        `현재가 대비 ${sign(sm.foreign_avg_cost_upside, 1)}% ${sm.foreign_avg_cost_upside >= 0 ? "이익" : "손실"} 구간 · 연속매수 ${sm.streak_foreign}일`]);
+    }
   }
   $("pro-grid").innerHTML = cells.map(([label, val, sub]) =>
     `<div class="pro-item"><label>${label}</label><div class="pro-val">${val}</div><small>${sub}</small></div>`).join("");

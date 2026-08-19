@@ -697,50 +697,88 @@ def volume_profile(candles, lookback=120):
     }
 
 
-# ---------------------------------------------------------------- 오더플로우 근사
-def order_flow_proxy(candles, n=90):
-    """오더플로우 근사 — ⚠️ 진짜 오더플로우(매수/매도 체결 델타)는 호가창·틱 데이터가
-    있어야 계산 가능한데 이 프로젝트엔 없다. 대신 CLV(Close Location Value: 그 날
-    저가~고가 범위에서 종가가 어디에 마감했는지, -1~+1)에 거래량을 곱해 "매수세/매도세
-    추정치"를 근사한다(Chaikin Money Flow와 동일 원리) — 종가 방향만 보는 OBV(이진 가산)
-    보다 하루 안에서의 마감 위치까지 반영해 조금 더 정밀하지만, 여전히 근사치일 뿐 실제
-    체결 데이터가 아니다. 이 사실을 화면에서 감추지 않는다."""
-    if len(candles) < n + 5:
-        return None
-    deltas = []
-    for c in candles:
-        h, l, cl, v = c["high"], c["low"], c["close"], c.get("volume") or 0
-        rng = h - l
-        clv = ((cl - l) - (h - cl)) / rng if rng else 0.0
-        deltas.append(clv * v)
-    cum = []
-    acc = 0.0
-    for d in deltas:
-        acc += d
-        cum.append(acc)
+# ---------------------------------------------------------------- 수급 오더플로우
+def smart_money_flow(flows, closes):
+    """수급 오더플로우 — 진짜 오더플로우(매수/매도 체결 델타)는 호가창·틱 데이터가 있어야
+    계산 가능한데 이 프로젝트엔 없다. 예전엔 CLV(종가 마감 위치)로 흉내 냈지만, 그건
+    결국 그날 캔들의 몸통·꼬리를 다시 쓴 것이라 새로운 정보가 없었다(2026-08-19 설계서
+    4-4 지적 — 실측 점수 23점으로 10개 기법 중 최저).
 
-    seg = cum[-n:]
-    slope = _lin_slope(seg)
-    closes = [c["close"] for c in candles[-n:]]
-    p_slope = _lin_slope(closes)
-    diverge = None
-    if p_slope < -3 and slope > 0:
-        diverge = "bullish"
-    elif p_slope > 3 and slope < 0:
-        diverge = "bearish"
-    trend_up = seg[-1] > seg[0]
-    score = _clamp(50 + (12 if trend_up else -12) + (15 if diverge == "bullish" else -15 if diverge == "bearish" else 0))
+    대신 한국거래소가 공개하는 "투자자별(외국인·기관) 순매수"를 스마트머니의 누적
+    델타로 쓴다 — 미국 시장엔 이 데이터 자체가 없어 미국 서비스가 절대 만들 수 없는
+    한국형 지표다. flows가 없으면(미국 종목 등) None을 반환하고, analyze()가 이
+    항목을 종합점수에서 자연스럽게 제외한다(가중치 재분배).
+
+    flows: main.py가 만든 리스트, index 0이 최신 날짜(내림차순)라고 가정.
+    closes: 일봉 종가 리스트(오름차순, candles와 같은 순서)."""
+    if not flows or len(flows) < 20:
+        return None
+    days = list(reversed(flows))   # 오름차순(과거→현재)으로 정렬
+
+    cum_foreign, cum_organ, smart_delta = [], [], []
+    cf = co = 0.0
+    for d in days:
+        cf += d.get("foreigner") or 0
+        co += d.get("organ") or 0
+        cum_foreign.append(cf)
+        cum_organ.append(co)
+        smart_delta.append(cf + co)
+
+    # 다이버전스 — 최근 20일 가격 변화 vs 스마트머니 누적델타 변화(부호만 비교; 유통주식
+    # 수를 몰라 절대량 정규화는 불가능해 방향성 신호로만 쓴다).
+    divergence = None
+    if len(closes) >= 21 and closes[-21]:
+        price_chg = (closes[-1] - closes[-21]) / closes[-21]
+        smart_chg = smart_delta[-1] - smart_delta[-21] if len(smart_delta) >= 21 else 0
+        if price_chg < -0.05 and smart_chg > 0:
+            divergence = "bullish"
+        elif price_chg > 0.05 and smart_chg < 0:
+            divergence = "bearish"
+
+    # 외국인 추정 평균단가 — 순매수한 날의 종가를 순매수 수량으로 가중평균.
+    buy_days = [d for d in days if (d.get("foreigner") or 0) > 0 and d.get("close")]
+    foreign_avg_cost = None
+    if buy_days:
+        den = sum(d["foreigner"] for d in buy_days)
+        foreign_avg_cost = sum(d["close"] * d["foreigner"] for d in buy_days) / den if den else None
+
+    # 연속성 — 외국인 연속 순매수 일수(최신부터), 최근 5일 집중도(전체 20일 대비).
+    streak = 0
+    for d in reversed(days):
+        if (d.get("foreigner") or 0) > 0:
+            streak += 1
+        else:
+            break
+    last5 = sum(abs(d.get("foreigner") or 0) for d in days[-5:])
+    last20 = sum(abs(d.get("foreigner") or 0) for d in days[-20:])
+    concentration = round(last5 / last20, 2) if last20 else None
+
+    price = closes[-1] if closes else None
+    cost_upside = round((price - foreign_avg_cost) / foreign_avg_cost * 100, 1) if (foreign_avg_cost and price) else None
+
+    score = 50.0
+    if divergence == "bullish":
+        score += 20
+    elif divergence == "bearish":
+        score -= 20
+    score += _clamp(streak * 2, 0, 10) - 5
+    if concentration is not None:
+        score += (concentration - 0.25) * 20
+    score = _clamp(score)
+
     return {
-        "cum_delta_series": [round(x, 0) for x in cum[-min(len(cum), 250):]],
-        "today_delta": round(deltas[-1], 0),
-        "trend_up": trend_up,
-        "divergence": diverge,
-        "score": round(score, 1),
+        "cum_foreign": round(cum_foreign[-1], 0), "cum_organ": round(cum_organ[-1], 0),
+        "smart_delta_series": [round(v, 0) for v in smart_delta],
+        "divergence": divergence,
+        "foreign_avg_cost": round(foreign_avg_cost, 1) if foreign_avg_cost else None,
+        "foreign_avg_cost_upside": cost_upside,
+        "streak_foreign": streak, "concentration": concentration,
+        "days": len(days), "score": round(score, 1),
     }
 
 
 # ---------------------------------------------------------------- 통합
-def analyze(candles, bench_closes=None):
+def analyze(candles, bench_closes=None, flows=None):
     """고급 차트 분석 통합 실행 → 기법별 결과 + 종합 점수."""
     if not candles or len(candles) < 120:
         return {"available": False}
@@ -772,7 +810,7 @@ def analyze(candles, bench_closes=None):
     sweeps = liquidity_sweeps(candles)   # AVWAP의 "최근 스윕" 앵커가 이 결과를 참조하므로 먼저 계산
     avwap = anchored_vwap(candles, sweeps)
     vp = volume_profile(candles)
-    flow = order_flow_proxy(candles)
+    smart = smart_money_flow(flows, closes)
 
     atr_pct = round(a / price * 100, 2) if a and price else None
 
@@ -854,16 +892,21 @@ def analyze(candles, bench_closes=None):
             parts["볼륨프로파일"] = vp["score"]
         note = f" ⚠️{vp['reliability_note']}" if vp.get("reliability_note") else ""
         signals.append(("neutral", f"볼륨 프로파일(일봉 기반 추정): POC {vp['poc']:,.0f} · 가치영역 {vp['val']:,.0f}~{vp['vah']:,.0f} — {vp['position']}{note}"))
-    if flow:
-        parts["오더플로우근사"] = flow["score"]
-        if flow["divergence"] == "bullish":
-            signals.append(("bull", "오더플로우 근사치 강세 다이버전스 — 가격은 하락했지만 추정 매수세 우위(⚠️ 근사치, 체결 데이터 아님)"))
-        elif flow["divergence"] == "bearish":
-            signals.append(("bear", "오더플로우 근사치 약세 다이버전스 — 가격은 상승했지만 추정 매도세 우위(⚠️ 근사치, 체결 데이터 아님)"))
+    if smart:
+        parts["수급오더플로우"] = smart["score"]
+        if smart["divergence"] == "bullish":
+            signals.append(("bull", f"수급 오더플로우 강세 다이버전스 — 가격 하락에도 외국인+기관 누적 순매수 우위(연속 {smart['streak_foreign']}일)"))
+        elif smart["divergence"] == "bearish":
+            signals.append(("bear", f"수급 오더플로우 약세 다이버전스 — 가격 상승에도 외국인+기관 누적 순매도 우위"))
+        if smart.get("foreign_avg_cost") and smart.get("foreign_avg_cost_upside") is not None:
+            tone = "bull" if smart["foreign_avg_cost_upside"] >= 0 else "warn"
+            signals.append((tone, f"외국인 추정 평균단가 {smart['foreign_avg_cost']:,.0f}원 — 현재가 대비 {smart['foreign_avg_cost_upside']:+.1f}% {'이익' if smart['foreign_avg_cost_upside'] >= 0 else '손실'} 구간"))
+        if smart["streak_foreign"] >= 5:
+            signals.append(("bull", f"외국인 {smart['streak_foreign']}일 연속 순매수 — 수급 유입 지속"))
 
     weights = {"스테이지": 0.22, "추세템플릿": 0.19, "상대강도": 0.15,
                "VCP": 0.08, "OBV": 0.07, "박스": 0.04,
-               "AVWAP": 0.08, "볼륨프로파일": 0.05, "오더플로우근사": 0.06,
+               "AVWAP": 0.08, "볼륨프로파일": 0.05, "수급오더플로우": 0.06,
                "유동성스윕": 0.06}
     tw = sum(w for k, w in weights.items() if k in parts)
     score = sum(parts[k] * weights[k] for k in parts) / tw if tw else 50.0
@@ -888,7 +931,7 @@ def analyze(candles, bench_closes=None):
         "avwap": avwap,
         "liquidity_sweeps": sweeps,
         "volume_profile": vp,
-        "order_flow": flow,
+        "smart_money": smart,
         "signals": [{"type": t, "text": s} for t, s in signals],
         "bars": len(candles),
     }

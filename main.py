@@ -202,8 +202,24 @@ def api_analyze(code: str, request: Request = None):
 
     tech = analysis.technical_analysis(candle_data)
 
-    # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV 등)
-    pro = safe(lambda: chart_pro.analyze(candle_data, bench), {"available": False})
+    # 수급 요약 — naver.trend()가 pageSize=60으로 받아오므로 최근 최대 60영업일
+    # (트레이딩엔진 설계서: 120일 확장 요청됐으나 네이버 엔드포인트가 60을 넘기면 400을
+    # 반환해 60이 실측 상한). chart_pro.analyze()의 수급 오더플로우 모듈이 이 데이터를
+    # 쓰므로 응답 조립보다 먼저 만들어 둔다.
+    flows = []
+    for d in (deal_trend or [])[:60]:
+        flows.append({
+            "date": d.get("bizdate"),
+            "close": analysis.to_num(d.get("closePrice")),
+            "foreigner": analysis.to_num(d.get("foreignerPureBuyQuant")),
+            "foreigner_ratio": d.get("foreignerHoldRatio"),
+            "organ": analysis.to_num(d.get("organPureBuyQuant")),
+            "individual": analysis.to_num(d.get("individualPureBuyQuant")),
+        })
+
+    # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV·AVWAP·유동성스윕·볼륨프로파일·
+    # 수급 오더플로우 등)
+    pro = safe(lambda: chart_pro.analyze(candle_data, bench, flows), {"available": False})
     fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
     senti = analysis.news_sentiment(news_items, stock_name=name)
     cons = analysis.consensus_info(integ, price)
@@ -272,20 +288,6 @@ def api_analyze(code: str, request: Request = None):
         conservative_price = targets["fair_buy"]["conservative"]["price"]
         if tech["entry"]["stop_loss"] >= conservative_price:
             tech["entry"]["stop_loss"] = round(conservative_price * 0.97)
-
-    # 수급 요약 테이블 — naver.trend()가 pageSize=60으로 받아오므로 최근 최대 60영업일
-    # (트레이딩엔진 설계서: 120일 확장 요청됐으나 네이버 엔드포인트가 60을 넘기면 400을
-    # 반환해 60이 실측 상한. 수급 오더플로우 모듈이 이 길어진 시계열을 사용한다).
-    flows = []
-    for d in (deal_trend or [])[:60]:
-        flows.append({
-            "date": d.get("bizdate"),
-            "close": analysis.to_num(d.get("closePrice")),
-            "foreigner": analysis.to_num(d.get("foreignerPureBuyQuant")),
-            "foreigner_ratio": d.get("foreignerHoldRatio"),
-            "organ": analysis.to_num(d.get("organPureBuyQuant")),
-            "individual": analysis.to_num(d.get("individualPureBuyQuant")),
-        })
 
     return {
         "code": code,
