@@ -2504,6 +2504,7 @@ async function loadMe() {
   }
   renderAuthUI();
   await loadWatchlist();
+  await migrateLegacyFavs();
   updateFavBtn();
   updateWatchBtn();
   renderFavBoard();
@@ -2549,6 +2550,7 @@ $("auth-submit").onclick = async () => {
     renderAuthUI();
     $("auth-modal").classList.add("hidden");
     await loadWatchlist();
+    await migrateLegacyFavs();
     updateFavBtn();
     updateWatchBtn();
     renderFavBoard();
@@ -2617,6 +2619,43 @@ async function loadWatchlist() {
     watchedCodes = new Set();
     watchMap = {};
   }
+}
+
+// ⚠️ ★/🔔 저장소를 서버로 통합하면서, 예전에 localStorage에만 담겨 있던 관심종목이
+// 화면에서 안 보이게 됐다(사용자 지적: "관심종목을 아예 날리면 어떻게 해"). 데이터는
+// 브라우저에 그대로 남아있으므로 로그인 시 서버로 1회 자동 이전한다 — 기기별로
+// stocklens_favs_migrated 플래그로 중복 이전을 막는다(로컬스토리지 원본은 안전망으로 남겨둠).
+const LEGACY_FAV_KEY = "stocklens_favs";
+const LEGACY_FAV_MIGRATED_KEY = "stocklens_favs_migrated";
+async function migrateLegacyFavs() {
+  if (!currentUser || localStorage.getItem(LEGACY_FAV_MIGRATED_KEY)) return;
+  let legacy = [];
+  try { legacy = JSON.parse(localStorage.getItem(LEGACY_FAV_KEY)) || []; } catch {}
+  if (!legacy.length) { localStorage.setItem(LEGACY_FAV_MIGRATED_KEY, "1"); return; }
+  let restored = 0;
+  for (const f of legacy) {
+    if (!f.code || watchedCodes.has(f.code)) continue;
+    try {
+      await addToWatch(f.code, f.name || f.code, null, null, null, null);
+      restored++;
+    } catch {}
+  }
+  localStorage.setItem(LEGACY_FAV_MIGRATED_KEY, "1");
+  if (restored) showToast(`⭐ 예전 관심종목 ${restored}개를 복구했습니다.`);
+}
+
+function showToast(text) {
+  let t = $("app-toast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "app-toast";
+    t.className = "app-toast";
+    document.body.appendChild(t);
+  }
+  t.textContent = text;
+  t.classList.add("show");
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => t.classList.remove("show"), 4500);
 }
 
 function urlBase64ToUint8Array(base64) {
