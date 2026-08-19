@@ -34,8 +34,12 @@ def deep_report(name: str, code: str, payload: dict) -> str:
     # +796%). 값을 숨기지 않고 그대로 넘기되(AI가 맥락을 판단할 정보이므로 임의로 캡하지
     # 않음), 극단값이면 주의 문구를 붙여 AI가 "실제 폭발적 성장"처럼 서술하지 않게 한다.
     gf = m.get("op_growth_fwd")
-    gf_note = "(주의: 저기반 회복 등으로 왜곡됐을 수 있는 수치 — 액면 그대로 강조하지 말 것)" \
-        if isinstance(gf, (int, float)) and abs(gf) > 100 else ""
+    if m.get("consensus_flagged"):
+        gf = m.get("op_growth_fwd_raw")
+        gf_note = f"(주의: 컨센서스 이상치로 검증 보류된 수치 — {m.get('consensus_flag_reason')}. 신뢰할 수 있는 사실처럼 강조하지 말고 반드시 '검증 필요'라고 언급할 것)"
+    else:
+        gf_note = "(주의: 저기반 회복 등으로 왜곡됐을 수 있는 수치 — 액면 그대로 강조하지 말 것)" \
+            if isinstance(gf, (int, float)) and abs(gf) > 100 else ""
 
     prompt = f"""당신은 한국 주식시장 전문 애널리스트입니다. 아래 데이터를 바탕으로 {name}({code})에 대한 심층 분석 리포트를 한국어 마크다운으로 작성하세요.
 

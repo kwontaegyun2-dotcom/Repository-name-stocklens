@@ -54,6 +54,9 @@ body {
   -webkit-font-smoothing: antialiased;
   letter-spacing: -.01em;
   transition: background .3s, color .3s;
+  /* 한글은 띄어쓰기가 없으면 브라우저가 글자 사이 아무 데서나 줄을 바꾼다("당신이"가
+     "당신 / 이."로 끊기는 등, 진단리포트 지적사항). 공백에서만 줄바꿈하도록 강제한다. */
+  word-break: keep-all;
 }
 a { color: var(--accent2); text-decoration: none; }
 .hidden { display: none !important; }
@@ -303,6 +306,8 @@ button { cursor: pointer; font-family: inherit; }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
 .card h3 { font-size: 17px; font-weight: 700; margin-bottom: 15px; }
 .card h3 .hint { color: var(--dim); font-weight: 400; font-size: 12px; margin-left: 8px; }
+small.hint { display: block; color: var(--dim); font-weight: 400; font-size: 11px; margin-top: 3px; letter-spacing: normal; text-transform: none; }
+.card h3 small.hint { display: inline; margin-top: 0; }
 .hint-p { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
 .hint-p code { background: var(--surface2); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
 
@@ -474,6 +479,14 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .buy-stage-label { font-size: 12.5px; color: var(--muted); font-weight: 700; }
 .buy-stage-pct { color: var(--accent); font-weight: 800; }
 .buy-stage-price { font-size: 16px; font-weight: 800; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.buy-stage.is-reached { border-color: #2ee6a6; background: rgba(46,230,166,.08); }
+.buy-stage-status { font-size: 11px; margin-top: 8px; font-weight: 700; }
+.buy-stage-status.reached { color: #2ee6a6; }
+.buy-stage-status.pending { color: var(--muted); font-weight: 500; }
+.buy-plan-reached-note {
+  background: rgba(46,230,166,.12); border: 1px solid rgba(46,230,166,.35); color: #2ee6a6;
+  border-radius: 10px; padding: 9px 13px; font-size: 13px; font-weight: 700; margin-bottom: 10px;
+}
 .buy-plan-footer { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .buy-plan-footer div { background: var(--surface2); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; text-align: center; }
 .buy-plan-footer label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
@@ -530,6 +543,12 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 .signal-list li.bull::before { content: "🟢"; } .signal-list li.bear::before { content: "🔴"; }
 .signal-list li.warn::before { content: "🟡"; }
 .signal-list li.neutral::before, .signal-list li.info::before { content: "⚪"; }
+
+.cns-warn {
+  margin: 8px 0 14px; padding: 10px 14px; border-radius: 10px;
+  background: rgba(255, 176, 32, .12); border: 1px solid rgba(255, 176, 32, .35);
+  color: #ffb020; font-size: 13px; line-height: 1.5;
+}
 
 /* ---------- metrics ---------- */
 .metrics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); gap: 8px; }
@@ -598,7 +617,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .rank-board, .fav-board, .today-board { padding: 18px 16px; }
   .rank-row { grid-template-columns: 34px 1.5fr 70px 1fr; gap: 8px; padding: 12px 12px; }
   .today-row { grid-template-columns: 70px 1.4fr 1fr; gap: 6px; padding: 10px 12px; }
-  .today-row .today-score, .today-row .today-fair, .today-row .today-upside { display: none; }
+  .today-row .today-hide-mobile { display: none; }
   .rank-price { display: none; }
   .rank-num { font-size: 14px; }
   .rank-info .rank-name { font-size: 14px; }

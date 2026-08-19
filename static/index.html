@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=53">
+<link rel="stylesheet" href="/static/style.css?v=54">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -69,7 +69,7 @@
     <h3 class="today-sub-h">지금 사기 좋은 종목 TOP 5</h3>
     <div class="today-table">
       <div class="today-row today-row-head">
-        <span>판단</span><span>종목</span><span>종합점수</span><span>현재가</span><span>상승여력</span>
+        <span>판단</span><span>종목</span><span class="today-hide-mobile">종합점수</span><span>현재가</span><span class="today-hide-mobile">상승여력</span>
       </div>
       <div id="today-rows"></div>
     </div>
@@ -164,7 +164,7 @@
     <div class="verdict-banner" id="verdict-banner">
       <span class="vb-icon">🧭</span>
       <div>
-        <div class="vb-label">현재 판단</div>
+        <div class="vb-label">현재 판단 <small class="hint">종합 펀더멘털·수급 기준 — "무엇을 살까"에 대한 결론입니다</small></div>
         <p id="opinion-head" class="opinion-head"></p>
       </div>
     </div>
@@ -194,6 +194,7 @@
 
     <div class="buy-plan-box hidden" id="buy-plan-box">
       <div class="fb-head"><span class="fb-label">🪜 단계별 매수 전략</span></div>
+      <div class="buy-plan-reached-note hidden" id="buy-plan-reached-note"></div>
       <div class="buy-plan-stages" id="buy-plan-stages"></div>
       <div class="buy-plan-footer">
         <div><label>목표가</label><span id="buy-plan-target"></span></div>
@@ -238,7 +239,7 @@
         <div id="target-tech-upside" class="target-upside"></div>
       </div>
       <div class="target-box">
-        <label>진입 판단</label>
+        <label>진입 판단 <small class="hint">단기 차트 기준 — "언제 살까"에 대한 결론(위 AI 판단과 다를 수 있음)</small></label>
         <div id="verdict" class="verdict"></div>
         <div id="cons-opinion" class="target-upside"></div>
       </div>
@@ -342,6 +343,7 @@
   <!-- 재무 하이라이트 -->
   <section class="card" data-tab="finance">
     <h3>💰 재무 하이라이트 <small class="hint" id="finance-unit-hint">단위: 억원 · (E)는 컨센서스</small></h3>
+    <div id="finance-cns-warn" class="cns-warn hidden"></div>
     <canvas id="finance-chart" height="220"></canvas>
     <div id="finance-table" class="table-wrap"></div>
   </section>
@@ -572,6 +574,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=53"></script>
+<script src="/static/app.js?v=54"></script>
 </body>
 </html>

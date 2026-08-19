@@ -277,6 +277,8 @@ async function loadThemeChips() {
     $("theme-chips").querySelectorAll("button").forEach((b) => {
       b.onclick = () => selectTheme(b.dataset.theme);
     });
+    // 첫 진입 시 칩만 뜨고 결과는 빈 채로 남던 문제(진단리포트 지적) — 첫 테마를 기본 선택해둔다.
+    if (themes.length && !currentTheme) selectTheme(themes[0]);
   } catch {}
 }
 
@@ -491,9 +493,9 @@ async function renderTodayPick(items) {
     return `<div class="today-row" data-code="${r.code}">
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="today-name-col"><span class="today-name">${r.name}</span>${reasonHtml}</span>
-      <span class="today-score" style="color:${scoreColor(r.score)}">${r.score}</span>
+      <span class="today-score today-hide-mobile" style="color:${scoreColor(r.score)}">${r.score}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
-      <span class="today-upside ${updownClass(r.upside)}">${up}</span>
+      <span class="today-upside today-hide-mobile ${updownClass(r.upside)}">${up}</span>
     </div>`;
   }).join("");
   $("today-rows").querySelectorAll(".today-row").forEach((row) => {
@@ -687,33 +689,73 @@ function renderPriceLadder(fb, price, target) {
   const pad = (hi - lo) * 0.1 || hi * 0.05 || 1;
   const rangeLo = lo - pad, span = (hi + pad) - (lo - pad) || 1;
 
-  const sorted = [...pts].sort((a, b) => a.price - b.price);
-  $("price-ladder").innerHTML = `<div class="pl-track">
+  const sorted = [...pts].sort((a, b) => a.price - b.price)
+    .map((p) => ({ ...p, pct: ((p.price - rangeLo) / span) * 100 }));
+
+  // 겹침 방지: 라벨 폭(약 96px)보다 가까운 지점들은 세로로 어긋나게 쌓는다.
+  // (진단리포트 지적사항 — 가격이 근접하면 "적극매수·매수·분할매수·현재가" 라벨 4개가
+  // 완전히 겹쳐 "1,472,640원1,840,800원1,656,720원"처럼 읽혔음). 실제 렌더 폭을 알 수
+  // 없는 시점(HTML 생성 전)이라 트랙 최소폭(CSS min-width: 480px) 기준으로 보수적으로 추정.
+  const TRACK_MIN_PX = 480, LABEL_PX = 88;
+  const MIN_GAP_PCT = (LABEL_PX / TRACK_MIN_PX) * 100;
+  let lastPct = -Infinity, level = 0, maxLevel = 0;
+  sorted.forEach((p) => {
+    level = (p.pct - lastPct < MIN_GAP_PCT) ? level + 1 : 0;
+    p.level = level;
+    maxLevel = Math.max(maxLevel, level);
+    lastPct = p.pct;
+  });
+
+  const trackH = 76 + maxLevel * 30;
+  $("price-ladder").innerHTML = `<div class="pl-track" style="height:${trackH}px">
     <div class="pl-line"></div>
-    ${sorted.map((p) => {
-      const pct = ((p.price - rangeLo) / span) * 100;
-      return `<div class="pl-point ${p.cls}" style="left:${pct.toFixed(1)}%">
+    ${sorted.map((p) => `
+      <div class="pl-point ${p.cls}" style="left:${p.pct.toFixed(1)}%${p.level ? `;margin-top:${p.level * 30}px` : ""}">
         <div class="pl-price">${pw(p.price)}</div>
         <div class="pl-tick"></div>
         <div class="pl-tag">${p.emoji} ${p.label}</div>
-      </div>`;
-    }).join("")}
+      </div>`).join("")}
   </div>`;
 }
 
 /* ---------------- 단계별 매수 전략 (1차/2차/3차 분할매수) ---------------- */
-function renderBuyPlan(fb, targetPrice, stopLoss) {
+// ⚠️ 1차→2차→3차는 "가격이 낮은 순서"가 아니라 "낙관적(적정가 100%)→기준(90%)→보수적(80%)"
+// 안전마진 순서다. 적정가 전체가 현재가보다 높은 상태(주가가 이미 크게 빠진 뒤)에서는
+// 1차·2차 매수가가 현재가보다 비싸게 보여 "1차는 지금보다 비싸게 사라"는 말처럼 읽히는
+// 문제가 있었다(진단리포트 지적). 가격 순서 자체는 안전마진 로직상 정상이므로 바꾸지 않고,
+// 대신 각 단계가 "이미 도달했는지"를 명시해 실행 가능한 지시로 만든다.
+function renderBuyPlan(fb, targetPrice, stopLoss, price) {
   $("buy-plan-box").classList.remove("hidden");
   const stages = [
     { label: "1차 매수", pct: 30, price: fb.optimistic.price },
     { label: "2차 매수", pct: 30, price: fb.base.price },
     { label: "3차 매수", pct: 40, price: fb.conservative.price },
   ];
-  $("buy-plan-stages").innerHTML = stages.map((s) => `
-    <div class="buy-stage">
+  let cumPct = 0;
+  const reachedIdx = [];
+  stages.forEach((s, i) => { if (price != null && price <= s.price) reachedIdx.push(i); });
+  $("buy-plan-stages").innerHTML = stages.map((s, i) => {
+    const reached = price != null && price <= s.price;
+    if (reached) cumPct += s.pct;
+    const gap = price != null ? (s.price - price) / price * 100 : null;
+    const status = reached
+      ? `<div class="buy-stage-status reached">✅ 도달 · 즉시 집행 가능</div>`
+      : `<div class="buy-stage-status pending">⏳ 대기 · ${gap.toFixed(1)}% 더 하락 시 도달</div>`;
+    return `
+    <div class="buy-stage ${reached ? "is-reached" : ""}">
       <div class="buy-stage-label">${s.label} <span class="buy-stage-pct">${s.pct}%</span></div>
       <div class="buy-stage-price">${pw(s.price)}</div>
-    </div>`).join("");
+      ${price != null ? status : ""}
+    </div>`;
+  }).join("");
+  const noteEl = $("buy-plan-reached-note");
+  if (reachedIdx.length) {
+    noteEl.classList.remove("hidden");
+    noteEl.textContent = `🎯 현재가 기준 ${cumPct}% 구간에 이미 도달했습니다 — 해당 비중은 지금 바로 집행할 수 있습니다.`;
+  } else {
+    noteEl.classList.add("hidden");
+    noteEl.textContent = "";
+  }
   $("buy-plan-target").textContent = targetPrice ? pw(targetPrice) : "-";
   $("buy-plan-stop").textContent = stopLoss ? pw(stopLoss) : "-";
 }
@@ -724,10 +766,15 @@ function showDetailTab(tab) {
   // "> [data-tab]"(직계 자식만) — 안 그러면 #detail-tabs 안의 탭 버튼도 [data-tab]이라 같이
   // 걸려서 비활성 탭 버튼들이 전부 사라지는 버그가 남(실제로 걸렸던 실수, 되돌리지 말 것).
   document.querySelectorAll("#report > [data-tab]").forEach((el) => el.classList.toggle("tab-hide", el.dataset.tab !== tab));
-  // 캔버스 기반 차트는 숨겨진 상태(display:none)에서 그리면 clientWidth가 0이라 깨진다 —
-  // 그 탭이 실제로 보여질 때 다시 그린다(가벼운 재계산, 추가 네트워크 호출 없음).
-  // 메인 캔들차트(lightweight-charts)는 autoSize:true라 컨테이너가 보이면 스스로 재조정됨.
+  // 숨겨진 상태(display:none, width=0)에서 그린 차트는 그 탭이 실제로 보여질 때 다시 그린다.
+  // ⚠️ lightweight-charts(메인 캔들차트)는 autoSize:true라 "크기"는 스스로 재조정되지만,
+  // setVisibleLogicalRange()로 지정한 "기간 필터"는 되돌아가지 않는다 — width=0일 때
+  // 걸어둔 구간이 컨테이너가 보이는 순간 ResizeObserver의 리사이즈 처리에 의해 무시되고
+  // 전체 구간으로 되돌아가는 실제 버그가 있었다(진단리포트로 확인). 그래서 finance-chart와
+  // 동일하게 탭이 열릴 때 drawChart()를 다시 호출해 컨테이너가 보이는 상태에서 기간 필터를
+  // 다시 적용해야 한다.
   if (tab === "finance" && lastAnalysis) renderFinance(lastAnalysis.finance_rows);
+  if (tab === "chart" && chartCtx.code) drawChart();
 }
 document.querySelectorAll("#detail-tabs button").forEach((b) => {
   b.onclick = () => showDetailTab(b.dataset.tab);
@@ -871,7 +918,7 @@ function render(d) {
     }).join("");
     renderPriceLadder(fb, d.price, t.consensus);
     const stopLoss = (d.technical.available && d.technical.entry) ? d.technical.entry.stop_loss : null;
-    renderBuyPlan(fb, t.consensus, stopLoss);
+    renderBuyPlan(fb, t.consensus, stopLoss, d.price);
   } else {
     $("fair-buy-box").classList.add("hidden");
     $("price-ladder").innerHTML = "";
@@ -902,7 +949,7 @@ function render(d) {
     const slopeTxt = (v) => v == null ? "-" :
       `<span class="${v > 0 ? "up" : v < 0 ? "down" : ""}">${v > 0 ? "▲" : v < 0 ? "▼" : ""}${Math.abs(v).toFixed(1)}%</span>`;
     $("tech-summary").innerHTML = `
-      <div class="tech-item"><label>기술 점수</label><div style="color:${scoreColor(tech.score)}">${tech.score}점</div></div>
+      <div class="tech-item"><label>단기 기술점수 <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">최근 추세·모멘텀·거래량 등 단기 지표만의 점수입니다. 종합 탭의 "기술적추세"는 이 값과 장기 구조 분석(스테이지·상대강도 등)을 절반씩 섞은 값이라 서로 다를 수 있습니다.</span></span></label><div style="color:${scoreColor(tech.score)}">${tech.score}점</div></div>
       <div class="tech-item"><label>RSI(14)</label><div>${tech.rsi ?? "-"}</div></div>
       <div class="tech-item"><label>20일선 방향</label><div>${slopeTxt(tech.ma20_slope)}</div></div>
       <div class="tech-item"><label>60일선 방향</label><div>${slopeTxt(tech.ma60_slope)}</div></div>
@@ -1163,6 +1210,35 @@ function drawChart() {
     priceLineColor: crossC,
   });
   candleSeries.setData(d.candles.map((c) => ({ time: toDate(c.date), open: c.open, high: c.high, low: c.low, close: c.close })));
+  // ⚠️ lightweight-charts는 createPriceLine()으로 그린 목표주가 선도 기본적으로 자동스케일에
+  // 포함시킨다. 목표주가가 현재가보다 훨씬 높으면(하락장에서 흔함) Y축이 그 값까지 억지로
+  // 늘어나면서 하단 마진(scaleMargins.bottom=0.26)까지 비례해 늘어나 축이 음수까지 내려가고
+  // 정작 캔들은 화면 위쪽 15%에 눌리는 실제 버그가 있었다(진단리포트로 확인). 자동스케일을
+  // "현재 보이는 구간의 캔들 고가·저가"만으로 직접 계산해 목표주가·지지/저항선이 스케일에
+  // 영향을 주지 않게 한다 — 화면 밖 가격선은 축 가장자리에 라벨만 붙는 표준 동작으로 처리된다.
+  // ⚠️ autoscaleInfoProvider 안에서 chart.timeScale().getVisibleLogicalRange()를 직접 호출하면
+  // (가격축 계산 중에 시간축 상태를 동기적으로 조회) 라이브러리 내부에서 재진입으로 처리돼
+  // setVisibleLogicalRange()로 건 구간 지정이 그 즉시 원래대로 되돌아가는 실제 버그가 있었다
+  // (기간 버튼이 완전히 먹통이 됨, 진단리포트의 "기간 필터 작동 안함"과 겹치는 증상이었음).
+  // → subscribeVisibleLogicalRangeChange()로 별도 변수에 "마지막으로 통지받은 구간"만 캐싱하고,
+  // autoscaleInfoProvider는 그 캐시만 읽는다(시간축을 다시 조회하지 않음) — 재진입을 원천 차단.
+  let visibleRangeCache = null;
+  chart.timeScale().subscribeVisibleLogicalRangeChange((range) => { visibleRangeCache = range; });
+  candleSeries.applyOptions({
+    autoscaleInfoProvider: () => {
+      let bars = d.candles;
+      if (visibleRangeCache) {
+        const from = Math.max(0, Math.floor(visibleRangeCache.from));
+        const to = Math.min(bars.length - 1, Math.ceil(visibleRangeCache.to));
+        if (to >= from) bars = bars.slice(from, to + 1);
+      }
+      if (!bars.length) return null;
+      let lo = Infinity, hi = -Infinity;
+      for (const c of bars) { if (c.low < lo) lo = c.low; if (c.high > hi) hi = c.high; }
+      if (!isFinite(lo) || !isFinite(hi)) return null;
+      return { priceRange: { minValue: lo, maxValue: hi } };
+    },
+  });
 
   const volSeries = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false });
   chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
@@ -1581,6 +1657,15 @@ function renderFinance(rows) {
   // 통화가 완전히 틀려 보인다(실제 발생 확인: AAPL 매출 "4,162"가 "억원"으로 보이면 약
   // $290M로 오인되지만 실제는 "억 달러" 즉 $416B — 1400배 차이).
   $("finance-unit-hint").textContent = curCur === "USD" ? "단위: 억 달러 · (E)는 컨센서스" : "단위: 억원 · (E)는 컨센서스";
+  const cnsFlagged = lastAnalysis && lastAnalysis.metrics && lastAnalysis.metrics.consensus_flagged;
+  const warnEl = $("finance-cns-warn");
+  if (cnsFlagged) {
+    warnEl.classList.remove("hidden");
+    warnEl.textContent = `⚠️ (E) 컨센서스 추정치가 이상치로 감지됨 — ${lastAnalysis.metrics.consensus_flag_reason || ""}. 점수 반영에서 제외했으며, 아래 값은 검증 전 원본입니다.`;
+  } else {
+    warnEl.classList.add("hidden");
+    warnEl.innerHTML = "";
+  }
   const S = (name) => (rows[name] && rows[name].series) || [];
   const rev = S("매출액"), op = S("영업이익");
   const c = $("finance-chart"), ctx = c.getContext("2d");

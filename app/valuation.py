@@ -190,8 +190,11 @@ def peer_comparison(my_per, peers_per):
        통째로 오염시킨다(실제로 주성엔지니어링 1036배 → 업종평균 238배가 됨).
        → **중앙값**을 쓰고, PER 200배 초과는 이상치로 제외한다.
     """
+    # ⚠️ 비교군에 자기 자신이 섞여 있으면(main.py가 편의상 peers_per에 self:True로 끼워 넣음)
+    # 중앙값이 항상 my_per 쪽으로 끌려가 "업종 평균 수준"만 나오는 무의미한 비교가 된다
+    # (실측 확인: SK하이닉스 "14.72배 vs 14.72배"). 계산·표시 목록 모두에서 제외한다.
     vals = sorted(p["per"] for p in (peers_per or [])
-                  if p.get("per") and 0 < p["per"] <= 200)
+                  if p.get("per") and 0 < p["per"] <= 200 and not p.get("self"))
     if not my_per or my_per <= 0 or len(vals) < 2:
         return None
     n = len(vals)
@@ -212,7 +215,7 @@ def peer_comparison(my_per, peers_per):
         "ratio": round(ratio, 2),
         "label": label,
         "score": score,
-        "peers": sorted([p for p in peers_per if p.get("per") and 0 < p["per"] <= 200],
+        "peers": sorted([p for p in peers_per if p.get("per") and 0 < p["per"] <= 200 and not p.get("self")],
                         key=lambda p: p["per"])[:6],
     }
 
@@ -384,6 +387,16 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     hist = per_history(fin_rows, candles)
 
     parts, signals, checklist = {}, [], []
+
+    if metrics.get("consensus_flagged"):
+        signals.append(("warn", f"⚠️ 컨센서스 추정치 이상치 감지({metrics.get('consensus_flag_reason')}) "
+                                "— 선행PER·PEG·실적방향 점수에서 제외하고 실적(trailing) 기준으로만 평가합니다"))
+        checklist.append({
+            "item": "컨센서스 추정치가 신뢰할 만한가?",
+            "verdict": "검증 필요",
+            "ok": False,
+            "detail": metrics.get("consensus_flag_reason") or "-",
+        })
 
     # ── 1순위: 현재 FPER ÷ 과거 평균 FPER ────────────────────────
     band = None

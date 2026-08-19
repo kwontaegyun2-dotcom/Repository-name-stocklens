@@ -647,6 +647,27 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
         op_growth = _growth(ni_cur, ni_prev)
     rev_growth_fwd = _growth(rev_cns, rev_cur)
     op_growth_fwd = _growth(op_cns, op_cur)
+    ni_cns = _consensus_val(ni_s)
+
+    # ---- 컨센서스 이상치 검증(2026-08 진단리포트 지적사항) ------------------------
+    # Naver 컨센서스는 소수 애널리스트 추정치의 단순평균이라, 이상값 하나가 그대로
+    # 평균에 섞여 물리적으로 불가능한 전망(예: SK하이닉스 2026 영업이익률 77%)이
+    # 나오는 경우가 실측으로 확인됨. 이 값이 선행PER·PEG·성장점수로 그대로 전파되면
+    # "검증 안 된 숫자 하나"가 종합점수 85점·A등급까지 끌어올리는 문제가 생긴다.
+    # → 점수·밸류에이션 계산에서는 제외하고, 원본 값은 화면 표시용으로만 별도 보존한다.
+    cns_per_raw, op_growth_fwd_raw, rev_growth_fwd_raw = cns_per, op_growth_fwd, rev_growth_fwd
+    cns_opm = (op_cns / rev_cns * 100.0) if (rev_cns and op_cns is not None) else None
+    cns_npm = (ni_cns / rev_cns * 100.0) if (rev_cns and ni_cns is not None) else None
+    flag_reasons = []
+    if cns_opm is not None and cns_opm > 60:
+        flag_reasons.append(f"추정 영업이익률 {cns_opm:.0f}%")
+    if cns_npm is not None and cns_npm > 50:
+        flag_reasons.append(f"추정 순이익률 {cns_npm:.0f}%")
+    if rev_growth_fwd is not None and rev_growth_fwd > 100:
+        flag_reasons.append(f"매출 전망 {rev_growth_fwd:+.0f}%")
+    consensus_flagged = bool(flag_reasons)
+    if consensus_flagged:
+        cns_per, op_growth_fwd, rev_growth_fwd = None, None, None
 
     # ---- 점수 계산
     # 가치평가: PER·PBR 낮을수록, 배당 높을수록. 성장주는 선행(추정) PER을 반영.
@@ -739,6 +760,11 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
             "op_growth": round(op_growth, 1) if op_growth is not None else None,
             "rev_growth_fwd": round(rev_growth_fwd, 1) if rev_growth_fwd is not None else None,
             "op_growth_fwd": round(op_growth_fwd, 1) if op_growth_fwd is not None else None,
+            "consensus_flagged": consensus_flagged,
+            "consensus_flag_reason": " · ".join(flag_reasons) if flag_reasons else None,
+            "cns_per_raw": round(cns_per_raw, 2) if cns_per_raw else None,
+            "op_growth_fwd_raw": round(op_growth_fwd_raw, 1) if op_growth_fwd_raw is not None else None,
+            "rev_growth_fwd_raw": round(rev_growth_fwd_raw, 1) if rev_growth_fwd_raw is not None else None,
         },
         # 재무 하이라이트 표: 연도별 추이를 보여줄 핵심 지표들(있는 것만, 지정 순서대로).
         # 국내/미국 행 이름이 달라(영업이익/EBIT, 당기순이익/세후손익 등) 별칭으로 매칭한다.
@@ -946,7 +972,10 @@ def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, to
             lines.append(f"PER {m['per']:.1f}배로 높은 성장 기대가 이미 주가에 반영되어 있어, 실적 미달 시 조정 위험이 있습니다.")
 
     # 성장성
-    if m["op_growth_fwd"] is not None:
+    if m.get("consensus_flagged"):
+        lines.append(f"⚠️ 컨센서스 실적 추정치가 이상치로 감지되어({m.get('consensus_flag_reason')}) "
+                     "밸류에이션·성장성 점수 반영에서 제외했습니다. 재무 탭의 원본 추정치는 검증 전 참고용입니다.")
+    elif m["op_growth_fwd"] is not None:
         gf_disp = max(-GROWTH_DISPLAY_CAP, min(m["op_growth_fwd"], GROWTH_DISPLAY_CAP))
         note = " (저기반 효과로 상한 표시)" if abs(m["op_growth_fwd"]) > GROWTH_DISPLAY_CAP else ""
         if m["op_growth_fwd"] > 20:
