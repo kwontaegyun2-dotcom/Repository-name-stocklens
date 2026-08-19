@@ -4,6 +4,7 @@ let currentCode = null;
 let priceTimer = null;
 let chart = null;
 let watchedCodes = new Set();
+let watchMap = {};   // code -> 서버 관심종목 행(added_*·memo·tags·alert_* 등, /api/watch 응답)
 
 /* ---------------- utils ---------------- */
 const fmt = (n, digits = 0) =>
@@ -95,31 +96,47 @@ $("theme-btn").onclick = () => {
   applyTheme(t);
 };
 
-/* ---------------- favorites ---------------- */
-const FAV_KEY = "stocklens_favs";
-const getFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY)) || []; } catch { return []; } };
-const setFavs = (a) => localStorage.setItem(FAV_KEY, JSON.stringify(a));
-const isFav = (code) => getFavs().some((f) => f.code === code);
-function toggleFav(code, name) {
-  let a = getFavs();
-  a = isFav(code) ? a.filter((f) => f.code !== code) : [...a, { code, name }];
-  setFavs(a);
-  return isFav(code);
+/* ---------------- 관심종목 (서버 저장 — ★담기 = 🔔알림과 같은 저장소) ---------------- */
+// ⚠️ 예전엔 ★가 localStorage에만, 🔔가 서버(/api/watch)에만 저장돼 로그인해도 기기간
+// 동기화가 안 되고 홈 관심종목과 알림 대상이 서로 어긋났다(사용자 지적: 홈엔 떠 있는데
+// /api/watch는 빈 배열). 지금은 ★ 하나만 남기고 서버(/api/watch)에 통합 저장한다.
+// 로그인이 필요하며(guest는 로그인 모달로 유도), 🔔는 이미 담은 종목의 "옵션"(알림 조건
+// 설정)으로 재배치했다 — openWatchSettings() 참고.
+const TIER_ORDER = ["strong_buy", "buy", "watch_buy", "accumulate", "hold", "watch_sell", "reduce", "sell"];
+const tierRank = (t) => { const i = TIER_ORDER.indexOf(t); return i === -1 ? 4 : i; };
+
+async function addToWatch(code, name, price, score, verdictLabel, verdictTier) {
+  await api(`/api/watch/${code}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, price, score, verdict: verdictLabel || null, verdict_tier: verdictTier || null }),
+  });
+  watchedCodes.add(code);
+  await loadWatchlist();
 }
-function removeFav(code) { setFavs(getFavs().filter((f) => f.code !== code)); }
+async function removeFromWatch(code) {
+  await api(`/api/watch/${code}`, { method: "DELETE" });
+  watchedCodes.delete(code);
+  await loadWatchlist();
+}
+
 // ⚠️ 이전 버전은 이름·현재가·AI판단 3개뿐이라 "관심종목을 등록했으면 알고 싶은 것"에
 // 정작 답을 못 했다(종합점수·상승여력이 없어 지금 볼 만한지 판단 불가) — 사용자 지적으로
 // 실시간 랭킹(.rank-row)·오늘의 PICK(.today-row)과 같은 밀도의 정보형 행으로 다시 짬.
-// 화려한 hover 그라디언트/글로우도 정보량과 무관한 장식이라 걷어내고 단순 배경 전환만 남김.
+// + "담은 뒤 뭐가 달라졌나"(added_* 스냅샷 대비 변화)와 메모·태그·정리 제안을 추가.
 async function renderFavBoard() {
-  const favs = getFavs();
   const el = $("fav-board");
-  if (!favs.length) { el.classList.add("hidden"); return; }
+  if (!currentUser) { el.classList.add("hidden"); return; }
+  const items = Object.values(watchMap);
+  if (!items.length) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
   el.innerHTML = `<h2>⭐ 관심종목</h2>
+    <p id="fav-summary" class="fav-summary hidden"></p>
+    <div id="fav-stale" class="fav-stale hidden"></div>
+    <div id="fav-cmp-bar" class="fav-cmp-bar hidden"></div>
     <div class="fav-table">
       <div class="fav-row fav-row-head">
-        <span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
+        <span></span><span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
       </div>
       <div id="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>
     </div>`;
@@ -132,52 +149,227 @@ async function renderFavBoard() {
     [...(kr.items || []), ...(us.items || [])].forEach((r) => { byCode[r.code] = r; });
   } catch {}
 
-  $("fav-rows").innerHTML = favs.map((f) => {
-    const r = byCode[f.code];
+  // 변화 요약 + 정리 후보(90일 이상 + 점수 하락) 계산 — added_* 스냅샷과 현재값 비교.
+  let improved = 0, worsened = 0;
+  const staleCandidates = [];
+  const nowMs = Date.now();
+  items.forEach((it) => {
+    const r = byCode[it.code];
+    if (!r) return;
+    const curTier = (r.ai_verdict || {}).tier;
+    if (it.added_verdict_tier && curTier && curTier !== it.added_verdict_tier) {
+      if (tierRank(curTier) < tierRank(it.added_verdict_tier)) improved++;
+      else worsened++;
+    }
+    const scoreDiff = it.added_score != null ? r.score - it.added_score : null;
+    const ageDays = (nowMs - it.created_at * 1000) / 86400000;
+    if (ageDays >= 90 && scoreDiff != null && scoreDiff <= -5) {
+      staleCandidates.push({ code: it.code, name: it.name });
+    }
+  });
+  const summaryEl = $("fav-summary");
+  if (improved || worsened) {
+    const parts = [];
+    if (improved) parts.push(`${improved}종목이 매수 관심 구간에 진입했고`);
+    if (worsened) parts.push(`${worsened}종목은 판단이 하향됐습니다`);
+    summaryEl.textContent = `📌 ${items.length}종목 중 ${parts.join(", ")}${parts.length === 1 ? "." : ""}`;
+    summaryEl.classList.remove("hidden");
+  }
+  if (staleCandidates.length) {
+    const staleEl = $("fav-stale");
+    staleEl.classList.remove("hidden");
+    staleEl.innerHTML = `⏳ ${staleCandidates.map((s) => s.name).join(", ")} — 담은 지 90일 넘었고 점수도 떨어졌어요. `
+      + `<button id="fav-stale-clean" class="ghost-btn small">정리하기</button>`;
+    $("fav-stale-clean").onclick = async () => {
+      if (!confirm(`${staleCandidates.length}개 종목을 관심종목에서 제거할까요?`)) return;
+      await Promise.all(staleCandidates.map((s) => removeFromWatch(s.code)));
+      renderFavBoard();
+    };
+  }
+
+  $("fav-rows").innerHTML = items.map((it) => {
+    const r = byCode[it.code];
     if (!r) {
-      return `<div class="fav-row" data-code="${f.code}">
+      return `<div class="fav-row" data-code="${it.code}">
+        <span><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
         <span></span>
-        <span class="fav-name-col"><span class="fav-name">${f.name}</span><small class="hint">${f.code}</small></span>
+        <span class="fav-name-col"><span class="fav-name">${it.name}</span><small class="hint">${it.code}</small></span>
         <span class="fav-hide-mobile"></span>
         <span class="fav-na">데이터 준비 중</span>
         <span class="fav-hide-mobile"></span>
-        <button class="fav-x" data-x="${f.code}" title="관심종목에서 제거">✕</button>
+        <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거">✕</button></span>
       </div>`;
     }
     const v = r.ai_verdict || {};
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
     const flag = r.currency === "USD" ? "🇺🇸 " : "";
-    return `<div class="fav-row" data-code="${f.code}">
+    const scoreDiff = it.added_score != null ? +(r.score - it.added_score).toFixed(1) : null;
+    const priceDiffPct = it.added_price ? (r.price - it.added_price) / it.added_price * 100 : null;
+    const changeBits = [];
+    if (priceDiffPct != null) changeBits.push(`담은 뒤 <span class="${updownClass(priceDiffPct)}">${sign(priceDiffPct, 1)}%</span>`);
+    if (scoreDiff != null) changeBits.push(`점수 ${it.added_score.toFixed(1)} → ${r.score} (${sign(scoreDiff, 1)})`);
+    if (it.added_verdict && v.label && it.added_verdict !== v.label) changeBits.push(`판단 ${it.added_verdict} → ${v.label}`);
+    const changeLine = changeBits.length ? `<div class="fav-change">${changeBits.join(" · ")}</div>` : "";
+    const memoLine = it.memo ? `<div class="fav-memo">📝 ${it.memo}</div>` : "";
+    const tagsLine = (it.tags && it.tags.length) ? `<div class="fav-tags">${it.tags.map((t) => `<span class="fav-tag">${t}</span>`).join("")}</div>` : "";
+    const alertOn = it.alert_buy || it.alert_price_target != null || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly;
+    return `<div class="fav-row" data-code="${it.code}">
+      <span><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
       <span class="fav-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
-      <span class="fav-name-col"><span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small></span>
+      <span class="fav-name-col">
+        <span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small>
+        ${changeLine}${memoLine}${tagsLine}
+      </span>
       <span class="fav-score fav-hide-mobile" style="color:${scoreColor(r.score)}">${r.score}</span>
       <span class="fav-price-col">
         <span class="fav-price">${pw(r.price, r.currency)}</span>
         <span class="fav-rate ${updownClass(r.rate)}">${sign(r.rate, 2)}%</span>
       </span>
       <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
-      <button class="fav-x" data-x="${f.code}" title="관심종목에서 제거">✕</button>
+      <span class="fav-row-actions">
+        <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정">⚙</button>
+        <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록">🛒</button>
+        <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거">✕</button>
+      </span>
     </div>`;
   }).join("");
+
   el.querySelectorAll(".fav-row:not(.fav-row-head)").forEach((row) => {
     row.onclick = (e) => {
-      if (e.target.classList.contains("fav-x")) { removeFav(e.target.dataset.x); renderFavBoard(); return; }
+      if (e.target.closest(".fav-x, .fav-icon-btn, .fav-check")) return;
       analyze(row.dataset.code);
     };
   });
+  el.querySelectorAll(".fav-x").forEach((b) => {
+    b.onclick = async (e) => { e.stopPropagation(); await removeFromWatch(b.dataset.x); renderFavBoard(); };
+  });
+  el.querySelectorAll("[data-gear]").forEach((b) => {
+    b.onclick = (e) => { e.stopPropagation(); openWatchSettings(b.dataset.gear); };
+  });
+  el.querySelectorAll("[data-buy]").forEach((b) => {
+    b.onclick = (e) => { e.stopPropagation(); buyFromWatch(b.dataset.buy); };
+  });
+  el.querySelectorAll(".fav-check").forEach((cb) => {
+    cb.onclick = (e) => e.stopPropagation();
+    cb.onchange = updateFavCmpBar;
+  });
+  updateFavCmpBar();
 }
+
+// 관심종목 여러 개 체크해 이미 있는 종목비교(⚖️)로 바로 연결 — P3: "비교담기와 연결".
+function updateFavCmpBar() {
+  const bar = $("fav-cmp-bar");
+  if (!bar) return;
+  const checked = [...document.querySelectorAll(".fav-check:checked")].map((c) => c.dataset.code);
+  if (checked.length < 2) { bar.classList.add("hidden"); bar.innerHTML = ""; return; }
+  bar.classList.remove("hidden");
+  bar.innerHTML = `${checked.length}개 선택됨 (최대 3개) · <button id="fav-cmp-go" class="ghost-btn small">⚖️ 비교하기</button>`;
+  $("fav-cmp-go").onclick = async () => {
+    const codes = checked.slice(0, 3);
+    try {
+      const results = await Promise.all(codes.map((c) => api(`/api/analyze/${c}`)));
+      compareList = [];
+      results.forEach((d) => addCompare(d));
+      showCompare();
+    } catch (e) { alert("비교 데이터를 불러오지 못했습니다: " + e.message); }
+  };
+}
+
+// 관심종목 → 포트폴리오: "매수했어요"는 지금까지 완전히 단절돼 있던 두 화면을 잇는다(P3).
+async function buyFromWatch(code) {
+  const it = watchMap[code];
+  if (!it) return;
+  await showPortfolio();
+  const nation = /^\d{6}$/.test(code) ? "KR" : "US";
+  pfSelected = { code, name: it.name, nation };
+  $("pf-search-input").value = it.name;
+  $("pf-add-btn").disabled = false;
+  $("pf-price").placeholder = nation === "US" ? "평균단가(달러, 선택)" : "평균단가(원, 선택)";
+  $("pf-shares").focus();
+}
+
 function updateFavBtn() {
   const b = $("fav-btn");
-  const on = isFav(currentCode);
+  const on = currentCode && watchedCodes.has(currentCode);
   b.textContent = on ? "★" : "☆";
   b.classList.toggle("on", on);
 }
 function updateWatchBtn() {
   const b = $("watch-btn");
   const on = currentCode && watchedCodes.has(currentCode);
-  b.textContent = on ? "🔔 알림 켜짐" : "🔔 알림";
-  b.classList.toggle("on", !!on);
+  b.classList.toggle("hidden", !on);
+  const it = on && watchMap[currentCode];
+  const alertOn = it && (it.alert_buy || it.alert_price_target != null || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly);
+  b.classList.toggle("on", !!alertOn);
 }
+
+/* ---------------- 관심종목 메모·알림 설정 모달 ---------------- */
+let watchModalCode = null;
+function openWatchSettings(code) {
+  const it = watchMap[code];
+  if (!it) return;
+  watchModalCode = code;
+  $("watch-modal-name").textContent = it.name;
+  $("watch-memo").value = it.memo || "";
+  $("watch-tags").value = (it.tags || []).join(", ");
+  $("watch-alert-buy").checked = !!it.alert_buy;
+  $("watch-alert-price-on").checked = it.alert_price_target != null;
+  $("watch-alert-price").value = it.alert_price_target != null ? it.alert_price_target : "";
+  $("watch-alert-score-on").checked = it.alert_score_threshold != null;
+  $("watch-alert-score").value = it.alert_score_threshold != null ? it.alert_score_threshold : "";
+  $("watch-alert-verdict").checked = !!it.alert_verdict_change;
+  $("watch-alert-anomaly").checked = !!it.alert_anomaly;
+  $("watch-modal-msg").textContent = "";
+  $("watch-modal").classList.remove("hidden");
+}
+$("watch-modal-close").onclick = () => $("watch-modal").classList.add("hidden");
+$("watch-modal").addEventListener("click", (e) => {
+  if (e.target === $("watch-modal")) $("watch-modal").classList.add("hidden");
+});
+$("watch-modal-save").onclick = async () => {
+  if (!watchModalCode) return;
+  const msg = $("watch-modal-msg");
+  const btn = $("watch-modal-save");
+  // 알림 권한 요청은 클릭 직후 다른 await 없이 먼저 호출해야 user-activation을 브라우저가
+  // 인정한다(watch-btn 옛 로직과 동일 이유 — 3차 진단리포트 5장 회귀 사례).
+  const body = {
+    memo: $("watch-memo").value.trim(),
+    tags: $("watch-tags").value.split(",").map((s) => s.trim()).filter(Boolean).join(","),
+    alert_buy: $("watch-alert-buy").checked,
+    alert_price_target: ($("watch-alert-price-on").checked && $("watch-alert-price").value !== "")
+      ? Number($("watch-alert-price").value) : null,
+    alert_score_threshold: ($("watch-alert-score-on").checked && $("watch-alert-score").value !== "")
+      ? Number($("watch-alert-score").value) : null,
+    alert_verdict_change: $("watch-alert-verdict").checked,
+    alert_anomaly: $("watch-alert-anomaly").checked,
+  };
+  const anyAlert = body.alert_buy || body.alert_price_target != null || body.alert_score_threshold != null
+    || body.alert_verdict_change || body.alert_anomaly;
+  let pushWarn = "";
+  if (anyAlert && window.isSecureContext && pushSupported() && Notification.permission !== "denied") {
+    try { await ensurePushSubscribed(); } catch (e) { pushWarn = ` ⚠️ 알림 권한 설정 실패: ${e.message}`; }
+  } else if (anyAlert && Notification.permission === "denied") {
+    pushWarn = " ⚠️ 브라우저에서 알림이 차단돼 있어 조건이 충족돼도 알림이 오지 않습니다.";
+  }
+  btn.disabled = true;
+  msg.textContent = "저장 중...";
+  try {
+    await api(`/api/watch/${watchModalCode}/settings`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    await loadWatchlist();
+    updateWatchBtn();
+    renderFavBoard();
+    msg.textContent = "저장했습니다." + pushWarn;
+    setTimeout(() => $("watch-modal").classList.add("hidden"), pushWarn ? 2000 : 600);
+  } catch (e) {
+    msg.textContent = "오류: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 /* ---------------- search ---------------- */
 const input = $("search-input");
@@ -653,19 +845,31 @@ async function renderTodayPick(items) {
     <button class="primary-btn today-pick-btn" id="today-pick-btn">종목 자세히 보기</button>`;
   $("today-pick-btn").onclick = () => analyze(best.code);
 
-  // 즐겨찾기(로그인 불필요, localStorage 기반) — 오늘의 PICK에서 바로 담을 수 있게.
+  // 관심종목 담기 — 오늘의 PICK에서 바로 서버 관심종목에 담을 수 있게(로그인 필요).
   const favBtn = $("today-pick-fav");
   const syncFavBtn = () => {
-    const on = isFav(best.code);
+    const on = watchedCodes.has(best.code);
     favBtn.textContent = on ? "★" : "☆";
     favBtn.classList.toggle("on", on);
   };
   syncFavBtn();
-  favBtn.onclick = (e) => {
+  favBtn.onclick = async (e) => {
     e.stopPropagation();
-    toggleFav(best.code, best.name);
-    syncFavBtn();
-    renderFavBoard();
+    if (!currentUser) { openAuthModal("login"); return; }
+    favBtn.disabled = true;
+    try {
+      if (watchedCodes.has(best.code)) {
+        await removeFromWatch(best.code);
+      } else {
+        await addToWatch(best.code, best.name, best.price, best.score, bv.label, bv.tier);
+      }
+      syncFavBtn();
+      renderFavBoard();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      favBtn.disabled = false;
+    }
   };
 
   // ⚠️ "종합점수 ≠ 투자기회" 범례 칩과 "지금 사기 좋은 종목"이라는 짧은 태그라인만 있고 왜
@@ -2300,7 +2504,9 @@ async function loadMe() {
   }
   renderAuthUI();
   await loadWatchlist();
+  updateFavBtn();
   updateWatchBtn();
+  renderFavBoard();
   loadMyPortfolioWidget();
 }
 
@@ -2343,7 +2549,9 @@ $("auth-submit").onclick = async () => {
     renderAuthUI();
     $("auth-modal").classList.add("hidden");
     await loadWatchlist();
+    updateFavBtn();
     updateWatchBtn();
+    renderFavBoard();
     loadMyPortfolioWidget();
   } catch (e) {
     $("auth-msg").textContent = "오류: " + e.message;
@@ -2353,8 +2561,11 @@ $("logout-btn").onclick = async () => {
   try { await api("/api/auth/logout", { method: "POST" }); } catch {}
   currentUser = null;
   watchedCodes = new Set();
+  watchMap = {};
   renderAuthUI();
+  updateFavBtn();
   updateWatchBtn();
+  renderFavBoard();
   loadMyPortfolioWidget();
   if (!$("admin-view").classList.contains("hidden")) goHome();
 };
@@ -2394,14 +2605,17 @@ $("myinfo-submit").onclick = async () => {
   }
 };
 
-/* ---------------- 관심종목 매수 기회 알림 (웹푸시) ---------------- */
+/* ---------------- 관심종목 로드 (웹푸시 알림 조건 포함) ---------------- */
 async function loadWatchlist() {
-  if (!currentUser) { watchedCodes = new Set(); return; }
+  if (!currentUser) { watchedCodes = new Set(); watchMap = {}; return; }
   try {
     const r = await api("/api/watch");
     watchedCodes = new Set(r.items.map((it) => it.code));
+    watchMap = {};
+    r.items.forEach((it) => { watchMap[it.code] = it; });
   } catch {
     watchedCodes = new Set();
+    watchMap = {};
   }
 }
 
@@ -2457,64 +2671,7 @@ async function ensurePushSubscribed() {
   });
 }
 
-$("watch-btn").onclick = async () => {
-  if (!currentCode) return;
-  if (!currentUser) { openAuthModal("login"); return; }
-  const msg = $("watch-msg");
-  const btn = $("watch-btn");
-  msg.classList.remove("hidden");
-  btn.disabled = true;
-  try {
-    if (watchedCodes.has(currentCode)) {
-      await api(`/api/watch/${currentCode}`, { method: "DELETE" });
-      watchedCodes.delete(currentCode);
-      msg.textContent = "관심종목 알림을 껐습니다.";
-      updateWatchBtn();
-    } else {
-      // ⚠️ 2차 리포트 때 "관심종목 저장을 먼저 확정"하려고 그 await를 앞에 뒀더니,
-      // 클릭 이벤트의 user-activation이 그 사이 만료되어 Notification.requestPermission()이
-      // 프롬프트 자체를 안 띄우는(=응답도 없이 default에 머무는) 회귀가 생겼다(3차
-      // 진단리포트 5장: "여전히 permission이 default 그대로"). 권한 요청은 클릭 직후
-      // 다른 await를 거치지 않고 가장 먼저(ensurePushSubscribed의 첫 줄) 호출해야
-      // 브라우저가 user-activation을 인정한다 — 관심종목 저장은 그 다음, 결과와
-      // 무관하게 항상 수행한다.
-      let pushOk = false, pushErrMsg = null;
-      if (!window.isSecureContext) {
-        pushErrMsg = "HTTPS로 접속해야 알림을 켤 수 있습니다.";
-      } else if (!pushSupported()) {
-        pushErrMsg = "이 브라우저는 웹 알림을 지원하지 않습니다.";
-      } else {
-        try {
-          await ensurePushSubscribed();
-          pushOk = true;
-        } catch (pushErr) {
-          pushErrMsg = pushErr.message;
-        }
-      }
-
-      // 관심종목 저장은 푸시 성공 여부와 무관하게 항상 확정한다(3-1 "서버 저장" 지적:
-      // 두 번 토글해도 items 빈 배열이던 문제 방지).
-      await api(`/api/watch/${currentCode}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: $("stock-name").textContent }),
-      });
-      watchedCodes.add(currentCode);
-      updateWatchBtn();
-
-      if (pushOk) {
-        msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번). 확인용 테스트 알림을 보냈습니다 — 안 뜨면 브라우저 알림 설정을 확인해주세요.";
-        api("/api/push/test", { method: "POST" }).catch(() => {});
-      } else {
-        msg.textContent = `✅ 관심종목에 추가했습니다. ⚠️ 푸시 알림은 켜지 못했습니다: ${pushErrMsg}`;
-      }
-    }
-  } catch (e) {
-    msg.textContent = "오류: " + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-};
+$("watch-btn").onclick = () => { if (currentCode) openWatchSettings(currentCode); };
 
 /* ---------------- admin ---------------- */
 async function showAdmin() {
@@ -2955,10 +3112,32 @@ $("kis-save").onclick = async () => {
 /* ---------------- navigation + init ---------------- */
 $("logo-home").onclick = goHome;
 $("back-btn").onclick = goHome;
-$("fav-btn").onclick = () => {
+$("fav-btn").onclick = async () => {
   if (!currentCode) return;
-  toggleFav(currentCode, $("stock-name").textContent);
-  updateFavBtn();
+  if (!currentUser) { openAuthModal("login"); return; }
+  const b = $("fav-btn");
+  const msg = $("watch-msg");
+  b.disabled = true;
+  try {
+    if (watchedCodes.has(currentCode)) {
+      await removeFromWatch(currentCode);
+      msg.textContent = "관심종목에서 제거했습니다.";
+    } else {
+      const t = (lastAnalysis && lastAnalysis.total) || {};
+      const v = (lastAnalysis && lastAnalysis.ai_verdict) || {};
+      await addToWatch(currentCode, $("stock-name").textContent,
+        lastAnalysis ? lastAnalysis.price : null, t.total_score, v.label, v.tier);
+      msg.textContent = "⭐ 관심종목에 추가했습니다. 옆의 ⚙에서 알림·메모를 설정할 수 있어요.";
+    }
+    msg.classList.remove("hidden");
+    updateFavBtn();
+    updateWatchBtn();
+  } catch (e) {
+    msg.textContent = "오류: " + e.message;
+    msg.classList.remove("hidden");
+  } finally {
+    b.disabled = false;
+  }
 };
 
 // 국내/미국 랭킹 토글

@@ -58,6 +58,12 @@ def _classify(item):
     return None, []
 
 
+def classify_item(item):
+    """단일 종목(랭킹 캐시 아이템)에 대한 (bull/bear/None, 근거리스트) — watch.py 이상징후
+    알림 조건이 scan()과 동일 로직을 재사용하기 위한 공개 진입점."""
+    return _classify(item)
+
+
 def scan(limit: int = 8):
     items = ranking.get("KR")["items"] + ranking.get("US")["items"]
     bulls, bears = [], []

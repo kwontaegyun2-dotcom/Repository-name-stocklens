@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=66">
+<link rel="stylesheet" href="/static/style.css?v=67">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -122,8 +122,8 @@
       <div>
         <h2>
           <span id="stock-name"></span> <small id="stock-code"></small> <em id="stock-market"></em>
-          <button id="fav-btn" class="fav-btn" title="관심종목 추가/해제">☆</button>
-          <button id="watch-btn" class="watch-btn" title="매수 기회 알림 켜기/끄기">🔔 알림</button>
+          <button id="fav-btn" class="fav-btn" title="관심종목에 담기/빼기">☆</button>
+          <button id="watch-btn" class="watch-btn hidden" title="이 종목의 알림·메모 설정">⚙ 알림 설정</button>
           <button id="compare-btn" class="cmp-btn" title="비교에 담기">⚖️ 비교담기</button>
         </h2>
         <div class="live-row">
@@ -494,6 +494,30 @@
   </div>
 </div>
 
+<!-- 관심종목 메모·알림 설정 -->
+<div id="watch-modal" class="modal hidden">
+  <div class="modal-box">
+    <h3>⭐ <span id="watch-modal-name"></span> 관심종목 설정</h3>
+    <label>메모 <small class="hint">왜 담았는지 남겨두면 나중에 다시 판단할 때 도움이 됩니다</small></label>
+    <textarea id="watch-memo" rows="2" maxlength="200" placeholder="예: HBM 수주 기대, 배당 4% 이상"></textarea>
+    <label>태그 <small class="hint">쉼표로 구분</small></label>
+    <input id="watch-tags" type="text" placeholder="예: 낙폭과대, 배당, 관망">
+    <label>알림 조건 <small class="hint">조건을 켜면 이 브라우저에 웹 푸시로 알려드립니다(최대 15분 지연)</small></label>
+    <div class="watch-alert-opts">
+      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-buy"> 매수 신호 포착 <small class="hint">종합점수 65점↑ + 적정매수가 이하</small></label>
+      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-price-on"> 목표가 도달 <input type="number" id="watch-alert-price" placeholder="가격" class="watch-alert-input"></label>
+      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-score-on"> 종합점수 <input type="number" id="watch-alert-score" placeholder="점수" class="watch-alert-input"> 점 돌파·이탈</label>
+      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-verdict"> 판단 등급 변경 시</label>
+      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-anomaly"> 이상징후 포착 시</label>
+    </div>
+    <div id="watch-modal-msg" class="kis-msg"></div>
+    <div class="modal-actions">
+      <button id="watch-modal-save" class="primary-btn">저장</button>
+      <button id="watch-modal-close" class="ghost-btn">닫기</button>
+    </div>
+  </div>
+</div>
+
 <!-- 관리자: 가입자 현황 -->
 <main id="admin-view" class="report hidden">
   <button id="admin-back" class="back-btn">← 돌아가기</button>
@@ -618,6 +642,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=66"></script>
+<script src="/static/app.js?v=67"></script>
 </body>
 </html>

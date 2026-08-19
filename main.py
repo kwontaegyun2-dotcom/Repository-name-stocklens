@@ -481,6 +481,20 @@ class UnsubscribeBody(BaseModel):
 
 class WatchBody(BaseModel):
     name: str
+    price: float | None = None
+    score: float | None = None
+    verdict: str | None = None
+    verdict_tier: str | None = None
+
+
+class WatchSettingsBody(BaseModel):
+    memo: str = ""
+    tags: str = ""
+    alert_buy: bool = True
+    alert_price_target: float | None = None
+    alert_score_threshold: float | None = None
+    alert_verdict_change: bool = False
+    alert_anomaly: bool = False
 
 
 @app.get("/api/push/key")
@@ -515,7 +529,7 @@ def api_watch_list(request: Request):
 @app.post("/api/watch/{code}")
 def api_watch_add(code: str, body: WatchBody, request: Request):
     user = _require_user(request)
-    watch.add(user["id"], code, body.name)
+    watch.add(user["id"], code, body.name, body.price, body.score, body.verdict, body.verdict_tier)
     return {"ok": True}
 
 
@@ -523,6 +537,17 @@ def api_watch_add(code: str, body: WatchBody, request: Request):
 def api_watch_remove(code: str, request: Request):
     user = _require_user(request)
     watch.remove(user["id"], code)
+    return {"ok": True}
+
+
+@app.put("/api/watch/{code}/settings")
+def api_watch_settings(code: str, body: WatchSettingsBody, request: Request):
+    user = _require_user(request)
+    watch.update_settings(
+        user["id"], code, body.memo.strip()[:200], body.tags.strip()[:200],
+        body.alert_buy, body.alert_price_target, body.alert_score_threshold,
+        body.alert_verdict_change, body.alert_anomaly,
+    )
     return {"ok": True}
 
 
