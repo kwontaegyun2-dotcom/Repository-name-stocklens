@@ -304,8 +304,8 @@ def disparity(price, mas):
 
 # ---------------------------------------------------------------- 앵커드 VWAP
 def _avwap_series(candles, anchor_idx):
-    """anchor_idx부터 끝까지, 그 시점 이후 매수한 모든 참여자의 평균 단가(거래량가중).
-    typical price = (고가+저가+종가)/3 을 표준으로 쓴다(일반적인 VWAP 관례)."""
+    """anchor_idx부터 끝까지, 그 시점 이후 매수한 모든 참여자의 평균 단가(거래량가중) +
+    거래량가중 표준편차(밴드용). typical price = (고가+저가+종가)/3 을 표준으로 쓴다."""
     if anchor_idx is None or anchor_idx < 0 or anchor_idx >= len(candles):
         return None
     cum_pv, cum_v = 0.0, 0.0
@@ -316,19 +316,75 @@ def _avwap_series(candles, anchor_idx):
         cum_pv += tp * v
         cum_v += v
         out.append(cum_pv / cum_v if cum_v else tp)
-    return out
+    if cum_v > 0:
+        avwap_now = out[-1]
+        var = sum((c.get("volume") or 0) * (((c["high"] + c["low"] + c["close"]) / 3.0) - avwap_now) ** 2
+                   for c in candles[anchor_idx:]) / cum_v
+        std = var ** 0.5
+    else:
+        std = 0.0
+    return out, std
 
 
-def anchored_vwap(candles):
+def _find_extra_anchors(candles):
+    """실적발표(근사)·갭·거래량폭발 앵커 — 전부 이미 가진 일봉 데이터만으로 계산 가능
+    (2026-08-19 설계서 4-1의 8앵커 확장 중 "사용자 지정"을 뺀 나머지)."""
+    import datetime as _dt
+    anchors = {}
+    n = len(candles)
+
+    # 캔들 date 필드가 "20260819"(구분자 없음) 형식이라 숫자만 남겨 %Y%m%d로 파싱한다.
+    def _pd(s):
+        digits = "".join(ch for ch in str(s) if ch.isdigit())[:8]
+        return _dt.datetime.strptime(digits, "%Y%m%d")
+
+    # 실적발표일 근사: consensus·research 날짜 태깅이 없어 "가장 최근 지난 분기말+45일"로
+    # 근사한다(설계서 4-1 표에 명시된 대체 규칙).
+    last_date = _pd(candles[-1]["date"])
+    q_ends = []
+    for y in (last_date.year, last_date.year - 1):
+        for m, d in ((3, 31), (6, 30), (9, 30), (12, 31)):
+            q_ends.append(_dt.datetime(y, m, d))
+    q_ends = sorted(q for q in q_ends if q + _dt.timedelta(days=45) <= last_date)
+    if q_ends:
+        target = q_ends[-1] + _dt.timedelta(days=45)
+        idx = next((i for i, c in enumerate(candles) if _pd(c["date"]) >= target), None)
+        if idx is not None and idx < n - 1:
+            anchors["최근 실적발표(근사)"] = idx
+
+    search_from = max(0, n - 252)
+    # 갭 발생일 — |시가-전일종가|/전일종가 ≥ 3%, 가장 최근 것.
+    for i in range(n - 1, search_from, -1):
+        prev_close = candles[i - 1]["close"]
+        if prev_close and abs(candles[i]["open"] - prev_close) / prev_close >= 0.03:
+            anchors["갭 발생일"] = i
+            break
+
+    # 거래량 폭발일 — Vol ≥ 3×MA20(Vol) 이고 등락률 ≥ 3%, 가장 최근 것.
+    for i in range(n - 1, max(20, search_from), -1):
+        window = candles[i - 20:i]
+        avg_vol = sum(c.get("volume") or 0 for c in window) / 20
+        if avg_vol <= 0:
+            continue
+        prev_close = candles[i - 1]["close"]
+        rate = abs(candles[i]["close"] - prev_close) / prev_close if prev_close else 0
+        if (candles[i].get("volume") or 0) >= avg_vol * 3 and rate >= 0.03:
+            anchors["거래량 폭발일"] = i
+            break
+
+    return anchors
+
+
+def anchored_vwap(candles, sweeps=None):
     """앵커드 VWAP(브라이언 섀넌) — "의미 있는 기준점 이후 평균 매수단가"를 여러 앵커로
     계산한다. 현재가가 AVWAP 위면 그 시점 이후 진입자는 평균적으로 수익 중 → 되돌림 시
     지지로 작용하는 경향, 아래면 저항으로 작용하는 경향(실전에서 널리 쓰이는 해석).
 
-    앵커 선정: 실적발표일 같은 이벤트는 이 프로젝트가 보유한 데이터로 특정할 수 없어(뉴스는
-    있지만 "실적발표"로 명확히 태깅되지 않음), 객관적으로 계산 가능한 3개를 쓴다 —
-    52주 신고가·52주 신저가(주요 스윙 기준점으로 흔히 쓰임)·연초(YTD, 기관들이 관용적으로
-    쓰는 앵커).
-    """
+    2026-08-19 설계서 4-1 반영 — 기존엔 앵커가 3개뿐이고 점수도 "위에 있는 개수÷전체"라
+    거리·기울기가 전혀 반영되지 않았다. 앵커를 7개(52주 신고/저가·YTD·실적발표 근사·갭·
+    거래량폭발·최근 스윕)로 늘리고, 점수는 거리(dist)·기울기(slope)를 앵커 중요도로
+    가중평균한다. 리클레임/상실/수렴(밀집) 이벤트와 "3회 넘게 시험된 지지선은 약해짐"
+    경고도 함께 계산한다."""
     n = len(candles)
     if n < 30:
         return None
@@ -344,73 +400,193 @@ def anchored_vwap(candles):
     if ytd_idx is not None and ytd_idx < n - 5:   # 연초 앵커가 최근 5봉 이내면 의미 없음
         anchors["연초(YTD)"] = ytd_idx
 
+    anchors.update(_find_extra_anchors(candles))
+
+    if sweeps and sweeps.get("events"):
+        anchors["최근 스윕"] = sweeps["events"][-1]["idx"]
+
+    importance = {
+        "최근 실적발표(근사)": 1.5, "거래량 폭발일": 1.3, "갭 발생일": 1.2,
+        "52주 신고가": 1.0, "52주 신저가": 1.0, "최근 스윕": 1.0, "연초(YTD)": 0.7,
+    }
+
     price = candles[-1]["close"]
     lines, above_count = {}, 0
+    weighted_sum, weight_total = 0.0, 0.0
+    events_out = []
     for label, idx in anchors.items():
-        series = _avwap_series(candles, idx)
-        if not series:
+        result = _avwap_series(candles, idx)
+        if not result:
             continue
+        series, std = result
         avwap_now = series[-1]
         above = price > avwap_now
         above_count += 1 if above else 0
+
+        dist = (price - avwap_now) / avwap_now if avwap_now else 0
+        pos = _clamp(50 + dist * 500)
+        if len(series) > 20 and series[-21]:
+            slope = (series[-1] - series[-21]) / series[-21]
+            trd = _clamp(50 + slope * 500)
+        else:
+            slope, trd = 0.0, pos
+        sub = 0.6 * pos + 0.4 * trd
+        w = importance.get(label, 1.0)
+        weighted_sum += sub * w
+        weight_total += w
+
+        # 리클레임(전일 아래→오늘 위)/상실(전일 위→오늘 아래) — 전환 후보 이벤트.
+        event = None
+        if len(series) >= 2 and candles[idx + len(series) - 2]["close"] and series[-2]:
+            prev_close = candles[idx + len(series) - 2]["close"]
+            prev_avwap = series[-2]
+            if prev_close < prev_avwap and price > avwap_now:
+                event = "reclaim"
+                events_out.append(f"{label} 리클레임({avwap_now:,.0f}원) — 강세 전환 후보")
+            elif prev_close > prev_avwap and price < avwap_now:
+                event = "lost"
+                events_out.append(f"{label} 상실({avwap_now:,.0f}원) — 약세 전환 후보")
+
+        # 시험 횟수 — 종가가 이 AVWAP선을 넘나든 횟수(부호 전환). 3회 초과면 "약해진 지지/저항".
+        touches, prev_sign = 0, None
+        for i, avw in enumerate(series):
+            sign = candles[idx + i]["close"] >= avw
+            if prev_sign is not None and sign != prev_sign:
+                touches += 1
+            prev_sign = sign
+        weakened = touches > 3
+
         lines[label] = {
             "anchor_date": candles[idx]["date"], "value": round(avwap_now, 1),
             "above": above, "series": [round(v, 2) for v in series],
+            "band_upper": round(avwap_now + std, 1), "band_lower": round(avwap_now - std, 1),
+            "slope_pct": round(slope * 100, 2), "touches": touches, "weakened": weakened,
+            "event": event,
         }
     if not lines:
         return None
+
+    # 수렴(압축) — 서로 다른 앵커 3개 이상이 현재가 ±3% 이내에 모임 → 방향 결정 구간.
+    clustered = [lbl for lbl, ln in lines.items() if abs(ln["value"] - price) / price <= 0.03]
+    if len(clustered) >= 3:
+        events_out.append(f"{price:,.0f}원 부근에 AVWAP {len(clustered)}개 밀집({', '.join(clustered)}) — 방향 결정 구간")
+
     total = len(lines)
-    score = _clamp(50 + (above_count - total / 2) / (total / 2) * 40) if total else 50.0
-    return {"lines": lines, "above_count": above_count, "total": total, "score": round(score, 1)}
+    score = round(_clamp(weighted_sum / weight_total) if weight_total else 50.0, 1)
+    return {"lines": lines, "above_count": above_count, "total": total, "score": score, "events": events_out}
 
 
 # ---------------------------------------------------------------- 유동성 스윕
-def _pivots(candles, window=5):
-    """단순 프랙탈 피벗 — 좌우 window개 봉보다 고가가 높으면 스윙고점, 저가가 낮으면 스윙저점."""
-    highs, lows = [], []
+def _sweep_dir(e):
+    """스윕 이벤트의 실질 방향. 실패 스윕(breakout_flip)은 원래 타입의 반대 신호로 본다
+    (설계서 4-2 부가 지적 — "3봉 안에 되돌아오면 진짜 돌파")."""
+    if e["status"] == "breakout_flip":
+        return "bull" if e["type"] == "high_sweep" else "bear"
+    return "bull" if e["type"] == "low_sweep" else "bear"
+
+
+def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
+    """유동성 스윕(ICT/Smart Money Concepts) — 직전 N봉 고점/저점(참조 레벨) 부근에 몰린
+    손절·역지정가 주문을 스탑헌팅한 뒤 반대로 튕기는 패턴. 판별 핵심은 "뚫었는가"가 아니라
+    "뚫고 되돌아왔는가"라서 윗꼬리/아랫꼬리 비율과 거래량 동반 여부로 강도까지 점수화한다.
+
+    2026-08-19 설계서 4-2 반영 — 기존 프랙탈 피벗 방식은 type·idx·date·level뿐이라 강도를
+    알 수 없었다. 참조레벨(직전 N봉 고저) 돌파+되돌림+윗/아랫꼬리+거래량 배수로 판정을
+    교체하고, strength(0~100)·사후 3/5/10일 수익률·실패 스윕(돌파 전환) 판별을 추가했다.
+
+    ⚠️ 원래 개념은 장중(틱) 기준이다 — 일봉으로는 "전일 고점·저점 사냥"이라는 스윙
+    관점으로 재정의해 쓴다."""
     n = len(candles)
-    for i in range(window, n - window):
-        seg = candles[i - window:i + window + 1]
-        if candles[i]["high"] == max(c["high"] for c in seg):
-            highs.append(i)
-        if candles[i]["low"] == min(c["low"] for c in seg):
-            lows.append(i)
-    return highs, lows
-
-
-def liquidity_sweeps(candles, pivot_window=5, lookback=180, recent_n=15):
-    """유동성 스윕(ICT/Smart Money Concepts) — 직전 스윙 고점/저점 부근에는 손절·역지정가
-    주문이 몰려 있다("유동성 풀"). 가격이 그 레벨을 살짝 뚫었다가 곧바로 반대로 마감하면
-    "그 유동성만 훑고(sweep) 원래 방향과 반대로 움직인" 것으로 본다 — 스윙고점 스윕 후
-    하락 마감은 약세 신호(가짜 돌파로 매수 스탑을 턴 뒤 하락), 스윙저점 스윕 후 상승 마감은
-    강세 신호."""
-    if len(candles) < pivot_window * 2 + 10:
+    if n < ref_window + vol_window + 10:
         return None
-    seg_start = max(0, len(candles) - lookback)
+    seg_start = max(0, n - lookback)
     seg = candles[seg_start:]
-    highs, lows = _pivots(seg, pivot_window)
+    m = len(seg)
 
     events = []
-    for hi in highs:
-        level = seg[hi]["high"]
-        for j in range(hi + 1, min(hi + 30, len(seg))):
-            if seg[j]["high"] > level and seg[j]["close"] < level:
-                events.append({"type": "high_sweep", "idx": seg_start + j, "date": seg[j]["date"], "level": round(level, 1)})
-                break
-    for lo in lows:
-        level = seg[lo]["low"]
-        for j in range(lo + 1, min(lo + 30, len(seg))):
-            if seg[j]["low"] < level and seg[j]["close"] > level:
-                events.append({"type": "low_sweep", "idx": seg_start + j, "date": seg[j]["date"], "level": round(level, 1)})
-                break
+    for t in range(ref_window, m):
+        atr14 = atr(seg[max(0, t - 60):t + 1], 14)
+        if not atr14:
+            continue
+        ma_vol = sum(seg[i].get("volume") or 0 for i in range(t - vol_window, t)) / vol_window
+        if ma_vol <= 0:
+            continue
+        c = seg[t]
+        rng = max(c["high"] - c["low"], 1e-9)
+        vol_t = c.get("volume") or 0
+
+        ref_high = max(seg[i]["high"] for i in range(t - ref_window, t))
+        if c["high"] > ref_high and c["close"] < ref_high:
+            upper_wick = (c["high"] - max(c["open"], c["close"])) / rng
+            if upper_wick >= 0.5 and vol_t >= 1.5 * ma_vol:
+                depth = (c["high"] - ref_high) / atr14
+                reject = (c["high"] - c["close"]) / rng
+                volx = vol_t / ma_vol
+                touches = sum(1 for i in range(max(0, t - 60), t)
+                               if abs(seg[i]["high"] - ref_high) / ref_high <= 0.005)
+                strength = _clamp(25 * min(depth, 2) + 35 * reject + 20 * min(volx / 3, 1) + 20 * min(touches / 3, 1))
+                events.append({"type": "high_sweep", "idx": seg_start + t, "date": c["date"],
+                                "level": round(ref_high, 1), "strength": round(strength, 1),
+                                "depth_atr": round(depth, 2), "reject_ratio": round(reject, 2),
+                                "vol_x": round(volx, 2), "touches": touches, "status": "sweep"})
+                continue   # 한 봉에서 고점·저점 스윕이 동시에 뜨는 건 노이즈라 우선 처리
+
+        ref_low = min(seg[i]["low"] for i in range(t - ref_window, t))
+        if c["low"] < ref_low and c["close"] > ref_low:
+            lower_wick = (min(c["open"], c["close"]) - c["low"]) / rng
+            if lower_wick >= 0.5 and vol_t >= 1.5 * ma_vol:
+                depth = (ref_low - c["low"]) / atr14
+                reject = (c["close"] - c["low"]) / rng
+                volx = vol_t / ma_vol
+                touches = sum(1 for i in range(max(0, t - 60), t)
+                               if abs(seg[i]["low"] - ref_low) / ref_low <= 0.005)
+                strength = _clamp(25 * min(depth, 2) + 35 * reject + 20 * min(volx / 3, 1) + 20 * min(touches / 3, 1))
+                events.append({"type": "low_sweep", "idx": seg_start + t, "date": c["date"],
+                                "level": round(ref_low, 1), "strength": round(strength, 1),
+                                "depth_atr": round(depth, 2), "reject_ratio": round(reject, 2),
+                                "vol_x": round(volx, 2), "touches": touches, "status": "sweep"})
+
     events.sort(key=lambda e: e["idx"])
 
-    recent_cut = len(candles) - recent_n
-    recent = [e for e in events if e["idx"] >= recent_cut]
-    bull = sum(1 for e in recent if e["type"] == "low_sweep")
-    bear = sum(1 for e in recent if e["type"] == "high_sweep")
-    score = _clamp(50 + (bull - bear) * 12)
-    return {"events": events[-60:], "recent": recent, "bull_recent": bull, "bear_recent": bear, "score": round(score, 1)}
+    # 실패 스윕 → 돌파 전환: 스윕 판정 후 3봉 안에 종가가 레벨을 다시 넘으면 가짜 돌파가
+    # 아니라 진짜 돌파였다는 뜻(설계서 부가 지적). 영원히 스윕으로 남기지 않는다.
+    for e in events:
+        rel_idx = e["idx"] - seg_start
+        for j in range(rel_idx + 1, min(rel_idx + 4, m)):
+            if e["type"] == "high_sweep" and seg[j]["close"] > e["level"]:
+                e["status"] = "breakout_flip"; break
+            if e["type"] == "low_sweep" and seg[j]["close"] < e["level"]:
+                e["status"] = "breakout_flip"; break
+
+    # 사후 성과(3/5/10일 수익률) — 스윕 소급 백테스트·적중률 집계의 재료.
+    for e in events:
+        rel_idx = e["idx"] - seg_start
+        base_close = seg[rel_idx]["close"]
+        for days, key in ((3, "ret_3d"), (5, "ret_5d"), (10, "ret_10d")):
+            j = rel_idx + days
+            e[key] = round((seg[j]["close"] - base_close) / base_close * 100, 2) if j < m else None
+
+    recent_cut_idx = n - 15
+    recent = [e for e in events if e["idx"] >= recent_cut_idx]
+    bull = sum(1 for e in recent if _sweep_dir(e) == "bull")
+    bear = sum(1 for e in recent if _sweep_dir(e) == "bear")
+    sweep_recent = [e for e in recent if e["status"] == "sweep"]
+    avg_strength = sum(e["strength"] for e in sweep_recent) / len(sweep_recent) if sweep_recent else 50.0
+    base_score = 50 + (bull - bear) * 12
+    score = _clamp(base_score * 0.6 + avg_strength * 0.4) if sweep_recent else _clamp(base_score)
+
+    def _hit_rate(kind):
+        sample = [e for e in events if e["type"] == kind and e["status"] == "sweep" and e.get("ret_5d") is not None]
+        if not sample:
+            return None
+        positive = kind == "low_sweep"   # 저점 스윕=반등(+) 기대, 고점 스윕=하락(-) 기대
+        hits = sum(1 for e in sample if (e["ret_5d"] > 0) == positive)
+        return {"n": len(sample), "hits": hits, "rate": round(hits / len(sample) * 100, 1)}
+
+    backtest = {"low_sweep_5d": _hit_rate("low_sweep"), "high_sweep_5d": _hit_rate("high_sweep")}
+
+    return {"events": events[-60:], "recent": recent, "bull_recent": bull, "bear_recent": bear,
+            "score": round(score, 1), "backtest": backtest}
 
 
 # ---------------------------------------------------------------- 볼륨 프로파일
@@ -593,8 +769,8 @@ def analyze(candles, bench_closes=None):
     fib = fibonacci(candles)
     a = atr(candles)
     disp = disparity(price, mas)
-    avwap = anchored_vwap(candles)
-    sweeps = liquidity_sweeps(candles)
+    sweeps = liquidity_sweeps(candles)   # AVWAP의 "최근 스윕" 앵커가 이 결과를 참조하므로 먼저 계산
+    avwap = anchored_vwap(candles, sweeps)
     vp = volume_profile(candles)
     flow = order_flow_proxy(candles)
 
@@ -651,15 +827,27 @@ def analyze(candles, bench_closes=None):
             signals.append(("bear", f"모든 앵커드 VWAP({', '.join(avwap['lines'])}) 아래 — 매수 진입자 전원 손실권, 저항 우려"))
         elif above and below:
             signals.append(("neutral", f"AVWAP 엇갈림 — {', '.join(above)} 위 / {', '.join(below)} 아래"))
+        for ev_txt in avwap.get("events", []):
+            tone = "bull" if ("리클레임" in ev_txt or "돌파" in ev_txt) else ("bear" if "상실" in ev_txt else "neutral")
+            signals.append((tone, ev_txt))
+        weakened = [label for label, v_ in avwap["lines"].items() if v_.get("weakened")]
+        if weakened:
+            signals.append(("warn", f"{', '.join(weakened)} — 3회 넘게 시험돼 지지/저항으로서 신뢰도 약화"))
     if sweeps:
         parts["유동성스윕"] = sweeps["score"]
     if sweeps and sweeps["recent"]:
         if sweeps["bull_recent"] > sweeps["bear_recent"]:
-            e = next(x for x in reversed(sweeps["recent"]) if x["type"] == "low_sweep")
-            signals.append(("bull", f"최근 저점 유동성 스윕({e['level']:,.0f} 부근) 후 반등 — 매도 스탑 훑고 상승 전환 신호"))
+            e = next(x for x in reversed(sweeps["recent"]) if _sweep_dir(x) == "bull")
+            if e["status"] == "breakout_flip":
+                signals.append(("bull", f"{e['level']:,.0f} 부근 저항 돌파 전환(스윕 실패 → 진짜 돌파) — 상승 신호"))
+            else:
+                signals.append(("bull", f"최근 저점 유동성 스윕({e['level']:,.0f} 부근, 강도 {e['strength']:.0f}) 후 반등 — 매도 스탑 훑고 상승 전환 신호"))
         elif sweeps["bear_recent"] > sweeps["bull_recent"]:
-            e = next(x for x in reversed(sweeps["recent"]) if x["type"] == "high_sweep")
-            signals.append(("bear", f"최근 고점 유동성 스윕({e['level']:,.0f} 부근) 후 하락 — 매수 스탑 훑고 하락 전환 신호"))
+            e = next(x for x in reversed(sweeps["recent"]) if _sweep_dir(x) == "bear")
+            if e["status"] == "breakout_flip":
+                signals.append(("bear", f"{e['level']:,.0f} 부근 지지 이탈 전환(스윕 실패 → 진짜 붕괴) — 하락 신호"))
+            else:
+                signals.append(("bear", f"최근 고점 유동성 스윕({e['level']:,.0f} 부근, 강도 {e['strength']:.0f}) 후 하락 — 매수 스탑 훑고 하락 전환 신호"))
     if vp:
         # 신뢰도 낮음(추세 구간 등)이면 점수 반영에서 제외 — 값은 참고용으로만 노출.
         if vp["reliability"] != "low":
