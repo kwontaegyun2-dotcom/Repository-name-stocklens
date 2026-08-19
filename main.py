@@ -103,7 +103,7 @@ def api_themes():
 @app.get("/api/themes/{name}")
 def api_theme_detail(name: str, request: Request = None):
     _rate_limit(request, limit=60, window=60)
-    r = themes.get_theme(name)
+    r = themes.get_theme(name, limit=5)
     if not r:
         raise HTTPException(404, "존재하지 않는 테마입니다.")
     return r
