@@ -273,9 +273,11 @@ def api_analyze(code: str, request: Request = None):
         if tech["entry"]["stop_loss"] >= conservative_price:
             tech["entry"]["stop_loss"] = round(conservative_price * 0.97)
 
-    # 수급 요약 테이블 (최근 10일)
+    # 수급 요약 테이블 — naver.trend()가 pageSize=60으로 받아오므로 최근 최대 60영업일
+    # (트레이딩엔진 설계서: 120일 확장 요청됐으나 네이버 엔드포인트가 60을 넘기면 400을
+    # 반환해 60이 실측 상한. 수급 오더플로우 모듈이 이 길어진 시계열을 사용한다).
     flows = []
-    for d in (deal_trend or [])[:10]:
+    for d in (deal_trend or [])[:60]:
         flows.append({
             "date": d.get("bizdate"),
             "close": analysis.to_num(d.get("closePrice")),

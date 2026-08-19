@@ -103,10 +103,14 @@ def research(code: str, size: int = 10):
 
 
 def trend(code: str):
-    """외국인/기관/개인 매매 동향 (국내 전용)."""
+    """외국인/기관/개인 매매 동향 (국내 전용).
+    ⚠️ pageSize 파라미터 없이 호출하면 네이버가 최근 10영업일치만 준다(트레이딩엔진
+    설계서 지적 — 수급 오더플로우·다이버전스 계산엔 더 긴 시계열이 필요). 이 엔드포인트는
+    실측 결과 pageSize=61 이상은 400을 반환하고 page 파라미터는 더 과거로 페이징되지
+    않아 60이 사실상 상한이다(설계서의 120일 목표는 이 API로는 달성 불가 — 60이 최대)."""
     if is_us(code):
         return []
-    return _get(f"{M}/stock/{code}/trend", ttl=600)
+    return _get(f"{M}/stock/{code}/trend?pageSize=60&page=1", ttl=600)
 
 
 _FX_RE = re.compile(r'FX_USDKRW".*?<span class="value">([\d,]+\.?\d*)</span>', re.S)

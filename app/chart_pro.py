@@ -414,13 +414,21 @@ def liquidity_sweeps(candles, pivot_window=5, lookback=180, recent_n=15):
 
 
 # ---------------------------------------------------------------- 볼륨 프로파일
-def volume_profile(candles, lookback=120, bins=24):
+def volume_profile(candles, lookback=120):
     """볼륨 프로파일 — 가격대별 거래량 분포(시간이 아닌 "가격" 축 히스토그램).
-    ⚠️ 진짜 볼륨 프로파일은 틱(체결) 데이터로 만들지만, 이 프로젝트엔 일봉만 있다.
-    실전에서도 분봉 이하 데이터가 없을 때 흔히 쓰는 근사법 — 하루 거래량을 그 날의
-    고가~저가 범위에 걸쳐 균등 분배해 누적한다. 정확한 틱별 분포는 아니지만, 어느
-    가격대에 거래가 몰렸는지(POC)와 가치영역(Value Area, 거래량 70% 구간)의 큰 그림은
-    유의미하게 근사된다."""
+    ⚠️ 진짜 볼륨 프로파일은 틱(체결) 데이터로 만들지만, 이 프로젝트엔 일봉만 있다 —
+    "일봉 기반 추정 프로파일"임을 신호 문구에 항상 명시한다.
+
+    2026-08-19 설계서 지적으로 재구현(트레이딩엔진 설계서 4-3):
+    - 구간 24개 고정은 너무 성겨(한 칸이 현재가의 3%대) POC 정밀도가 없었다 →
+      ATR14 기준 동적 구간수(50~150)로 변경.
+    - 봉 거래량을 고가~저가에 균등 분배하면 변동성 큰 봉이 넓게 퍼져 프로파일이
+      뭉개진다 → 종가·시가 중심가(TP) 근처에 더 많이 배분하는 삼각가중으로 변경.
+    - 위 두 결함이 겹쳐 추세 구간(예: 1년간 6배 오른 종목)에 하나의 프로파일을
+      씌우면 가치영역이 전체 가격범위(현재가의 158%)를 뒤덮는 오류가 실측됐다 →
+      가치영역 폭이 현재가의 40%를 넘으면 reliability='low'로 표시하고 판단·점수
+      반영에서 제외한다(값 자체는 계산해 참고용으로만 노출).
+    """
     if len(candles) < 20:
         return None
     seg = candles[-min(lookback, len(candles)):]
@@ -428,34 +436,43 @@ def volume_profile(candles, lookback=120, bins=24):
     lo = min(c["low"] for c in seg)
     if hi <= lo:
         return None
-    bin_size = (hi - lo) / bins
-    vol_bins = [0.0] * bins
+
+    atr14 = atr(seg, 14) or (hi - lo) * 0.02
+    n_bins = int(round((hi - lo) / max(atr14 * 0.25, 1e-9)))
+    n_bins = min(max(n_bins, 50), 150)
+    bin_size = (hi - lo) / n_bins
+    vol_bins = [0.0] * n_bins
+
     for c in seg:
         c_hi, c_lo, v = c["high"], c["low"], c.get("volume") or 0
         if v <= 0:
             continue
+        tp = (c_hi + c_lo + c["close"]) / 3
         if c_hi <= c_lo:
-            idx = min(max(int((c["close"] - lo) / bin_size), 0), bins - 1)
+            idx = min(max(int((c["close"] - lo) / bin_size), 0), n_bins - 1)
             vol_bins[idx] += v
             continue
-        b_lo = min(max(int((c_lo - lo) / bin_size), 0), bins - 1)
-        b_hi = min(max(int((c_hi - lo) / bin_size), 0), bins - 1)
-        span = b_hi - b_lo + 1
-        per_bin = v / span
-        for b in range(b_lo, b_hi + 1):
-            vol_bins[b] += per_bin
+        b_lo = min(max(int((c_lo - lo) / bin_size), 0), n_bins - 1)
+        b_hi = min(max(int((c_hi - lo) / bin_size), 0), n_bins - 1)
+        rng = max(c_hi - c_lo, bin_size * 0.01)
+        # 종가 근처(TP)에 더 많이 배분하는 삼각가중 — 균등분배보다 실제 분포에 가깝다.
+        ws = [max(1 - abs((lo + (b + 0.5) * bin_size) - tp) / rng, 0.05) for b in range(b_lo, b_hi + 1)]
+        wsum = sum(ws)
+        for b, w in zip(range(b_lo, b_hi + 1), ws):
+            vol_bins[b] += v * (w / wsum)
 
     total_vol = sum(vol_bins)
     if total_vol <= 0:
         return None
-    poc_idx = max(range(bins), key=lambda i: vol_bins[i])
+    poc_idx = max(range(n_bins), key=lambda i: vol_bins[i])
     poc_price = lo + (poc_idx + 0.5) * bin_size
 
+    # Value Area — TradingView 표준 70% 확장법(POC에서 거래량 큰 쪽으로 번갈아 흡수).
     target = total_vol * 0.70
     acc = vol_bins[poc_idx]
     lo_i, hi_i = poc_idx, poc_idx
-    while acc < target and (lo_i > 0 or hi_i < bins - 1):
-        up_v = vol_bins[hi_i + 1] if hi_i + 1 < bins else -1.0
+    while acc < target and (lo_i > 0 or hi_i < n_bins - 1):
+        up_v = vol_bins[hi_i + 1] if hi_i + 1 < n_bins else -1.0
         down_v = vol_bins[lo_i - 1] if lo_i > 0 else -1.0
         if up_v >= down_v:
             hi_i += 1
@@ -474,10 +491,33 @@ def volume_profile(candles, lookback=120, bins=24):
     else:
         pos, score = "가치영역 내부 — 적정가 부근(박스권 가능성)", 50.0
 
-    levels = [{"price": round(lo + (i + 0.5) * bin_size, 1), "volume": round(vol_bins[i], 0)} for i in range(bins)]
+    # 신뢰도 플래그 — 추세 구간(가격이 크게 움직인 구간)에 프로파일을 씌우면 가치영역이
+    # 비정상적으로 넓어진다(실측 사례: SK하이닉스 158%). 40% 초과 시 low로 표시.
+    va_width_pct = (vah - val) / price if price else 1.0
+    reliability = "low" if va_width_pct > 0.40 else "high"
+    reliability_note = "추세 구간 — 가치영역 해석 주의" if reliability == "low" else None
+
+    # HVN(고거래량 노드)/LVN(저거래량 노드) — 국소 극대·극소점 중 상위 3개.
+    sorted_vols = sorted(vol_bins)
+    hvn_cut = sorted_vols[int(n_bins * 0.8)]
+    lvn_cut = sorted_vols[int(n_bins * 0.2)]
+    hvn_cands, lvn_cands = [], []
+    for i in range(1, n_bins - 1):
+        v = vol_bins[i]
+        mid = round(lo + (i + 0.5) * bin_size, 1)
+        if v >= vol_bins[i - 1] and v >= vol_bins[i + 1] and v >= hvn_cut:
+            hvn_cands.append((v, mid))
+        if 0 < v <= vol_bins[i - 1] and v <= vol_bins[i + 1] and v <= lvn_cut:
+            lvn_cands.append((v, mid))
+    hvn_cands.sort(key=lambda x: -x[0])
+    lvn_cands.sort(key=lambda x: x[0])
+
+    levels = [{"price": round(lo + (i + 0.5) * bin_size, 1), "volume": round(vol_bins[i], 0)} for i in range(n_bins)]
     return {
         "poc": round(poc_price, 1), "vah": round(vah, 1), "val": round(val, 1),
         "levels": levels, "position": pos, "lookback": len(seg), "score": score,
+        "bins": n_bins, "reliability": reliability, "reliability_note": reliability_note,
+        "hvn": [p for _, p in hvn_cands[:3]], "lvn": [p for _, p in lvn_cands[:3]],
     }
 
 
@@ -621,8 +661,11 @@ def analyze(candles, bench_closes=None):
             e = next(x for x in reversed(sweeps["recent"]) if x["type"] == "high_sweep")
             signals.append(("bear", f"최근 고점 유동성 스윕({e['level']:,.0f} 부근) 후 하락 — 매수 스탑 훑고 하락 전환 신호"))
     if vp:
-        parts["볼륨프로파일"] = vp["score"]
-        signals.append(("neutral", f"볼륨 프로파일: POC {vp['poc']:,.0f} · 가치영역 {vp['val']:,.0f}~{vp['vah']:,.0f} — {vp['position']}"))
+        # 신뢰도 낮음(추세 구간 등)이면 점수 반영에서 제외 — 값은 참고용으로만 노출.
+        if vp["reliability"] != "low":
+            parts["볼륨프로파일"] = vp["score"]
+        note = f" ⚠️{vp['reliability_note']}" if vp.get("reliability_note") else ""
+        signals.append(("neutral", f"볼륨 프로파일(일봉 기반 추정): POC {vp['poc']:,.0f} · 가치영역 {vp['val']:,.0f}~{vp['vah']:,.0f} — {vp['position']}{note}"))
     if flow:
         parts["오더플로우근사"] = flow["score"]
         if flow["divergence"] == "bullish":
