@@ -976,6 +976,9 @@ def analyze(candles, bench_closes=None, flows=None):
                "유동성스윕": 0.06}
     tw = sum(w for k, w in weights.items() if k in parts)
     score = sum(parts[k] * weights[k] for k in parts) / tw if tw else 50.0
+    # 화면에 실제 반영 비중을 병기하기 위해 정규화(재분배 반영)된 %로 노출한다
+    # (설계서 16번 — 없는 항목 때문에 재분배된 비중이 그대로 드러나야 함).
+    weight_pct = {k: round(weights[k] / tw * 100, 1) for k in parts if k in weights} if tw else {}
 
     if atr_pct and atr_pct > 5:
         signals.append(("warn", f"ATR 변동성 {atr_pct}% — 일간 등락이 큼, 포지션 크기 축소 권장"))
@@ -984,6 +987,7 @@ def analyze(candles, bench_closes=None, flows=None):
         "available": True,
         "score": round(_clamp(score), 1),
         "parts": {k: round(v, 1) for k, v in parts.items()},
+        "weight_pct": weight_pct,
         "stage": stage,
         "relative_strength": rs,
         "trend_template": tt,

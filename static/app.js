@@ -2354,9 +2354,12 @@ function renderChartPro(p) {
     $("pro-stage").innerHTML = `<span class="${cls}">${p.stage.label}</span>`;
   } else $("pro-stage").textContent = "";
 
-  /* 기법별 점수 바 */
+  /* 기법별 점수 바 — 종합점수 반영 비중(%)을 라벨에 병기(설계서 16번: 없는 항목이 있으면
+     재분배된 실제 비중이 그대로 드러나야 함, 예: 미국 종목은 수급오더플로우가 아예 빠져
+     나머지 항목 비중이 커짐). */
+  const wpct = p.weight_pct || {};
   $("pro-parts").innerHTML = Object.entries(p.parts || {}).map(([k, v]) =>
-    `<div class="tp-bar"><span class="tp-label wide">${k}</span>
+    `<div class="tp-bar"><span class="tp-label wide">${k}${wpct[k] != null ? ` <small class="hint">(${wpct[k]}%)</small>` : ""}</span>
        <span class="tp-track"><i style="width:${v}%;background:${scoreColor(v)}"></i></span>
        <span class="tp-val">${v}</span></div>`).join("");
 
