@@ -810,9 +810,24 @@ function opportunityReasons(r) {
   return reasons.slice(0, 2).map((x) => x.txt);
 }
 
+// ⚠️ "지금 사기 좋은 종목"인데 AI 판단이 '매수 관심'·'분할 매수' 같은 약한 tier인 종목이
+// '적극 매수'보다 위에 뜨는 문제가 있었다(사용자 지적) — opportunityScore가 tier를 전혀
+// 안 보고 상승여력·RSI·PER만 재조합해서, 종합점수 상위 20개(items.slice(0,20)) 안의
+// 약한 tier 종목이 강한 tier 종목을 역전할 수 있었다. 게다가 그 top-20 제한 자체가
+// 후보군을 너무 좁혀서, 실제로는 코스피 전체에 매수/적극매수 tier가 28개나 있는데도
+// (score 상위 20위 밖이라는 이유만으로) 셀트리온 1개만 노출되는 경우가 실측됐다.
+// AI 판단이 매수/적극매수인 종목을 전체 유니버스에서 먼저 추리고, 그 안에서만
+// opportunityScore로 순위를 매긴다.
+const OPP_BUY_TIERS = new Set(["strong_buy", "buy"]);
 function pickOpportunities(items) {
-  // 극단적 과열(RSI 78+)은 "지금이 기회"라는 취지와 안 맞으므로 후보군에서 제외.
-  const pool = items.slice(0, 20).filter((r) => !(r.rsi != null && r.rsi >= 78));
+  const notOverheated = (r) => !(r.rsi != null && r.rsi >= 78);   // 극단적 과열은 "지금이 기회"와 안 맞음
+  const strong = items.filter((r) => OPP_BUY_TIERS.has((r.ai_verdict || {}).tier) && notOverheated(r));
+  if (strong.length) {
+    return [...strong].sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 5);
+  }
+  // 매수/적극매수 tier가 하나도 없는 예외적 약세장 등엔 기존처럼 상위권에서 폴백한다
+  // (완전히 빈 화면보다는 낫다 — 다만 이 경로에선 tier가 약할 수 있음을 감안할 것).
+  const pool = items.slice(0, 20).filter(notOverheated);
   const base = pool.length ? pool : items.slice(0, 5);
   return [...base].sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 5);
 }
