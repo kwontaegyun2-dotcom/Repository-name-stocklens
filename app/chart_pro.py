@@ -777,6 +777,67 @@ def smart_money_flow(flows, closes):
     }
 
 
+# ---------------------------------------------------------------- 컨플루언스 엔진
+_AVWAP_IMPORTANCE = {
+    "최근 실적발표(근사)": 1.5, "거래량 폭발일": 1.3, "갭 발생일": 1.2,
+    "52주 신고가": 1.0, "52주 신저가": 1.0, "최근 스윕": 1.0, "연초(YTD)": 0.7,
+}
+
+
+def confluence(avwap, vp, sweeps, smart, price):
+    """컨플루언스 엔진(설계서 5장) — AVWAP·볼륨프로파일·유동성스윕·외국인평단이 "같은
+    가격대"에서 겹치는 지점을 자동으로 찾는다. 네 기법을 따로 나열만 하던 걸, "서로 다른
+    근거가 같은 가격대에서 겹칠 때" 신뢰도 높은 지지/저항으로 묶어준다 — 기존 지지선·
+    저항선이 "왜 이 가격인지" 설명이 없었던 문제(3차 진단리포트)를 근거 목록으로 답한다.
+
+    ⚠️ "미방문 POC"(과거 POC 중 이후 한 번도 되돌아가지 않은 지점)는 일별 POC 이력을
+    누적 저장해야 계산 가능한 상태 저장형 기능이라 이번 범위에서는 제외했다."""
+    if not price:
+        return []
+    levels = []
+    if avwap:
+        for label, ln in avwap["lines"].items():
+            levels.append({"price": ln["value"], "src": f"AVWAP({label})", "w": _AVWAP_IMPORTANCE.get(label, 1.0)})
+    if vp and vp["reliability"] != "low":
+        levels.append({"price": vp["poc"], "src": "POC", "w": 1.3})
+        levels.append({"price": vp["vah"], "src": "VAH", "w": 1.0})
+        levels.append({"price": vp["val"], "src": "VAL", "w": 1.0})
+        for h in vp.get("hvn", []):
+            levels.append({"price": h, "src": "HVN", "w": 1.1})
+    if sweeps:
+        for e in sweeps.get("recent", []):
+            if e["status"] != "sweep":
+                continue
+            src = "스윕저점" if e["type"] == "low_sweep" else "스윕고점"
+            levels.append({"price": e["level"], "src": src, "w": e["strength"] / 100 * 1.2})
+    if smart and smart.get("foreign_avg_cost"):
+        levels.append({"price": smart["foreign_avg_cost"], "src": "외국인평단", "w": 1.2})
+    if not levels:
+        return []
+
+    # ±1.5% 이내를 하나의 클러스터로 묶는다(가격 정렬 후 인접 병합).
+    tol = 0.015 * price
+    levels.sort(key=lambda x: x["price"])
+    clusters = []
+    for lv in levels:
+        if clusters and lv["price"] - clusters[-1]["prices"][-1] <= tol:
+            clusters[-1]["prices"].append(lv["price"])
+            clusters[-1]["items"].append(lv)
+        else:
+            clusters.append({"prices": [lv["price"]], "items": [lv]})
+
+    out = []
+    for c in clusters:
+        avg_price = sum(c["prices"]) / len(c["prices"])
+        sources = [it["src"] for it in c["items"]]
+        w_sum = sum(it["w"] for it in c["items"])
+        score = w_sum * (1 + 0.15 * (len(sources) - 1))   # 겹칠수록 가산
+        out.append({"price": round(avg_price, 1), "type": "지지" if avg_price < price else "저항",
+                     "score": round(score, 2), "sources": sources})
+    out.sort(key=lambda x: -x["score"])
+    return out[:8]
+
+
 # ---------------------------------------------------------------- 통합
 def analyze(candles, bench_closes=None, flows=None):
     """고급 차트 분석 통합 실행 → 기법별 결과 + 종합 점수."""
@@ -811,6 +872,7 @@ def analyze(candles, bench_closes=None, flows=None):
     avwap = anchored_vwap(candles, sweeps)
     vp = volume_profile(candles)
     smart = smart_money_flow(flows, closes)
+    conf = confluence(avwap, vp, sweeps, smart, price)
 
     atr_pct = round(a / price * 100, 2) if a and price else None
 
@@ -904,6 +966,10 @@ def analyze(candles, bench_closes=None, flows=None):
         if smart["streak_foreign"] >= 5:
             signals.append(("bull", f"외국인 {smart['streak_foreign']}일 연속 순매수 — 수급 유입 지속"))
 
+    # 컨플루언스 — 서로 다른 근거 2개 이상이 겹친 구간만 신호로 노출(1개짜리는 노이즈).
+    for c in [x for x in conf if len(x["sources"]) >= 2][:3]:
+        signals.append(("neutral", f"{c['price']:,.0f}원 ({c['type']}, 신뢰도 {c['score']:.1f}) — {' + '.join(c['sources'])} {len(c['sources'])}중 겹침"))
+
     weights = {"스테이지": 0.22, "추세템플릿": 0.19, "상대강도": 0.15,
                "VCP": 0.08, "OBV": 0.07, "박스": 0.04,
                "AVWAP": 0.08, "볼륨프로파일": 0.05, "수급오더플로우": 0.06,
@@ -932,6 +998,7 @@ def analyze(candles, bench_closes=None, flows=None):
         "liquidity_sweeps": sweeps,
         "volume_profile": vp,
         "smart_money": smart,
+        "confluence": conf,
         "signals": [{"type": t, "text": s} for t, s in signals],
         "bars": len(candles),
     }

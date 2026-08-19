@@ -2352,6 +2352,22 @@ function renderChartPro(p) {
   $("pro-grid").innerHTML = cells.map(([label, val, sub]) =>
     `<div class="pro-item"><label>${label}</label><div class="pro-val">${val}</div><small>${sub}</small></div>`).join("");
 
+  // 컨플루언스 — 서로 다른 근거 2개 이상 겹친 구간만 노출(1개짜리는 노이즈라 생략).
+  const confBox = $("confluence-box");
+  const conf = (p.confluence || []).filter((c) => c.sources.length >= 2);
+  if (conf.length) {
+    confBox.classList.remove("hidden");
+    $("confluence-list").innerHTML = conf.map((c) => `
+      <div class="confluence-row ${c.type === "지지" ? "up" : "down"}">
+        <span class="confluence-price">${pw(c.price)}</span>
+        <span class="confluence-type">${c.type}</span>
+        <span class="confluence-score">신뢰도 ${c.score.toFixed(1)}</span>
+        <span class="confluence-sources">${c.sources.join(" + ")} (${c.sources.length}중 겹침)</span>
+      </div>`).join("");
+  } else {
+    confBox.classList.add("hidden");
+  }
+
   /* 추세 템플릿 체크리스트 */
   const tt = p.trend_template;
   if (tt) {

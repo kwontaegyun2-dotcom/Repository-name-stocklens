@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=71">
+<link rel="stylesheet" href="/static/style.css?v=72">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -298,6 +298,10 @@
         <div id="pro-parts" class="tech-parts"></div>
       </div>
       <div class="pro-grid" id="pro-grid"></div>
+      <div id="confluence-box" class="confluence-box hidden">
+        <div class="confluence-title">🎯 컨플루언스 레벨 <small class="hint">AVWAP·볼륨프로파일·유동성스윕·외국인평단이 겹치는 가격대 — 겹칠수록 신뢰도↑</small></div>
+        <div id="confluence-list"></div>
+      </div>
       <details class="pro-details">
         <summary>미너비니 추세 템플릿 체크리스트 <span id="tt-count"></span></summary>
         <ul id="tt-list" class="tt-list"></ul>
@@ -643,6 +647,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=74"></script>
+<script src="/static/app.js?v=75"></script>
 </body>
 </html>
