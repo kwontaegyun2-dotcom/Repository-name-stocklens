@@ -100,13 +100,22 @@ function toggleFav(code, name) {
   return isFav(code);
 }
 function removeFav(code) { setFavs(getFavs().filter((f) => f.code !== code)); }
+// ⚠️ 이전 버전은 이름·현재가·AI판단 3개뿐이라 "관심종목을 등록했으면 알고 싶은 것"에
+// 정작 답을 못 했다(종합점수·상승여력이 없어 지금 볼 만한지 판단 불가) — 사용자 지적으로
+// 실시간 랭킹(.rank-row)·오늘의 PICK(.today-row)과 같은 밀도의 정보형 행으로 다시 짬.
+// 화려한 hover 그라디언트/글로우도 정보량과 무관한 장식이라 걷어내고 단순 배경 전환만 남김.
 async function renderFavBoard() {
   const favs = getFavs();
   const el = $("fav-board");
   if (!favs.length) { el.classList.add("hidden"); return; }
   el.classList.remove("hidden");
   el.innerHTML = `<h2>⭐ 관심종목</h2>
-    <div id="fav-rows" class="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>`;
+    <div class="fav-table">
+      <div class="fav-row fav-row-head">
+        <span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
+      </div>
+      <div id="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>
+    </div>`;
 
   // 관심종목은 국내/미국이 섞일 수 있어 두 시장 랭킹을 모두 조회해 매칭한다
   // (둘 다 백그라운드에서 이미 채점된 데이터라 추가 계산 없음).
@@ -116,22 +125,34 @@ async function renderFavBoard() {
     [...(kr.items || []), ...(us.items || [])].forEach((r) => { byCode[r.code] = r; });
   } catch {}
 
-  el.querySelector("#fav-rows").innerHTML = favs.map((f) => {
+  $("fav-rows").innerHTML = favs.map((f) => {
     const r = byCode[f.code];
     if (!r) {
       return `<div class="fav-row" data-code="${f.code}">
-        <span class="fav-name">${f.name}</span><span class="fav-na">데이터 준비 중</span>
-        <button class="fav-x" data-x="${f.code}">✕</button></div>`;
+        <span></span>
+        <span class="fav-name-col"><span class="fav-name">${f.name}</span><small class="hint">${f.code}</small></span>
+        <span class="fav-hide-mobile"></span>
+        <span class="fav-na">데이터 준비 중</span>
+        <span class="fav-hide-mobile"></span>
+        <button class="fav-x" data-x="${f.code}" title="관심종목에서 제거">✕</button>
+      </div>`;
     }
     const v = r.ai_verdict || {};
+    const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
+    const flag = r.currency === "USD" ? "🇺🇸 " : "";
     return `<div class="fav-row" data-code="${f.code}">
-      <span class="fav-name">${r.name}</span>
-      <span class="fav-price">${pw(r.price, r.currency)}</span>
-      <span class="fav-verdict" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
-      <button class="fav-x" data-x="${f.code}">✕</button>
+      <span class="fav-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
+      <span class="fav-name-col"><span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small></span>
+      <span class="fav-score fav-hide-mobile" style="color:${scoreColor(r.score)}">${r.score}</span>
+      <span class="fav-price-col">
+        <span class="fav-price">${pw(r.price, r.currency)}</span>
+        <span class="fav-rate ${updownClass(r.rate)}">${sign(r.rate, 2)}%</span>
+      </span>
+      <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
+      <button class="fav-x" data-x="${f.code}" title="관심종목에서 제거">✕</button>
     </div>`;
   }).join("");
-  el.querySelectorAll(".fav-row").forEach((row) => {
+  el.querySelectorAll(".fav-row:not(.fav-row-head)").forEach((row) => {
     row.onclick = (e) => {
       if (e.target.classList.contains("fav-x")) { removeFav(e.target.dataset.x); renderFavBoard(); return; }
       analyze(row.dataset.code);
