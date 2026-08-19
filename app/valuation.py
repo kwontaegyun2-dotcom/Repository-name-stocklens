@@ -393,8 +393,14 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     parts, signals, checklist = {}, [], []
 
     if metrics.get("consensus_flagged"):
-        signals.append(("warn", f"⚠️ 컨센서스 추정치 이상치 감지({metrics.get('consensus_flag_reason')}) "
-                                "— 선행PER·PEG·실적방향 점수에서 제외하고 실적(trailing) 기준으로만 평가합니다"))
+        # ⚠️ "PEG···점수에서 제외"라고 말해 놓고 실제로는 PEG가 확정 실적(trailing) 기준으로
+        # 자동 재계산되어 점수에 그대로 반영되고 있었다(3차 진단리포트 3-4: SK하이닉스
+        # "PEG 0.29 저평가"가 매수 근거 1번인데 옆에서는 "제외했다"고 말해 모순으로 읽힘).
+        # 실제 동작(선행PER·컨센서스 성장 전망은 배제, PEG는 trailing 성장률로 재계산)을
+        # 문구가 그대로 설명하도록 고쳤다 — PEG를 진짜로 빼는 대신 사실과 문구를 맞췄다.
+        signals.append(("warn", f"⚠️ 컨센서스 실적 추정치가 이상치로 감지되어({metrics.get('consensus_flag_reason')}) "
+                                "선행PER과 컨센서스 성장 전망은 점수에서 배제했습니다. PEG는 확정 실적(trailing) "
+                                "기준으로 다시 계산해 반영합니다."))
         checklist.append({
             "item": "컨센서스 추정치가 신뢰할 만한가?",
             "verdict": "검증 필요",
@@ -445,8 +451,11 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     if peg:
         parts["PEG"] = peg["score"]
         tag = "선행PER" if peg["is_forward"] else "PER"
+        # 상한 절단값(growth_used)만 보여주면 "실제로는 더 높은 성장률을 상한 절단해서
+        # 낮춰 계산한 것"이라는 맥락이 사라진다(3차 진단리포트 3-4). 절단된 경우 원본도 병기.
+        growth_note = f"{peg['growth_used']}%" + (f" (상한 적용, 실제 {peg['growth_raw']:.0f}%)" if peg["capped"] else "")
         signals.append(("bull" if peg["peg"] <= 1.0 else "bear" if peg["peg"] > 1.5 else "neutral",
-                        f"PEG {peg['peg']} ({tag} {peg['per_used']}배 ÷ 성장률 {peg['growth_used']}%) — {peg['label']}"))
+                        f"PEG {peg['peg']} ({tag} {peg['per_used']}배 ÷ 성장률 {growth_note}) — {peg['label']}"))
         checklist.append({
             "item": "PEG가 1 이하인가?",
             "verdict": peg["label"],
@@ -529,19 +538,22 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
                "EV/EBITDA": 0.10, "목표주가": 0.10, "실적방향": 0.10}
     tw = sum(w for k, w in weights.items() if k in parts)
     score = sum(parts[k] * weights[k] for k in parts) / tw if tw else 50.0
+    # 등급은 표시값(반올림 후) 기준으로 판정 — analysis.py total_evaluation()과 같은 원칙
+    # (3차 진단리포트 3-6: 반올림 전 원값으로 가르면 같은 표시점수가 다른 등급으로 갈린다).
+    score_r = round(_clamp(score), 1)
 
-    if score >= 72:
+    if score_r >= 72:
         verdict, vcls = "저평가 구간", "buy"
-    elif score >= 58:
+    elif score_r >= 58:
         verdict, vcls = "적정 수준", "accumulate"
-    elif score >= 42:
+    elif score_r >= 42:
         verdict, vcls = "다소 부담", "hold"
     else:
         verdict, vcls = "고평가 경계", "avoid"
 
     return {
         "available": True,
-        "score": round(_clamp(score), 1),
+        "score": score_r,
         "verdict": verdict,
         "verdict_class": vcls,
         "parts": {k: round(v, 1) for k, v in parts.items()},

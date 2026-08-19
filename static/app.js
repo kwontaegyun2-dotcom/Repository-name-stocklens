@@ -1200,11 +1200,26 @@ function render(d) {
   $("opinion-head").textContent = d.opinion.headline;
   $("opinion-points").innerHTML = d.opinion.points.map((p) => `<li>${p}</li>`).join("");
   drawRadar(d.total.categories);
-  $("category-bars").innerHTML = Object.entries(d.total.categories).map(([k, v]) => `
+  // ⚠️ 컨센서스 이상치로 추정치를 배제한 종목은 "제외했다"는 배너 아래 성장성이 여전히
+  // 높게(100점) 나올 수 있다 — 확정 실적으로 재계산한 결과이기 때문인데, 그 사실이
+  // 화면에 안 보여 사용자에겐 모순처럼 읽혔다(3차 진단리포트 3-4). 성장성 막대 옆에
+  // 실제로 쓰인 확정 실적 수치를 병기해 "왜 이 점수인지"를 바로 보이게 한다.
+  $("category-bars").innerHTML = Object.entries(d.total.categories).map(([k, v]) => {
+    let note = "";
+    if (k === "성장성" && d.metrics.consensus_flagged) {
+      const revTxt = d.metrics.rev_growth != null ? `매출 ${sign(d.metrics.rev_growth, 1)}%` : null;
+      const opTxt = d.metrics.op_growth != null ? `영업이익 ${sign(d.metrics.op_growth, 1)}%`
+        : (d.metrics.op_growth_status || null);
+      const parts = [revTxt, opTxt].filter(Boolean);
+      if (parts.length) note = `<div class="cat-note">확정 실적 기준: ${parts.join(", ")}</div>`;
+    }
+    return `
     <div class="cat-bar">
       <div class="cat-label"><b>${k}</b><span>${v}점</span></div>
       <div class="cat-track"><div class="cat-fill" style="width:${v}%;background:${scoreColor(v)}"></div></div>
-    </div>`).join("");
+      ${note}
+    </div>`;
+  }).join("");
 
   /* targets */
   const t = d.targets;
@@ -2454,9 +2469,29 @@ $("watch-btn").onclick = async () => {
       msg.textContent = "관심종목 알림을 껐습니다.";
       updateWatchBtn();
     } else {
-      // 1) 관심종목 저장은 알림 권한과 무관하게 먼저 확정한다 — 예전엔 푸시 구독이
-      // 끝나야만 이 호출에 도달해서, 권한 요청이 멈추면 관심종목 자체가 한 건도
-      // 저장되지 않았다(3-1 "서버 저장" 지적: 두 번 토글해도 items 빈 배열).
+      // ⚠️ 2차 리포트 때 "관심종목 저장을 먼저 확정"하려고 그 await를 앞에 뒀더니,
+      // 클릭 이벤트의 user-activation이 그 사이 만료되어 Notification.requestPermission()이
+      // 프롬프트 자체를 안 띄우는(=응답도 없이 default에 머무는) 회귀가 생겼다(3차
+      // 진단리포트 5장: "여전히 permission이 default 그대로"). 권한 요청은 클릭 직후
+      // 다른 await를 거치지 않고 가장 먼저(ensurePushSubscribed의 첫 줄) 호출해야
+      // 브라우저가 user-activation을 인정한다 — 관심종목 저장은 그 다음, 결과와
+      // 무관하게 항상 수행한다.
+      let pushOk = false, pushErrMsg = null;
+      if (!window.isSecureContext) {
+        pushErrMsg = "HTTPS로 접속해야 알림을 켤 수 있습니다.";
+      } else if (!pushSupported()) {
+        pushErrMsg = "이 브라우저는 웹 알림을 지원하지 않습니다.";
+      } else {
+        try {
+          await ensurePushSubscribed();
+          pushOk = true;
+        } catch (pushErr) {
+          pushErrMsg = pushErr.message;
+        }
+      }
+
+      // 관심종목 저장은 푸시 성공 여부와 무관하게 항상 확정한다(3-1 "서버 저장" 지적:
+      // 두 번 토글해도 items 빈 배열이던 문제 방지).
       await api(`/api/watch/${currentCode}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2464,14 +2499,12 @@ $("watch-btn").onclick = async () => {
       });
       watchedCodes.add(currentCode);
       updateWatchBtn();
-      msg.textContent = "✅ 관심종목에 추가했습니다. 알림 권한을 요청하는 중...";
-      // 2) 푸시 알림은 별개 시도 — 실패해도 관심종목 등록 자체는 유지된다.
-      try {
-        await ensurePushSubscribed();
+
+      if (pushOk) {
         msg.textContent = "🔔 매수 매력도 65점 이상 + 현재가가 적정 매수가 이하가 되면 알려드립니다 (최대 15분 지연, 같은 종목은 24시간에 한 번). 확인용 테스트 알림을 보냈습니다 — 안 뜨면 브라우저 알림 설정을 확인해주세요.";
         api("/api/push/test", { method: "POST" }).catch(() => {});
-      } catch (pushErr) {
-        msg.textContent = `⚠️ 관심종목에는 추가됐지만 푸시 알림은 켜지 못했습니다: ${pushErr.message}`;
+      } else {
+        msg.textContent = `✅ 관심종목에 추가했습니다. ⚠️ 푸시 알림은 켜지 못했습니다: ${pushErrMsg}`;
       }
     }
   } catch (e) {

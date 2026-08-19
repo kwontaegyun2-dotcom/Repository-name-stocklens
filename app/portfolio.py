@@ -11,6 +11,7 @@
 환율 조회가 실패하면(네트워크 문제 등) 그 미국 종목만 이번 계산에서 제외하고
 사유를 명시한다(다음 새로고침 때 재시도되므로 일시적 문제일 뿐).
 """
+import re
 import sqlite3
 import statistics
 import time
@@ -377,11 +378,20 @@ def _recommend_weights(items):
     return {c: round(w, 1) for c, w in target.items()}
 
 
-def _rebalance_note(it):
-    """현재비중 vs 권장비중 차이를 '왜'까지 담아 한 줄로 설명한다."""
+def _rebalance_note(it, n_holdings):
+    """현재비중 vs 권장비중 차이를 '왜'까지 담아 한 줄로 설명한다.
+
+    ⚠️ 보유종목이 1~2개면 재분배할 다른 종목이 없어 권장비중이 늘 현재비중과 같게
+    나온다(1종목이면 무조건 100%). 이걸 그냥 "AI판단에 대체로 부합합니다"라고 하면
+    포트폴리오 종합점수는 집중도로 크게 감점하면서 바로 아래 리밸런싱은 "적정"이라고
+    말하는 모순이 생긴다(3차 진단리포트 4장: "위에서는 집중도로 25점을 깎고 아래에서는
+    그 집중도가 적정하다고 하는 셈"). 종목 수가 부족해 비교 자체가 무의미할 때는
+    그렇다고 명시한다."""
     tw = it.get("target_weight")
     if tw is None:
         return None
+    if n_holdings <= 2:
+        return "보유 종목이 적어 AI 리밸런싱은 종목 간 비중 배분만 제안합니다 — 분산이 부족한지는 위 리스크 감점·경고를 참고하세요."
     diff = round(tw - it["weight"], 1)
     tier_label = (it.get("ai_verdict") or {}).get("label") or "보통"
     if abs(diff) < 3:
@@ -398,27 +408,36 @@ def _risk_penalty(items, vol, mdd):
     100% 집중·연변동성 73%·평가손실 -22.7%인데 "B등급·양호"로 표시됨). 집중도·변동성·
     최대낙폭을 감점으로 반영해 quality_score에서 뺀 값을 최종 score로 쓴다.
 
-    집중도는 허핀달-허쉬만 지수(HHI = Σ(비중/100)², 0~1)로 잰다. N종목 균등분산의
-    HHI는 1/N이므로 "3종목 균등분산"(0.33)까지는 정상 범위로 보고 그 이상만 감점한다
-    (단일 종목 100% 보유 시 HHI=1.0으로 최대 감점 구간에 들어간다)."""
+    ⚠️ 초판(감점 상한 25/20/20, 선형)은 과잉 교정이었다(3차 진단리포트 4장: 품질 68.8점
+    · 종목 하나만 보유한 정상적인 케이스가 감점 56.5점을 맞아 F등급·12.3점까지 떨어짐 —
+    감점이 품질점수의 82%를 잡아먹음). 두 가지를 고쳤다:
+    1. 집중도는 볼록 곡선(지수 1.6)으로 — 3~5종목의 "정상적인" HHI(0.2~0.35) 구간에서는
+       완만하고, 진짜 극단적 집중(단일 종목 100%, HHI→1.0)에서만 가파르게 오른다.
+    2. 변동성과 최대낙폭은 같은 하락에서 파생되는 상관관계가 매우 높은 지표라 그냥
+       더하면 사실상 같은 위험을 두 번 깎는다 — 큰 쪽은 전부, 작은 쪽은 30%만 반영한다.
+    """
     penalty = 0.0
     detail = []
 
     hhi = sum((it["weight"] / 100) ** 2 for it in items)
-    if hhi > 0.34:
-        p = min(25.0, (hhi - 0.34) * 40)
-        penalty += p
-        detail.append(f"집중도(HHI {hhi:.2f}) -{p:.0f}점")
+    hhi_excess = max(0.0, hhi - 0.25)   # 0.25 ≈ 4종목 균등분산 — 이하는 정상 범위로 감점 없음
+    if hhi_excess > 0:
+        p = min(18.0, (hhi_excess ** 1.6) * 45)
+        if p >= 0.5:
+            penalty += p
+            detail.append(f"집중도(HHI {hhi:.2f}) -{p:.0f}점")
 
-    if vol is not None and vol > 25:
-        p = min(20.0, (vol - 25) * 0.5)
-        penalty += p
-        detail.append(f"변동성(연 {vol:.0f}%) -{p:.0f}점")
-
-    if mdd is not None and mdd < -20:
-        p = min(20.0, (abs(mdd) - 20) * 0.5)
-        penalty += p
-        detail.append(f"최대낙폭({mdd:.0f}%) -{p:.0f}점")
+    vol_p = min(15.0, (vol - 25) * 0.5) if (vol is not None and vol > 25) else 0.0
+    dd_p = min(15.0, (abs(mdd) - 20) * 0.5) if (mdd is not None and mdd < -20) else 0.0
+    if vol_p > 0 or dd_p > 0:
+        combined = max(vol_p, dd_p) + min(vol_p, dd_p) * 0.3
+        penalty += combined
+        parts = []
+        if vol_p > 0:
+            parts.append(f"변동성 연 {vol:.0f}%")
+        if dd_p > 0:
+            parts.append(f"최대낙폭 {mdd:.0f}%")
+        detail.append(f"{'·'.join(parts)}(이중계산 방지 적용) -{combined:.0f}점")
 
     return round(penalty, 1), detail
 
@@ -438,7 +457,11 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         try:
             return row, analyze_fn(row["code"]), None
         except Exception as e:
-            return row, None, str(e) or e.__class__.__name__
+            msg = str(e) or e.__class__.__name__
+            # 내부 API 주소를 사용자에게 그대로 노출하지 않는다(3차 진단리포트 5장:
+            # "오류 문구에 내부 API 주소가 그대로 노출됩니다").
+            msg = re.sub(r"https?://\S+", "", msg).strip(" :")
+            return row, None, msg or "조회 실패"
 
     with ThreadPoolExecutor(max_workers=min(8, len(holding_rows))) as ex:
         futs = [ex.submit(_fetch, r) for r in holding_rows]
@@ -551,7 +574,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     target_weights = _recommend_weights(items)
     for it in items:
         it["target_weight"] = target_weights.get(it["code"])
-        it["rebalance_note"] = _rebalance_note(it)
+        it["rebalance_note"] = _rebalance_note(it, len(items))
 
     def _wavg(key):
         pairs = [(it["weight"], it[key]) for it in items if it.get(key) is not None]

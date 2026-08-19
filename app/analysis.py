@@ -435,9 +435,9 @@ def technical_analysis(candles: list) -> dict:
             signals.append(("neutral", "거래량 위축 — 관망세, 방향성 대기"))
     vol_axis = _clamp(vol_axis)
 
-    score = _clamp(trend * 0.45 + momentum * 0.30 + posn * 0.15 + vol_axis * 0.10)
+    score = round(_clamp(trend * 0.45 + momentum * 0.30 + posn * 0.15 + vol_axis * 0.10), 1)
 
-    # ---- 진입 타이밍 판단
+    # ---- 진입 타이밍 판단 (등급은 표시값 기준 — 3차 진단리포트 3-6과 같은 원칙)
     if score >= 70:
         verdict, verdict_cls = "매수 우위", "buy"
     elif score >= 55:
@@ -536,10 +536,32 @@ def _consensus_val(series):
     return cns[0]["value"] if cns else None
 
 
-def _growth(cur, prev):
-    if cur is None or prev is None or prev == 0:
+def _growth(cur, prev, revenue=None):
+    """⚠️ 전기(prev)가 적자(0 이하)면 증가율(%)이 수학적으로는 계산돼도 의미가 없다
+    — 적자 -100억→-10억처럼 "적자가 줄어든" 경우도 abs(prev)로 나누면 "+90% 성장"
+    처럼 보여, 영업적자 기업이 성장성 점수 89점을 받는 사례가 실제로 나왔다(3차
+    진단리포트 3-3). prev가 0 이하이거나 매출 대비 1% 미만(사실상 손익분기)이면
+    None을 반환한다 — 호출부가 흑자전환/적자축소 같은 상태 라벨로 대체해야 한다."""
+    if cur is None or prev is None:
         return None
-    return (cur - prev) / abs(prev) * 100.0
+    if prev <= 0:
+        return None
+    if revenue and abs(prev) < abs(revenue) * 0.01:
+        return None
+    return (cur - prev) / prev * 100.0
+
+
+def _growth_status_label(cur, prev):
+    """_growth()가 None을 반환하는 상황(전기 적자)에서 대신 보여줄 상태 라벨."""
+    if cur is None or prev is None or prev > 0:
+        return None
+    if cur > 0:
+        return "흑자 전환"
+    if cur > prev:
+        return "적자 축소"
+    if cur < prev:
+        return "적자 확대"
+    return "적자 지속"
 
 
 def _exact_row(rows, *names):
@@ -642,11 +664,14 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
         npm = ni_cur / rev_cur * 100.0
 
     rev_growth = _growth(rev_cur, rev_prev)
-    op_growth = _growth(op_cur, op_prev)
-    if op_growth is None:            # 미국: 영업이익 성장 없으면 순이익 성장
-        op_growth = _growth(ni_cur, ni_prev)
+    op_growth = _growth(op_cur, op_prev, revenue=rev_prev)
+    op_growth_status = _growth_status_label(op_cur, op_prev)
+    if op_growth is None and op_growth_status is None:   # 미국: 영업이익 성장 없으면 순이익 성장
+        op_growth = _growth(ni_cur, ni_prev, revenue=rev_prev)
+        op_growth_status = _growth_status_label(ni_cur, ni_prev)
     rev_growth_fwd = _growth(rev_cns, rev_cur)
-    op_growth_fwd = _growth(op_cns, op_cur)
+    op_growth_fwd = _growth(op_cns, op_cur, revenue=rev_cur)
+    op_growth_fwd_status = _growth_status_label(op_cns, op_cur)
     ni_cns = _consensus_val(ni_s)
 
     # ---- 컨센서스 이상치 검증(2026-08 진단리포트 지적사항) ------------------------
@@ -668,6 +693,7 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     consensus_flagged = bool(flag_reasons)
     if consensus_flagged:
         cns_per, op_growth_fwd, rev_growth_fwd = None, None, None
+        op_growth_fwd_status = None  # 상태 라벨도 같은 컨센서스(op_cns)에서 나온 값이라 함께 무효화
 
     # ---- 점수 계산
     # 가치평가: PER·PBR 낮을수록, 배당 높을수록. 성장주는 선행(추정) PER을 반영.
@@ -722,6 +748,13 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
         _scale(op_growth_fwd, -25, 60),
     ) if s is not None]
     growth_score = sum(g_parts) / len(g_parts) if g_parts else 50
+    # ⚠️ op_growth/op_growth_fwd가 위에서 None 처리돼도(전기 적자) 매출성장만으로
+    # 성장성이 여전히 높게 나올 수 있다 — 지금 영업적자 상태면 상한을 건다(3차
+    # 진단리포트 3-3: 영업적자 기업이 성장성 89점을 받던 사례의 근본 방지책).
+    # 적자가 깊을수록 상한을 더 낮추되, 영업이익률 데이터가 없으면 완만한 상한만 적용.
+    if op_cur is not None and op_cur < 0:
+        cap = _clamp(50 + opm, 20, 50) if opm is not None else 45.0
+        growth_score = min(growth_score, cap)
 
     # 안정성: 국내는 부채비율·유보율, 미국(부채 데이터 없음)은 흑자·자산효율 프록시
     # ⚠️ 은행·보험·지주는 부채비율이 구조적으로 1000%+ 라 이를 '위험'으로 보면 안 된다.
@@ -758,8 +791,10 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
             "debt_ratio": debt, "retention_ratio": retain,
             "rev_growth": round(rev_growth, 1) if rev_growth is not None else None,
             "op_growth": round(op_growth, 1) if op_growth is not None else None,
+            "op_growth_status": op_growth_status,
             "rev_growth_fwd": round(rev_growth_fwd, 1) if rev_growth_fwd is not None else None,
             "op_growth_fwd": round(op_growth_fwd, 1) if op_growth_fwd is not None else None,
+            "op_growth_fwd_status": op_growth_fwd_status,
             "consensus_flagged": consensus_flagged,
             "consensus_flag_reason": " · ".join(flag_reasons) if flag_reasons else None,
             "cns_per_raw": round(cns_per_raw, 2) if cns_per_raw else None,
@@ -914,15 +949,20 @@ def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend
     weights = {"가치평가": 0.18, "수익성": 0.20, "성장성": 0.22,
                "재무안정성": 0.12, "기술적추세": 0.16, "수급·심리": 0.12}
     total = sum(categories[k] * weights[k] for k in categories)
+    # ⚠️ 등급은 반드시 "화면에 표시되는 값"(반올림 후)을 기준으로 판정해야 한다. 반올림
+    # 전 원값으로 판정하면 49.96점(표시 50.0)은 D, 50.02점(표시 50.0)은 C로 갈려
+    # "같은 점수인데 등급이 다르다"는 모순이 생긴다(3차 진단리포트 3-6 실측 사례:
+    # 녹십자 50.0점 D vs BNK금융지주 50.0점 C).
+    total_r = round(total, 1)
 
     grade, grade_desc = "F", "위험"
     for th, g, desc in GRADE_TABLE:
-        if total >= th:
+        if total_r >= th:
             grade, grade_desc = g, desc
             break
 
     return {
-        "total_score": round(total, 1),
+        "total_score": total_r,
         "grade": grade,
         "grade_desc": grade_desc,
         "categories": categories,
@@ -948,6 +988,14 @@ VERDICT_TIERS = [
 # 확신도(신호 합치도) 계산에서 "매수 방향"/"매도 방향"으로 묶을 tier 그룹.
 _BULLISH_TIERS = {"strong_buy", "buy", "watch_buy", "accumulate"}
 _BEARISH_TIERS = {"watch_sell", "reduce", "sell"}
+_TIER_ORDER = [t for _, t, _, _ in VERDICT_TIERS]   # 0=적극매수(가장 공격적) ~ 7=매도(가장 보수적)
+
+
+def _shift_tier(tier, steps):
+    """steps>0: 더 보수적(매도 쪽)으로, steps<0: 더 공격적(매수 쪽)으로 이동."""
+    idx = _TIER_ORDER.index(tier)
+    idx = max(0, min(len(_TIER_ORDER) - 1, idx + steps))
+    return _TIER_ORDER[idx]
 
 
 def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dict:
@@ -966,12 +1014,41 @@ def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dic
             tier, label, emoji = t, lb, em
             break
 
+    # 괴리 과대로 플래그된 목표주가는 반영 비중을 낮춘다(upside_weight, 2차 진단리포트 조치).
+    damped_upside = None
+    if cons and cons.get("upside") is not None:
+        damped_upside = cons["upside"] * cons.get("upside_weight", 1.0)
+
+    # ⚠️ 예전엔 판단이 종합점수만의 함수라, 홈 화면이 "투자기회는 가격까지 고려한 것"
+    # 이라고 설명해 놓고도 목표주가보다 32% 비싼 종목이 "매수"로, 반대로 상승여력이
+    # 큰 종목이 "보유·관망"으로 표시되는 모순이 있었다(3차 진단리포트 3-5). 상승여력이
+    # 뚜렷이 반대 방향이면 판단을 한두 단계 보정한다 — damped_upside를 쓰므로 괴리가
+    # 과대해 이미 신뢰도가 낮은 목표가는 보정 폭도 함께 줄어든다.
+    #
+    # 하향(과대평가 경고)은 항상 적용한다 — 목표가가 낮게 잡혀 있든 아니든 "지금 가격이
+    # 부담스럽다"는 신호 자체는 유효하다. 반대로 상향(저평가 기대)은 목표가가 괴리
+    # 과대로 이미 이상치 플래그된 경우 적용하지 않는다 — SK하이닉스처럼 목표가 자체가
+    # 신뢰도 낮다고 판정된 상태에서, 그 수치를 근거로 판단을 한 단계 더 낙관적으로
+    # 올리면 이상치 검증의 취지(신뢰 못 할 숫자의 영향력을 줄인다)와 어긋난다.
+    upside_flagged = bool(cons and cons.get("upside_flagged"))
+    if damped_upside is not None:
+        if damped_upside <= -15:
+            tier = _shift_tier(tier, 2)
+        elif damped_upside <= -3:
+            tier = _shift_tier(tier, 1)
+        elif not upside_flagged and damped_upside >= 60:
+            tier = _shift_tier(tier, -2)
+        elif not upside_flagged and damped_upside >= 30:
+            tier = _shift_tier(tier, -1)
+        for th, t, lb, em in VERDICT_TIERS:
+            if t == tier:
+                label, emoji = lb, em
+                break
+
     signals = list(total["categories"].values())
     if valuation and valuation.get("available") and valuation.get("score") is not None:
         signals.append(valuation["score"])
-    if cons and cons.get("upside") is not None:
-        # 괴리 과대로 플래그된 목표주가는 확신도 계산에서도 가중치를 낮춰 반영한다(upside_weight).
-        damped_upside = cons["upside"] * cons.get("upside_weight", 1.0)
+    if damped_upside is not None:
         signals.append(_clamp(50 + damped_upside))
 
     if tier in _BULLISH_TIERS:
@@ -1022,6 +1099,10 @@ def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, to
                          "미래 사업가치 측면에서 강한 성장 모멘텀이 기대됩니다.")
         elif m["op_growth_fwd"] < 0:
             lines.append(f"컨센서스 기준 영업이익이 {abs(gf_disp):.0f}%{note} 감소할 것으로 전망되어 실적 둔화 우려가 있습니다.")
+    elif m.get("op_growth_fwd_status"):
+        # 전기 영업손익이 적자라 증가율(%)이 무의미한 경우(3차 진단리포트 3-3) — 퍼센트
+        # 대신 상태 라벨로 대체. 성장성 점수에도 이 상황에 맞춰 상한이 걸려 있다.
+        lines.append(f"전기 영업손익이 적자여서 증가율 대신 상태로 안내합니다 — 컨센서스 기준 '{m['op_growth_fwd_status']}' 전망입니다.")
     if m["roe"] is not None:
         if m["roe"] >= 15:
             lines.append(f"ROE {m['roe']:.1f}%로 자본 효율성이 우수합니다.")
