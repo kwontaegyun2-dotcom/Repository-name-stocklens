@@ -489,7 +489,28 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 }
 .chart-controls button:hover { color: var(--text); border-color: var(--border-glow); }
 .chart-controls button.active { background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 3px 12px rgba(99,102,241,.35); }
+.chart-wrap { position: relative; }
 #chart-container { height: 440px; }
+/* 크로스헤어에 따라 갱신되는 OHLC 정보 박스(TradingView류 차트의 표준 UX) — 값 없이 색점+범례만
+   있던 예전보다 "지금 이 캔들이 얼마였는지"를 바로 알 수 있어 훨씬 완성도 있어 보인다. */
+.chart-ohlc-legend {
+  position: absolute; top: 10px; left: 12px; z-index: 5; max-width: calc(100% - 24px);
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  background: var(--pop); border: 1px solid var(--border); border-radius: 10px;
+  padding: 7px 12px; font-size: 12px; font-variant-numeric: tabular-nums;
+  backdrop-filter: blur(10px); box-shadow: 0 6px 20px rgba(0,0,0,.22); pointer-events: none;
+}
+.chart-ohlc-legend .ol-name { font-weight: 800; font-size: 13px; color: var(--text); }
+.chart-ohlc-legend .ol-item { color: var(--muted); }
+.chart-ohlc-legend .ol-item b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.chart-ohlc-legend .ol-item b.up { color: #f6465d; }
+.chart-ohlc-legend .ol-item b.down { color: #3e7bfa; }
+.chart-ohlc-legend .ol-chg.up { color: #f6465d; font-weight: 800; }
+.chart-ohlc-legend .ol-chg.down { color: #3e7bfa; font-weight: 800; }
+@media (max-width: 640px) {
+  .chart-ohlc-legend { font-size: 11px; gap: 7px; padding: 6px 9px; }
+  .chart-ohlc-legend .ol-name { font-size: 12px; }
+}
 .chart-legend { display: flex; gap: 16px; margin-top: 12px; flex-wrap: wrap; }
 .lg { font-size: 12px; color: var(--muted); padding-left: 18px; position: relative; }
 .lg::before { content: ""; position: absolute; left: 0; top: 5px; width: 12px; height: 3px; border-radius: 2px; }
@@ -667,13 +688,6 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .chart-tf button.active { background: var(--grad); color: #fff; }
 .chart-sub-head { font-size: 15px; font-weight: 700; margin: 22px 0 12px; padding-top: 18px; border-top: 1px solid var(--border); }
 .chart-sub-head .hint { font-weight: 400; font-size: 12px; color: var(--muted); }
-
-/* 구간 설정 슬라이더 */
-.range-slider { margin: 12px 2px 4px; }
-.rs-track { position: relative; height: 6px; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; }
-.rs-fill { position: absolute; top: 0; height: 100%; background: var(--grad-soft); border-radius: 5px; }
-.rs-handle { position: absolute; top: 50%; width: 16px; height: 16px; margin-left: -8px; transform: translateY(-50%); background: var(--accent); border: 2px solid #fff; border-radius: 50%; cursor: ew-resize; box-shadow: 0 1px 5px rgba(0,0,0,.35); touch-action: none; }
-.rs-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--muted); }
 
 /* 재무 지표 추이 색상 */
 .fin-good { color: var(--up); font-weight: 600; }

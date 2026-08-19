@@ -1091,13 +1091,12 @@ function drawRadar(categories) {
 }
 
 /* ---------------- candle chart ---------------- */
-let chartCtx = { code: null, candles: [], targets: {}, technical: {}, tf: "day" };
+let chartCtx = { code: null, name: "", currency: "KRW", candles: [], targets: {}, technical: {}, tf: "day" };
 let chartApi = null;             // lightweight-charts 인스턴스
-let rsState = { lo: 0, hi: 1 };  // 구간 슬라이더 위치(0~1)
-let rsSync = false;              // 슬라이더↔차트 되먹임 방지
 
 function renderChart(d) {
-  chartCtx = { code: d.code, candles: d.candles || [], targets: d.targets || {},
+  chartCtx = { code: d.code, name: d.name, currency: d.currency || "KRW",
+               candles: d.candles || [], targets: d.targets || {},
                technical: d.technical || {}, tf: "day" };
   // 봉 주기 버튼 초기화
   $("chart-tf").querySelectorAll("button").forEach((b) =>
@@ -1228,15 +1227,8 @@ function drawChart() {
   };
   const defBars = { day: 125, week: 52, month: 24 }[tf];
   const setRange = (bars) => {
-    if (!bars || bars >= len) {
-      chart.timeScale().fitContent();
-      rsState.lo = 0; rsState.hi = 1;
-    } else {
-      chart.timeScale().setVisibleLogicalRange({ from: len - bars, to: len - 1 });
-      rsState.lo = Math.max(0, (len - bars) / (len - 1));
-      rsState.hi = 1;
-    }
-    paintSlider();
+    if (!bars || bars >= len) chart.timeScale().fitContent();
+    else chart.timeScale().setVisibleLogicalRange({ from: len - bars, to: len - 1 });
   };
   const periods = PERIODS[tf].filter(([, bars]) => bars === 0 || bars <= len * 1.1);
   $("chart-controls").innerHTML = periods.map(([label, bars]) =>
@@ -1249,64 +1241,42 @@ function drawChart() {
     };
   });
 
-  // 차트↔슬라이더 동기화: 차트를 드래그/줌하면 슬라이더 핸들을 따라 움직인다
-  chart.timeScale().subscribeVisibleLogicalRangeChange((r) => {
-    if (!r || rsSync || len < 2) return;
-    rsState.lo = Math.max(0, Math.min(1, r.from / (len - 1)));
-    rsState.hi = Math.max(0, Math.min(1, r.to / (len - 1)));
-    paintSlider();
+  // 크로스헤어 OHLC 정보 박스 — 기본은 최신 봉, 마우스를 올리면 그 시점 값으로 갱신
+  // (TradingView류 차트의 표준 UX. 값 없이 색점+범례만 있던 것보다 훨씬 완성도 있어 보인다)
+  const prevCloses = {};
+  for (let i = 1; i < d.candles.length; i++) prevCloses[toDate(d.candles[i].date)] = d.candles[i - 1].close;
+  // ⚠️ lightweight-charts v4의 seriesData.get()이 주는 값 객체엔 time이 없다(param.time에 따로
+  // 있음) — bar.time으로 조회하면 항상 undefined라 전일종가 대비 등락이 절대 안 뜨는 버그가 됨.
+  // time은 반드시 별도 인자로 받을 것.
+  const updateOhlcLegend = (time, bar, vol) => {
+    if (!bar) { $("chart-ohlc-legend").innerHTML = ""; return; }
+    const prevClose = prevCloses[time];
+    const cls = prevClose != null ? (bar.close >= prevClose ? "up" : "down") : (bar.close >= bar.open ? "up" : "down");
+    const chg = prevClose != null ? (bar.close - prevClose) / prevClose * 100 : null;
+    $("chart-ohlc-legend").innerHTML = `
+      <span class="ol-name">${chartCtx.name}</span>
+      <span class="ol-item">시가 <b class="${cls}">${pw(bar.open, chartCtx.currency)}</b></span>
+      <span class="ol-item">고가 <b class="${cls}">${pw(bar.high, chartCtx.currency)}</b></span>
+      <span class="ol-item">저가 <b class="${cls}">${pw(bar.low, chartCtx.currency)}</b></span>
+      <span class="ol-item">종가 <b class="${cls}">${pw(bar.close, chartCtx.currency)}</b></span>
+      ${chg != null ? `<span class="ol-chg ${cls}">${sign(chg, 2)}%</span>` : ""}
+      ${vol != null ? `<span class="ol-item">거래량 <b>${fmt(vol)}</b></span>` : ""}`;
+  };
+  const showLatest = () => {
+    if (!d.candles.length) return;
+    const last = d.candles[d.candles.length - 1];
+    const t = toDate(last.date);
+    updateOhlcLegend(t, { open: last.open, high: last.high, low: last.low, close: last.close }, last.volume);
+  };
+  chart.subscribeCrosshairMove((param) => {
+    const bar = param.seriesData && param.seriesData.get(candleSeries);
+    const vol = param.seriesData && param.seriesData.get(volSeries);
+    if (bar && param.time) updateOhlcLegend(param.time, bar, vol && vol.value);
+    else showLatest();
   });
+  showLatest();
 
   setRange(defBars);
-}
-
-/* ---- 구간 설정 슬라이더 ---- */
-function applySliderToChart() {
-  if (!chart || chartCtx.candles.length < 2) return;
-  const len = chartCtx.candles.length;
-  rsSync = true;
-  chart.timeScale().setVisibleLogicalRange({
-    from: rsState.lo * (len - 1), to: rsState.hi * (len - 1),
-  });
-  rsSync = false;
-}
-function paintSlider() {
-  const loEl = $("rs-lo"), hiEl = $("rs-hi"), fill = $("rs-fill");
-  if (!loEl) return;
-  const loPct = rsState.lo * 100, hiPct = rsState.hi * 100;
-  loEl.style.left = `${loPct}%`;
-  hiEl.style.left = `${hiPct}%`;
-  fill.style.left = `${loPct}%`;
-  fill.style.width = `${hiPct - loPct}%`;
-  const cs = chartCtx.candles;
-  if (cs.length) {
-    const at = (p) => { const c = cs[Math.min(cs.length - 1, Math.round(p * (cs.length - 1)))]; const s = c.date; return `${s.slice(2, 4)}.${s.slice(4, 6)}`; };
-    $("rs-label-lo").textContent = at(rsState.lo);
-    $("rs-label-hi").textContent = at(rsState.hi);
-  }
-}
-function initRangeSlider() {
-  const track = document.querySelector("#range-slider .rs-track");
-  if (!track) return;
-  let dragging = null;
-  const onMove = (clientX) => {
-    if (!dragging) return;
-    const rect = track.getBoundingClientRect();
-    let p = (clientX - rect.left) / rect.width;
-    p = Math.max(0, Math.min(1, p));
-    if (dragging === "lo") rsState.lo = Math.min(p, rsState.hi - 0.02);
-    else rsState.hi = Math.max(p, rsState.lo + 0.02);
-    paintSlider();
-    applySliderToChart();
-  };
-  track.querySelectorAll(".rs-handle").forEach((h) => {
-    h.addEventListener("mousedown", (e) => { dragging = h.dataset.h; e.preventDefault(); });
-    h.addEventListener("touchstart", (e) => { dragging = h.dataset.h; }, { passive: true });
-  });
-  document.addEventListener("mousemove", (e) => onMove(e.clientX));
-  document.addEventListener("touchmove", (e) => { if (dragging && e.touches[0]) onMove(e.touches[0].clientX); }, { passive: true });
-  document.addEventListener("mouseup", () => { dragging = null; });
-  document.addEventListener("touchend", () => { dragging = null; });
 }
 
 /* ---------------- compare ---------------- */
@@ -2328,7 +2298,6 @@ $("cmp-back").onclick = goHome;
 $("chart-tf").querySelectorAll("button").forEach((b) => {
   b.onclick = () => switchTimeframe(b.dataset.tf);
 });
-initRangeSlider();
 
 initTheme();
 renderFavBoard();
