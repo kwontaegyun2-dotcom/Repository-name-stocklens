@@ -154,6 +154,7 @@ async function removeFromWatch(code) {
 // 정작 답을 못 했다(종합점수·상승여력이 없어 지금 볼 만한지 판단 불가) — 사용자 지적으로
 // 실시간 랭킹(.rank-row)·오늘의 PICK(.today-row)과 같은 밀도의 정보형 행으로 다시 짬.
 // + "담은 뒤 뭐가 달라졌나"(added_* 스냅샷 대비 변화)와 메모·태그·정리 제안을 추가.
+let favExpanded = false;
 async function renderFavBoard() {
   const el = $("fav-board");
   if (!currentUser) { el.classList.add("hidden"); return; }
@@ -169,7 +170,8 @@ async function renderFavBoard() {
         <span></span><span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
       </div>
       <div id="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>
-    </div>`;
+    </div>
+    <button id="fav-more" class="sec-more hidden" aria-expanded="false"></button>`;
 
   // 관심종목은 국내/미국이 섞일 수 있어 두 시장 랭킹을 모두 조회해 매칭한다
   // (둘 다 백그라운드에서 이미 채점된 데이터라 추가 계산 없음).
@@ -229,7 +231,21 @@ async function renderFavBoard() {
     };
   }
 
-  $("fav-rows").innerHTML = items.map((it) => {
+  /* 담은 종목이 많으면 홈이 그만큼 길어진다 — 20종목을 담으면 20행이 그대로 나와
+     "접기 기능이 없다"는 지적을 받았다(UI/UX 진단보고서 3-1). 5개만 펼치고 접는다. */
+  const FAV_LIMIT = 5;
+  const favShown = favExpanded ? items : items.slice(0, FAV_LIMIT);
+  {
+    const mb = $("fav-more");
+    if (mb) {
+      const rest = items.length - favShown.length;
+      mb.classList.toggle("hidden", items.length <= FAV_LIMIT);
+      mb.textContent = favExpanded ? "접기 ▴" : `관심종목 ${rest}개 더 보기 ▾`;
+      mb.setAttribute("aria-expanded", favExpanded ? "true" : "false");
+      mb.onclick = () => { favExpanded = !favExpanded; renderFavBoard(); };
+    }
+  }
+  $("fav-rows").innerHTML = favShown.map((it) => {
     const r = byCode[it.code];
     if (!r) {
       return `<div class="fav-row" data-code="${it.code}">
@@ -517,6 +533,52 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
   };
 });
 
+
+/* ---------------- 홈 3영역 재편 도우미 (UI/UX 진단보고서 3-1) ---------------- */
+// 섹션 제목줄(.sec-toggle)을 눌러 본문을 접었다 폈다 한다. 실제 표시/숨김은 CSS가
+// aria-expanded 값으로 처리하므로(.sec-toggle[aria-expanded="false"] + .sec-body),
+// 여기서는 상태 속성만 바꾸면 된다 — 스크린리더도 같은 값을 읽는다.
+function setSectionCollapsed(bodyId, collapsed) {
+  // 사용자가 직접 접거나 편 적이 있으면 그 선택을 덮어쓰지 않는다.
+  if (bodyId in loadSectionState()) return;
+  const btn = document.querySelector(`.sec-toggle[data-toggle="${bodyId}"]`);
+  if (btn) btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+// 접고 편 상태는 기억한다 — 매번 다시 접히면 "둘러보기" 영역을 즐겨 보는 사용자가
+// 매 방문마다 같은 클릭을 반복해야 한다. 기본값은 아래 SECTION_DEFAULT_COLLAPSED.
+const SEC_KEY = "stocklens_sections";
+const SECTION_DEFAULT_COLLAPSED = { "theme-body": true };   // 테마는 접힌 채 시작(둘러보기 영역)
+function loadSectionState() {
+  try { return JSON.parse(localStorage.getItem(SEC_KEY)) || {}; } catch { return {}; }
+}
+function saveSectionState(id, collapsed) {
+  const st = loadSectionState();
+  st[id] = collapsed;
+  try { localStorage.setItem(SEC_KEY, JSON.stringify(st)); } catch {}
+}
+document.querySelectorAll(".sec-toggle").forEach((btn) => {
+  const id = btn.dataset.toggle;
+  const saved = loadSectionState();
+  const collapsed = id in saved ? saved[id] : !!SECTION_DEFAULT_COLLAPSED[id];
+  btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  btn.onclick = () => {
+    const open = btn.getAttribute("aria-expanded") === "true";
+    btn.setAttribute("aria-expanded", open ? "false" : "true");
+    saveSectionState(id, open);   // open이었다면 이제 접힌 상태
+  };
+});
+
+// 히어로는 로그인 사용자에게 숨긴다 — 재방문자에게 첫 화면의 절반이 마케팅 문구였다.
+function syncHomeForUser() {
+  const hero = $("hero");
+  if (hero) hero.classList.toggle("hidden", !!currentUser);
+  // ⚠️ "내 투자" 영역을 통째로 숨기면 안 된다 — 로그아웃 상태에서도 이 안의
+  // #mypf-board가 로그인 유도 카드를 띄우고 있어서, 같이 사라지면 진입점이 없어진다.
+  // 라벨만 감춘다(담은 종목도 포트폴리오도 없는데 "내 투자"라고 쓰면 어색하므로).
+  const label = document.querySelector("#group-mine .home-group-label");
+  if (label) label.classList.toggle("hidden", !currentUser);
+}
+
 /* ---------------- 점수 백테스트 ---------------- */
 // 진단리포트 9장: "점수의 과거 성과를 상시 공개하는 것이 유료화의 결정적 근거".
 // 과거 시점 데이터를 재구성할 방법이 없어(재무·컨센서스·기술지표 모두 "현재값"만 제공)
@@ -529,10 +591,19 @@ async function loadBacktest() {
         `<div class="bt-empty">📅 오늘부터 점수 추적을 시작했습니다. 매일 자동으로 종가를 기록하고,
          1주일 뒤부터 이 자리에 실제 수익률이 표시됩니다. 과거 데이터를 흉내 내지 않고
          정직하게 실현되는 대로만 보여드립니다.</div>`;
+      setSectionCollapsed("bt-body-wrap", true);
+      const note0 = document.getElementById("bt-toggle-note");
+      if (note0) note0.textContent = "추적 시작 단계 — 아직 결과 없음";
       return;
     }
     document.getElementById("bt-sub").textContent =
       `추적 시작 ${d.start_date} · ${d.days_collected}일째 매일 실제 종가로 기록 중 · 마지막 기록 ${d.latest_date}`;
+    /* 아직 어느 기간도 결과가 없으면 "🔒 데이터 부족" 카드 다섯 개가 401px를 그대로
+       차지한다(진단보고서 3-1). 그럴 땐 접어 두고 제목줄에 진행 상황만 한 줄로 남긴다. */
+    const anyReady = d.periods.some((p) => p.available);
+    setSectionCollapsed("bt-body-wrap", !anyReady);
+    const note = document.getElementById("bt-toggle-note");
+    if (note) note.textContent = anyReady ? "" : `추적 ${d.days_collected}일째 — 1주일 뒤부터 결과 표시`;
     document.getElementById("bt-body").innerHTML = `<div class="bt-grid">${d.periods.map((p) => {
       if (!p.available) {
         return `<div class="bt-period bt-period-locked">
@@ -653,6 +724,7 @@ $("scr-run").onclick = runScreener;
 $("scr-reset").onclick = resetScreener;
 
 /* ---------------- 이상징후 탐지 ---------------- */
+let anomalyExpanded = false;
 async function loadAnomalies() {
   try {
     const r = await api("/api/anomalies");
@@ -662,7 +734,19 @@ async function loadAnomalies() {
     ];
     if (!cards.length) { $("anomaly-board").classList.add("hidden"); return; }
     $("anomaly-board").classList.remove("hidden");
-    $("anomaly-list").innerHTML = cards.map((it) => {
+    /* 카드가 많으면 홈에서만 782px를 잡아먹었다(진단보고서 3-1) — 상위 3개만 펼치고
+       나머지는 "더 보기"로 접는다. 목록 자체는 그대로 두고 노출 개수만 조절. */
+    const ANOMALY_LIMIT = 3;
+    const shown = anomalyExpanded ? cards : cards.slice(0, ANOMALY_LIMIT);
+    const moreBtn = $("anomaly-more");
+    if (moreBtn) {
+      const rest = cards.length - shown.length;
+      moreBtn.classList.toggle("hidden", cards.length <= ANOMALY_LIMIT);
+      moreBtn.textContent = anomalyExpanded ? "접기 ▴" : `${rest}개 더 보기 ▾`;
+      moreBtn.setAttribute("aria-expanded", anomalyExpanded ? "true" : "false");
+      moreBtn.onclick = () => { anomalyExpanded = !anomalyExpanded; loadAnomalies(); };
+    }
+    $("anomaly-list").innerHTML = shown.map((it) => {
       const flag = it.currency === "USD" ? "🇺🇸" : "🇰🇷";
       const bull = it.kind === "bull";
       return `
@@ -772,14 +856,30 @@ async function loadRanking(sector = "전체") {
   }
 }
 
+const SECTOR_CHIP_LIMIT = 8;   // 섹터 칩 20개가 두 줄을 채워 훑어보기 어려웠다(진단보고서 3-1)
+let sectorChipsExpanded = false;
 function renderRankFilters(sectors) {
   if (!sectors || !sectors.length) return;
   const all = ["전체", ...sectors];
-  $("rank-filters").innerHTML = all.map((s) =>
+  // 현재 선택한 섹터가 잘려 나가면 안 되므로 항상 보이도록 앞으로 당긴다.
+  const visible = sectorChipsExpanded ? all : (() => {
+    const head = all.slice(0, SECTOR_CHIP_LIMIT);
+    if (currentSector && !head.includes(currentSector)) head[head.length - 1] = currentSector;
+    return head;
+  })();
+  $("rank-filters").innerHTML = visible.map((s) =>
     `<button class="${s === currentSector ? "active" : ""}" data-sector="${s}">${s}</button>`).join("");
   document.querySelectorAll("#rank-filters button").forEach((b) => {
     b.onclick = () => loadRanking(b.dataset.sector);
   });
+  const more = $("rank-filters-more");
+  if (more) {
+    const hiddenCount = all.length - visible.length;
+    more.classList.toggle("hidden", hiddenCount <= 0 && !sectorChipsExpanded);
+    more.textContent = sectorChipsExpanded ? "섹터 접기 ▴" : `섹터 ${hiddenCount}개 더 보기 ▾`;
+    more.setAttribute("aria-expanded", sectorChipsExpanded ? "true" : "false");
+    more.onclick = () => { sectorChipsExpanded = !sectorChipsExpanded; renderRankFilters(sectors); };
+  }
 }
 
 let rankAll = [];
@@ -2695,6 +2795,7 @@ function renderAuthUI() {
   const loggedIn = !!currentUser;
   $("login-btn").classList.toggle("hidden", loggedIn);
   $("user-chip").classList.toggle("hidden", !loggedIn);
+  syncHomeForUser();
   if (loggedIn) {
     $("user-name").textContent = currentUser.username;
     $("admin-link").classList.toggle("hidden", !currentUser.is_admin);
@@ -3418,6 +3519,7 @@ $("chart-tf").querySelectorAll("button").forEach((b) => {
 });
 
 initTheme();
+syncHomeForUser();   // loadMe() 전에도 한 번 — 로그아웃 기준 초기 상태를 먼저 맞춰 둔다
 renderFavBoard();
 loadRanking();
 loadMe();

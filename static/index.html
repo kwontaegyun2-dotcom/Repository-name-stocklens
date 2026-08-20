@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=83">
+<link rel="stylesheet" href="/static/style.css?v=84">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -35,78 +35,111 @@
 </header>
 
 <main id="landing" class="landing">
-  <div class="hero">
+  <!-- ⚠️ 히어로는 로그인하면 숨긴다(app.js의 syncHomeForUser). 로그인한 사용자도 매번
+       "분석은 StockLens가" 마케팅 문구부터 보게 돼, 첫 화면 730px 중 약 390px(절반)이
+       재방문자에게 쓸모없는 공간이었다(UI/UX 진단보고서 3-1). -->
+  <div class="hero" id="hero">
     <div class="hero-badge">✨ AI 기반 종목 종합 분석</div>
     <h1>분석은 <em>StockLens</em>가. <em>결정</em>은 당신이.</h1>
     <p>흩어진 수백 개의 신호와 뉴스, 증권가의 시선을 하나의 투자 판단으로.<br>
        지금이 기회인지, 잠시 기다릴 때인지 — 복잡한 분석은 저희가 대신합니다.</p>
   </div>
 
-  <!-- 관심종목: 홈 맨 위 (사용자 지시 — 임의 추천 종목 대신 내가 담은 종목부터) -->
-  <section class="fav-board hidden" id="fav-board"></section>
+  <!-- ═══ 영역 1 · 내 투자 (지금 확인해야 할 것) ═══
+       여덟 개 섹션이 우선순위 없이 평면으로 나열돼 "내가 지금 확인할 것"과 "둘러볼 것"이
+       섞여 있던 문제(진단보고서 3-1)를 세 영역으로 나눠 정리했다. -->
+  <div class="home-group" id="group-mine">
+    <div class="home-group-label">📌 내 투자</div>
+    <!-- 관심종목: 홈 맨 위 (사용자 지시 — 임의 추천 종목 대신 내가 담은 종목부터) -->
+    <section class="fav-board hidden" id="fav-board"></section>
+    <!-- 내 포트폴리오 오늘의 할 일 -->
+    <section class="mypf-board" id="mypf-board"></section>
+  </div>
 
-  <!-- 내 포트폴리오 오늘의 할 일 -->
-  <section class="mypf-board" id="mypf-board"></section>
+  <!-- ═══ 영역 2 · 오늘의 발견 (AI가 찾아낸 것) ═══ -->
+  <div class="home-group">
+    <div class="home-group-label">🔎 오늘의 발견</div>
 
-  <!-- 오늘의 AI 투자기회 -->
-  <section class="today-board hidden" id="today-board">
-    <h2>🎯 오늘의 AI 투자기회</h2>
+    <!-- 오늘의 AI 투자기회 -->
+    <section class="today-board hidden" id="today-board">
+      <h2>🎯 오늘의 AI 투자기회</h2>
 
-    <div class="today-pick-card" id="today-hero"></div>
+      <div class="today-pick-card" id="today-hero"></div>
 
-    <div class="today-cols">
-      <div class="today-why" id="today-why"></div>
-      <div class="today-valuation" id="today-valuation"></div>
-    </div>
-
-    <h3 class="today-sub-h">지금 사기 좋은 종목 TOP 5</h3>
-    <div class="today-table">
-      <div class="today-row today-row-head">
-        <span>판단</span><span>종목</span><span>현재가</span><span>상승여력</span><span>사유</span>
+      <div class="today-cols">
+        <div class="today-why" id="today-why"></div>
+        <div class="today-valuation" id="today-valuation"></div>
       </div>
-      <div id="today-rows"></div>
-    </div>
-  </section>
 
-  <!-- 테마·산업 -->
-  <section class="theme-board">
-    <h2>📈 요즘 어디에 돈이 몰리고 있지?</h2>
-    <p class="rank-sub">국내·미국을 섞은 테마별 투자 매력도 TOP 5</p>
-    <div class="theme-chips" id="theme-chips"></div>
-    <div id="theme-result" class="rank-list hidden"></div>
-  </section>
-
-  <!-- 점수 백테스트: 우리 점수가 실제로 통했는지 매일 실제 데이터로 추적 -->
-  <section class="bt-board" id="bt-board">
-    <h2>📊 이 점수, 실제로 통했을까?</h2>
-    <p class="rank-sub" id="bt-sub">매일 실제 종가로 추적한 결과만 보여드립니다 — 과거를 흉내 낸 백테스트가 아닙니다.</p>
-    <div id="bt-body"><p class="hint-p">불러오는 중…</p></div>
-  </section>
-
-  <!-- 이상징후 탐지 -->
-  <section class="anomaly-board hidden" id="anomaly-board">
-    <h2>🚨 이상징후 포착</h2>
-    <p class="rank-sub">"좋은 종목"이 아니라 "뭔가 이상한 종목" — 신호 3개 이상 겹칠 때만 표시됩니다</p>
-    <div id="anomaly-list" class="anomaly-list"></div>
-  </section>
-
-  <!-- 실시간 랭킹 -->
-  <section class="rank-board">
-    <div class="rank-head">
-      <div>
-        <h2>🏆 실시간 종목 랭킹</h2>
-        <p class="rank-sub">주요 종목을 종합 점수 순으로 정렬 <span id="rank-updated"></span></p>
+      <h3 class="today-sub-h">지금 사기 좋은 종목 TOP 5</h3>
+      <div class="today-table">
+        <div class="today-row today-row-head">
+          <span>판단</span><span>종목</span><span>현재가</span><span>상승여력</span><span>사유</span>
+        </div>
+        <div id="today-rows"></div>
       </div>
-      <div class="rank-market" id="rank-market">
-        <button data-market="KR" class="active">🇰🇷 국내</button>
-        <button data-market="US">🇺🇸 미국</button>
+    </section>
+
+    <!-- 이상징후 탐지 — 목록이 길어 홈을 782px 잡아먹었다. 상위 3개만 펼치고 나머지는 접는다. -->
+    <section class="anomaly-board hidden" id="anomaly-board">
+      <h2>🚨 이상징후 포착</h2>
+      <p class="rank-sub">"좋은 종목"이 아니라 "뭔가 이상한 종목" — 신호 3개 이상 겹칠 때만 표시됩니다</p>
+      <div id="anomaly-list" class="anomaly-list"></div>
+      <button id="anomaly-more" class="sec-more hidden" aria-expanded="false"></button>
+    </section>
+  </div>
+
+  <!-- ═══ 영역 3 · 둘러보기 (탐색) ═══
+       랭킹만 펼쳐 두고 테마·점수검증은 접어 둔다. 특히 점수검증은 추적 일수가 모자라면
+       "아직 데이터 부족" 카드 다섯 개가 401px를 그대로 차지했다(진단보고서 3-1). -->
+  <div class="home-group">
+    <div class="home-group-label">🧭 둘러보기</div>
+
+    <!-- 실시간 랭킹 -->
+    <section class="rank-board">
+      <div class="rank-head">
+        <div>
+          <h2>🏆 실시간 종목 랭킹</h2>
+          <p class="rank-sub">주요 종목을 종합 점수 순으로 정렬 <span id="rank-updated"></span></p>
+        </div>
+        <div class="rank-market" id="rank-market">
+          <button data-market="KR" class="active">🇰🇷 국내</button>
+          <button data-market="US">🇺🇸 미국</button>
+        </div>
       </div>
-    </div>
-    <div class="rank-filters" id="rank-filters"></div>
-    <div id="rank-list" class="rank-list">
-      <div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분)</span></div>
-    </div>
-  </section>
+      <div class="rank-filters" id="rank-filters"></div>
+      <button id="rank-filters-more" class="sec-more hidden" aria-expanded="false"></button>
+      <div id="rank-list" class="rank-list">
+        <div class="rank-loading"><div class="spinner sm"></div><span>랭킹 집계 중… (최초 실행 시 30초~1분)</span></div>
+      </div>
+    </section>
+
+    <!-- 테마·산업 -->
+    <section class="theme-board collapsible" id="theme-board">
+      <button class="sec-toggle" data-toggle="theme-body" aria-expanded="true" aria-controls="theme-body">
+        <span class="sec-toggle-title">📈 요즘 어디에 돈이 몰리고 있지?</span>
+        <span class="sec-toggle-icon" aria-hidden="true">▾</span>
+      </button>
+      <div class="sec-body" id="theme-body">
+        <p class="rank-sub">국내·미국을 섞은 테마별 투자 매력도 TOP 5</p>
+        <div class="theme-chips" id="theme-chips"></div>
+        <div id="theme-result" class="rank-list hidden"></div>
+      </div>
+    </section>
+
+    <!-- 점수 백테스트: 우리 점수가 실제로 통했는지 매일 실제 데이터로 추적 -->
+    <section class="bt-board collapsible" id="bt-board">
+      <button class="sec-toggle" data-toggle="bt-body-wrap" aria-expanded="true" aria-controls="bt-body-wrap">
+        <span class="sec-toggle-title">📊 이 점수, 실제로 통했을까?</span>
+        <span class="sec-toggle-note" id="bt-toggle-note"></span>
+        <span class="sec-toggle-icon" aria-hidden="true">▾</span>
+      </button>
+      <div class="sec-body" id="bt-body-wrap">
+        <p class="rank-sub" id="bt-sub">매일 실제 종가로 추적한 결과만 보여드립니다 — 과거를 흉내 낸 백테스트가 아닙니다.</p>
+        <div id="bt-body"><p class="hint-p">불러오는 중…</p></div>
+      </div>
+    </section>
+  </div>
 </main>
 
 <div id="loading" class="loading hidden">
@@ -656,6 +689,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=87"></script>
+<script src="/static/app.js?v=89"></script>
 </body>
 </html>

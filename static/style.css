@@ -1191,3 +1191,52 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .detail-sticky { top: 0; }
   .ss-score { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   홈 3영역 재편 (UI/UX 진단보고서 3-1)
+   ───────────────────────────────────────────────────────────────────
+   로그인 홈이 5,101px(일곱 화면)이었고, 여덟 개 섹션이 우선순위 없이 평면으로
+   나열돼 "내가 지금 확인할 것"과 "둘러볼 것"이 섞여 있었다.
+   내 투자 → 오늘의 발견 → 둘러보기 세 영역으로 나누고, 둘러보기 영역은
+   접을 수 있게 해 기본 높이를 줄인다.
+   ═══════════════════════════════════════════════════════════════════ */
+.home-group { margin-bottom: 8px; }
+.home-group-label {
+  font-size: 12px; font-weight: 800; letter-spacing: .06em;
+  color: var(--dim); text-transform: none;
+  padding: 0 4px 8px; margin-top: 26px;
+  display: flex; align-items: center; gap: 8px;
+}
+.home-group-label::after {
+  content: ""; flex: 1; height: 1px; background: var(--border);
+}
+.home-group:first-of-type .home-group-label { margin-top: 8px; }
+
+/* 접을 수 있는 섹션 — 제목줄 자체가 토글 버튼이다. */
+.sec-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: none; border: none; padding: 0 0 4px; cursor: pointer;
+  color: var(--text); font-family: inherit; text-align: left;
+}
+.sec-toggle-title { font-size: 22px; font-weight: 800; letter-spacing: -.02em; }
+.sec-toggle-note { font-size: 12px; color: var(--dim); font-weight: 600; }
+.sec-toggle-icon {
+  margin-left: auto; font-size: 15px; color: var(--muted);
+  transition: transform .2s; flex-shrink: 0;
+}
+.sec-toggle[aria-expanded="false"] .sec-toggle-icon { transform: rotate(-90deg); }
+.sec-toggle[aria-expanded="false"] + .sec-body { display: none; }
+.sec-toggle:hover .sec-toggle-icon { color: var(--text); }
+
+/* "더 보기" — 목록을 상위 N개만 보여주고 나머지를 접을 때 */
+.sec-more {
+  display: block; width: 100%; margin-top: 10px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 9px 14px; font-size: 12px; font-weight: 700; color: var(--muted);
+  font-family: inherit; cursor: pointer; transition: .18s;
+}
+.sec-more:hover { color: var(--text); border-color: var(--border-glow); }
+@media (max-width: 720px) {
+  .sec-toggle-title { font-size: 18px; }
+  .sec-toggle-note { display: none; }
+}
