@@ -948,6 +948,11 @@ def total_evaluation(fund: dict, tech: dict, senti: dict, cons: dict, deal_trend
     }
     weights = {"가치평가": 0.18, "수익성": 0.20, "성장성": 0.22,
                "재무안정성": 0.12, "기술적추세": 0.16, "수급·심리": 0.12}
+    # ⚠️ 부동소수점 노출(4차 진단리포트 P0-1) — tech_score = tech_score*0.5 + pro["score"]*0.5
+    # 같은 실수 연산 결과를 반올림 없이 그대로 categories에 담아 반환하면 "61.699999999999996"
+    # 처럼 이진부동소수점 오차가 화면에 그대로 새어나간다. 등급 판정(total_r)에 쓰기 전에
+    # 화면에 노출되는 categories 자체를 먼저 반올림해 total과 화면 표시가 항상 일치하게 한다.
+    categories = {k: round(v, 1) for k, v in categories.items()}
     total = sum(categories[k] * weights[k] for k in categories)
     # ⚠️ 등급은 반드시 "화면에 표시되는 값"(반올림 후)을 기준으로 판정해야 한다. 반올림
     # 전 원값으로 판정하면 49.96점(표시 50.0)은 D, 50.02점(표시 50.0)은 C로 갈려
@@ -1083,7 +1088,11 @@ def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, to
             lines.append(f"현재 PER {m['per']:.1f}배 대비 컨센서스 기준 선행 PER은 {m['cns_per']:.1f}배로, "
                          f"이익 성장이 실현되면 밸류에이션 부담이 크게 낮아지는 구조입니다.")
         elif m["per"] < 10:
-            lines.append(f"PER {m['per']:.1f}배로 절대 저평가 영역에 있습니다.")
+            # 4차 진단리포트 3-3 — 반도체처럼 사이클이 뚜렷한 업종은 이익 정점에서 PER이
+            # 가장 낮게 나오고 그때가 오히려 고점인 경우가 많다. "절대 저평가" 단정 대신
+            # 사이클 확인이 필요하다는 단서를 함께 붙인다.
+            lines.append(f"PER {m['per']:.1f}배로 저평가 영역에 있습니다(다만 경기·업종 사이클이 뚜렷한 업종이라면 "
+                         f"이익 고점 국면에 낮은 PER이 나타나는 경우가 있어 업종 사이클 확인이 필요합니다).")
         elif m["per"] > 30:
             lines.append(f"PER {m['per']:.1f}배로 높은 성장 기대가 이미 주가에 반영되어 있어, 실적 미달 시 조정 위험이 있습니다.")
 

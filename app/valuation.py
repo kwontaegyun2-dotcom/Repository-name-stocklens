@@ -460,7 +460,10 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
             "item": "PEG가 1 이하인가?",
             "verdict": peg["label"],
             "ok": peg["peg"] <= 1.0,
-            "detail": f"PEG {peg['peg']} = {peg['per_used']}배 ÷ {peg['growth_used']}%",
+            # 4차 진단리포트 3-3 — 여기만 growth_used(절단값)를 그대로 보여줘 "PEG 0.15 =
+            # 7.53배 ÷ 50.0%"처럼 사용자가 검산하면 실제 성장률(101.2%)과 안 맞았다.
+            # signals와 같은 growth_note(상한 적용 병기)를 재사용해 숫자를 맞춘다.
+            "detail": f"PEG {peg['peg']} = {peg['per_used']}배 ÷ {growth_note}",
         })
 
     # ── 3순위: 동종업계 ─────────────────────────────────────────

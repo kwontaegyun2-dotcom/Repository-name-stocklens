@@ -566,13 +566,20 @@ def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
             j = rel_idx + days
             e[key] = round((seg[j]["close"] - base_close) / base_close * 100, 2) if j < m else None
 
+    # 4차 진단리포트 P0-3 — 표본 1건짜리로 "적중률 100%"가 나가면 심각한 오해를 부른다.
+    # 최소 10건 미만이면 rate/hits를 아예 None으로 비워 화면·점수 어디서도 못 쓰게 막는다
+    # (표본 수 n 자체는 "왜 못 보여주는지" 설명용으로 남겨둔다).
+    MIN_SAMPLE = 10
+
     def _hit_rate(kind):
         sample = [e for e in events if e["type"] == kind and e["status"] == "sweep" and e.get("ret_5d") is not None]
         if not sample:
             return None
+        if len(sample) < MIN_SAMPLE:
+            return {"n": len(sample), "hits": None, "rate": None, "insufficient": True}
         positive = kind == "low_sweep"   # 저점 스윕=반등(+) 기대, 고점 스윕=하락(-) 기대
         hits = sum(1 for e in sample if (e["ret_5d"] > 0) == positive)
-        return {"n": len(sample), "hits": hits, "rate": round(hits / len(sample) * 100, 1)}
+        return {"n": len(sample), "hits": hits, "rate": round(hits / len(sample) * 100, 1), "insufficient": False}
 
     backtest = {"low_sweep_5d": _hit_rate("low_sweep"), "high_sweep_5d": _hit_rate("high_sweep")}
 
@@ -592,7 +599,7 @@ def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
     if sweep_recent:
         dom_dir = "low_sweep" if bull > bear else ("high_sweep" if bear > bull else None)
         bt = backtest.get(f"{dom_dir}_5d") if dom_dir else None
-        if bt and bt["n"] >= 3:
+        if bt and bt.get("rate") is not None:
             reliability_mult = _clamp(bt["rate"], 30, 90) / 60.0
             score = _clamp(50 + (score - 50) * reliability_mult)
 
@@ -693,6 +700,11 @@ def volume_profile(candles, lookback=120):
     va_width_pct = (vah - val) / price if price else 1.0
     reliability = "low" if va_width_pct > 0.40 else "high"
     reliability_note = "추세 구간 — 가치영역 해석 주의" if reliability == "low" else None
+    # 4차 진단리포트 P0-2 — reliability=low라고 판정해 놓고 바로 아래 "적정가 부근(박스권
+    # 가능성)" 같은 해석 문구를 그대로 출력하면 플래그를 단 의미가 없다(사용자는 경고를
+    # 못 보고 해석만 읽는다). low일 땐 position 문구 자체를 해석이 아닌 경고로 바꾼다.
+    if reliability == "low":
+        pos = "추세 구간이라 가치영역 판정을 생략합니다 — 아래 수치는 참고용"
 
     # HVN(고거래량 노드)/LVN(저거래량 노드) — 국소 극대·극소점 중 상위 3개.
     sorted_vols = sorted(vol_bins)

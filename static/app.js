@@ -2397,7 +2397,10 @@ function renderChartPro(p) {
   }
   if (p.volume_profile) {
     const vp = p.volume_profile;
-    cells.push(["볼륨 프로파일 POC", fmt(vp.poc), `가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position.split(" — ")[0]}`]);
+    // 4차 진단리포트 P0-2 — reliability=low인데 카드엔 해석 문구만 보이고 경고가 안 보이면
+    // 플래그를 단 의미가 없다. low일 땐 값 칸 자체에 "⚠️ 신뢰도 낮음"을 노출한다.
+    const vpVal = vp.reliability === "low" ? `${fmt(vp.poc)} <span class="down">⚠️ 신뢰도 낮음</span>` : fmt(vp.poc);
+    cells.push(["볼륨 프로파일 POC", vpVal, `가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position}`]);
   }
   if (p.smart_money) {
     // ⚠️ 예전 "오더플로우 근사"(CLV×거래량)는 캔들 몸통·꼬리를 다시 쓴 것뿐이라 새 정보가

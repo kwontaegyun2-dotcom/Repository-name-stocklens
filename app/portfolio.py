@@ -298,7 +298,8 @@ def _today_actions(items):
     cards = []
     for it in items:
         tw = it.get("target_weight")
-        if tw is not None and it["weight"] - tw >= 15:
+        overweight = tw is not None and it["weight"] - tw >= 15
+        if overweight:
             cards.append({
                 "level": "red", "code": it["code"], "name": it["name"], "title": "비중 과다",
                 "detail": f"AI 권장 비중 {tw:.0f}% → 현재 {it['weight']:.0f}%",
@@ -310,7 +311,11 @@ def _today_actions(items):
                 "detail": f"종합점수 {it['prev_score']:.0f} → {it['score']:.0f}",
                 "action": f"{it['name']} 보유 비중 재검토 필요",
             })
-        if it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
+        # 4차 진단리포트 6장 — 비중 과다(red)와 추가매수 기회(green)가 같은 종목에
+        # 동시에 뜨면 "줄여라"·"더 사라"는 정반대 지시가 나란히 표시돼 사용자가 뭘
+        # 해야 할지 알 수 없다. 비중 상한을 넘은 종목엔 추가매수 카드를 아예 숨긴다
+        # (가격은 매력적이어도 지금은 분산이 우선이라는 판단).
+        if not overweight and it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
             cards.append({
                 "level": "green", "code": it["code"], "name": it["name"], "title": "추가매수 기회",
                 "detail": f"적정매수가 대비 {it['buy_discount_pct']:.0f}%",
