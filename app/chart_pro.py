@@ -566,15 +566,6 @@ def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
             j = rel_idx + days
             e[key] = round((seg[j]["close"] - base_close) / base_close * 100, 2) if j < m else None
 
-    recent_cut_idx = n - 15
-    recent = [e for e in events if e["idx"] >= recent_cut_idx]
-    bull = sum(1 for e in recent if _sweep_dir(e) == "bull")
-    bear = sum(1 for e in recent if _sweep_dir(e) == "bear")
-    sweep_recent = [e for e in recent if e["status"] == "sweep"]
-    avg_strength = sum(e["strength"] for e in sweep_recent) / len(sweep_recent) if sweep_recent else 50.0
-    base_score = 50 + (bull - bear) * 12
-    score = _clamp(base_score * 0.6 + avg_strength * 0.4) if sweep_recent else _clamp(base_score)
-
     def _hit_rate(kind):
         sample = [e for e in events if e["type"] == kind and e["status"] == "sweep" and e.get("ret_5d") is not None]
         if not sample:
@@ -584,6 +575,26 @@ def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
         return {"n": len(sample), "hits": hits, "rate": round(hits / len(sample) * 100, 1)}
 
     backtest = {"low_sweep_5d": _hit_rate("low_sweep"), "high_sweep_5d": _hit_rate("high_sweep")}
+
+    recent_cut_idx = n - 15
+    recent = [e for e in events if e["idx"] >= recent_cut_idx]
+    bull = sum(1 for e in recent if _sweep_dir(e) == "bull")
+    bear = sum(1 for e in recent if _sweep_dir(e) == "bear")
+    sweep_recent = [e for e in recent if e["status"] == "sweep"]
+    avg_strength = sum(e["strength"] for e in sweep_recent) / len(sweep_recent) if sweep_recent else 50.0
+    base_score = 50 + (bull - bear) * 12
+    score = _clamp(base_score * 0.6 + avg_strength * 0.4) if sweep_recent else _clamp(base_score)
+
+    # 2026-08-20 고도화 — 강도 점수(strength)만으론 "이 종목에서 실제로 스윕이 잘
+    # 맞았는지"는 알 수 없었다. 이번 신호와 같은 방향(저점/고점 스윕)의 자체 과거
+    # 5일 적중률(backtest)로 확신도를 보정한다. 60%(동전던지기+@)를 기준점 삼아
+    # 그보다 적중률이 높으면 신호를 증폭, 낮으면 50점 쪽으로 완화한다.
+    if sweep_recent:
+        dom_dir = "low_sweep" if bull > bear else ("high_sweep" if bear > bull else None)
+        bt = backtest.get(f"{dom_dir}_5d") if dom_dir else None
+        if bt and bt["n"] >= 3:
+            reliability_mult = _clamp(bt["rate"], 30, 90) / 60.0
+            score = _clamp(50 + (score - 50) * reliability_mult)
 
     return {"events": events[-60:], "recent": recent, "bull_recent": bull, "bear_recent": bear,
             "score": round(score, 1), "backtest": backtest}
@@ -660,12 +671,22 @@ def volume_profile(candles, lookback=120):
     val = lo + lo_i * bin_size
 
     price = candles[-1]["close"]
+    # 2026-08-20 고도화 — 기존엔 안/위/아래 3구간 고정값(42/50/58)이라 "가치영역 위 1%"와
+    # "가치영역 위 30%"가 같은 점수였다. 거리 기반 연속값으로 바꿔 이탈 폭이 점수에
+    # 반영되게 한다(±5% 이탈에서 포화).
     if price > vah:
-        pos, score = "가치영역 위 — 고평가 구간(되돌림 시 저항 재진입 가능)", 42.0
+        dist = (price - vah) / price
+        score = _clamp(50 - min(dist / 0.05, 1) * 16)
+        pos = "가치영역 위 — 고평가 구간(되돌림 시 저항 재진입 가능)"
     elif price < val:
-        pos, score = "가치영역 아래 — 저평가 구간(되돌림 시 지지 재진입 가능)", 58.0
+        dist = (val - price) / price
+        score = _clamp(50 + min(dist / 0.05, 1) * 16)
+        pos = "가치영역 아래 — 저평가 구간(되돌림 시 지지 재진입 가능)"
     else:
-        pos, score = "가치영역 내부 — 적정가 부근(박스권 가능성)", 50.0
+        va_range = max(vah - val, 1e-9)
+        pos_in_va = (price - val) / va_range   # 0=VAL, 1=VAH
+        score = _clamp(50 + (0.5 - pos_in_va) * 14)
+        pos = "가치영역 내부 — 적정가 부근(박스권 가능성)"
 
     # 신뢰도 플래그 — 추세 구간(가격이 크게 움직인 구간)에 프로파일을 씌우면 가치영역이
     # 비정상적으로 넓어진다(실측 사례: SK하이닉스 158%). 40% 초과 시 low로 표시.
@@ -838,6 +859,39 @@ def confluence(avwap, vp, sweeps, smart, price):
     return out[:8]
 
 
+def confluence_proximity(conf, price):
+    """컨플루언스 프록시미티 — 컨플루언스 엔진이 찾아낸 지지·저항대는 지금까지 신호
+    문구로만 노출되고 종합 점수엔 전혀 반영되지 않았다(2026-08-20 사용자 지적: "기법을
+    적용해놨는데 제대로 활용은 못하는 것 같다"). 여러 근거가 겹친 구간에 현재가가
+    가까울수록 확신도가 높다는 컨플루언스 개념 자체를 종합 점수에도 반영한다 — 강한
+    지지 바로 위면 하방이 방어됐다고 보고 가점, 강한 저항 바로 아래면 상단이 막혔다고
+    보고 감점. 5% 밖은 "근접"으로 치지 않는다."""
+    if not conf or not price:
+        return None
+    NEAR = 0.05
+    support = [c for c in conf if c["type"] == "지지" and (price - c["price"]) / price <= NEAR]
+    resistance = [c for c in conf if c["type"] == "저항" and (c["price"] - price) / price <= NEAR]
+    if not support and not resistance:
+        return None
+
+    score = 50.0
+    out = {}
+    if support:
+        near = max(support, key=lambda c: c["price"])
+        dist = (price - near["price"]) / price
+        strength = min(near["score"] / 4.0, 1.0)
+        score += (1 - dist / NEAR) * strength * 22
+        out["support"] = near
+    if resistance:
+        near = min(resistance, key=lambda c: c["price"])
+        dist = (near["price"] - price) / price
+        strength = min(near["score"] / 4.0, 1.0)
+        score -= (1 - dist / NEAR) * strength * 22
+        out["resistance"] = near
+    out["score"] = round(_clamp(score), 1)
+    return out
+
+
 # ---------------------------------------------------------------- 통합
 def analyze(candles, bench_closes=None, flows=None):
     """고급 차트 분석 통합 실행 → 기법별 결과 + 종합 점수."""
@@ -873,6 +927,7 @@ def analyze(candles, bench_closes=None, flows=None):
     vp = volume_profile(candles)
     smart = smart_money_flow(flows, closes)
     conf = confluence(avwap, vp, sweeps, smart, price)
+    conf_prox = confluence_proximity(conf, price)
 
     atr_pct = round(a / price * 100, 2) if a and price else None
 
@@ -970,12 +1025,33 @@ def analyze(candles, bench_closes=None, flows=None):
     for c in [x for x in conf if len(x["sources"]) >= 2][:3]:
         signals.append(("neutral", f"{c['price']:,.0f}원 ({c['type']}, 신뢰도 {c['score']:.1f}) — {' + '.join(c['sources'])} {len(c['sources'])}중 겹침"))
 
+    if conf_prox:
+        parts["컨플루언스"] = conf_prox["score"]
+        if conf_prox.get("support") and conf_prox["score"] >= 56:
+            s = conf_prox["support"]
+            signals.append(("bull", f"컨플루언스 지지대 {s['price']:,.0f}원 근접({' + '.join(s['sources'])}, {len(s['sources'])}중 겹침) — 하방 방어 기대"))
+        if conf_prox.get("resistance") and conf_prox["score"] <= 44:
+            r = conf_prox["resistance"]
+            signals.append(("bear", f"컨플루언스 저항대 {r['price']:,.0f}원 근접({' + '.join(r['sources'])}, {len(r['sources'])}중 겹침) — 상단 제한 우려"))
+
     weights = {"스테이지": 0.22, "추세템플릿": 0.19, "상대강도": 0.15,
                "VCP": 0.08, "OBV": 0.07, "박스": 0.04,
                "AVWAP": 0.08, "볼륨프로파일": 0.05, "수급오더플로우": 0.06,
-               "유동성스윕": 0.06}
+               "유동성스윕": 0.06, "컨플루언스": 0.09}
     tw = sum(w for k, w in weights.items() if k in parts)
     score = sum(parts[k] * weights[k] for k in parts) / tw if tw else 50.0
+
+    # 2026-08-20 고도화 — 신호 일치도(컨플루언스) 보정. 개별 기법 점수의 가중평균만으론
+    # "10개 중 8개가 강세"와 "5:5로 엇갈림"이 같은 평균값을 낼 수 있다. 이 프로젝트가
+    # "여러 근거가 같은 방향으로 겹칠수록 확신도가 높다"는 컨플루언스를 핵심 컨셉으로
+    # 도입한 취지에 맞춰, 가격대 레벨뿐 아니라 종합 점수 단계에서도 일치도를 반영한다.
+    if len(parts) >= 4:
+        bull_ct = sum(1 for v in parts.values() if v >= 60)
+        bear_ct = sum(1 for v in parts.values() if v <= 40)
+        agreement = (bull_ct - bear_ct) / len(parts)
+        conviction = agreement * min(len(parts), 8) / 8 * 6
+        score = _clamp(score + conviction)
+
     # 화면에 실제 반영 비중을 병기하기 위해 정규화(재분배 반영)된 %로 노출한다
     # (설계서 16번 — 없는 항목 때문에 재분배된 비중이 그대로 드러나야 함).
     weight_pct = {k: round(weights[k] / tw * 100, 1) for k in parts if k in weights} if tw else {}
