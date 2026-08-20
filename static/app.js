@@ -155,26 +155,13 @@ async function removeFromWatch(code) {
 // 실시간 랭킹(.rank-row)·오늘의 PICK(.today-row)과 같은 밀도의 정보형 행으로 다시 짬.
 // + "담은 뒤 뭐가 달라졌나"(added_* 스냅샷 대비 변화)와 메모·태그·정리 제안을 추가.
 let favExpanded = false;
-async function renderFavBoard() {
-  const el = $("fav-board");
-  if (!currentUser) { el.classList.add("hidden"); return; }
-  const items = Object.values(watchMap);
-  if (!items.length) { el.classList.add("hidden"); return; }
-  el.classList.remove("hidden");
-  el.innerHTML = `<h2>⭐ 관심종목</h2>
-    <p id="fav-summary" class="fav-summary hidden"></p>
-    <div id="fav-stale" class="fav-stale hidden"></div>
-    <div id="fav-cmp-bar" class="fav-cmp-bar hidden"></div>
-    <div class="fav-table">
-      <div class="fav-row fav-row-head">
-        <span></span><span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
-      </div>
-      <div id="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>
-    </div>
-    <button id="fav-more" class="sec-more hidden" aria-expanded="false"></button>`;
+const WATCH_BUY_TIERS = new Set(["strong_buy", "buy", "watch_buy", "accumulate"]);
 
-  // 관심종목은 국내/미국이 섞일 수 있어 두 시장 랭킹을 모두 조회해 매칭한다
-  // (둘 다 백그라운드에서 이미 채점된 데이터라 추가 계산 없음).
+/* 관심종목 데이터 준비 — 홈 카드(#fav-board)와 전용 페이지(/watchlist)가 같은 걸 쓴다.
+   국내/미국이 섞일 수 있어 두 시장 랭킹을 모두 조회해 매칭한다(둘 다 백그라운드에서
+   이미 채점된 데이터라 추가 계산 없음). */
+async function fetchWatchData() {
+  const items = Object.values(watchMap);
   let byCode = {};
   try {
     const [kr, us] = await Promise.all([api("/api/ranking?market=KR"), api("/api/ranking?market=US")]);
@@ -199,99 +186,77 @@ async function renderFavBoard() {
       staleCandidates.push({ code: it.code, name: it.name });
     }
   });
-  /* 한 줄 요약 — 예전엔 "담은 뒤 판단이 바뀐 종목"이 있을 때만 떴다. 그래서 변화가
-     없는 날엔 요약이 통째로 사라져, 매일 들어와 확인할 이유를 못 만들었다(UI/UX
-     진단보고서 7장: "요약 헤더 없음"). 지금 몇 종목이 매수 구간인지를 항상 보여주고,
-     변화가 있을 때만 뒤에 덧붙인다. */
-  const BUY_TIERS = new Set(["strong_buy", "buy", "watch_buy", "accumulate"]);
   const buyNow = items.filter((it) => {
     const r = byCode[it.code];
-    return r && BUY_TIERS.has((r.ai_verdict || {}).tier);
+    return r && WATCH_BUY_TIERS.has((r.ai_verdict || {}).tier);
   }).length;
-  const summaryEl = $("fav-summary");
-  {
-    const parts = [];
-    if (improved) parts.push(`${improved}종목은 판단이 상향됐고`);
-    if (worsened) parts.push(`${worsened}종목은 하향됐습니다`);
-    const head = buyNow
-      ? `${items.length}종목 중 <b>${buyNow}종목이 매수 구간</b>입니다`
-      : `${items.length}종목 모두 지금은 매수 구간이 아닙니다`;
-    summaryEl.innerHTML = `📌 ${head}${parts.length ? " · " + parts.join(", ") : "."}`;
-    summaryEl.classList.remove("hidden");
-  }
-  if (staleCandidates.length) {
-    const staleEl = $("fav-stale");
-    staleEl.classList.remove("hidden");
-    staleEl.innerHTML = `⏳ ${staleCandidates.map((s) => s.name).join(", ")} — 담은 지 90일 넘었고 점수도 떨어졌어요. `
-      + `<button id="fav-stale-clean" class="ghost-btn small">정리하기</button>`;
-    $("fav-stale-clean").onclick = async () => {
-      if (!confirm(`${staleCandidates.length}개 종목을 관심종목에서 제거할까요?`)) return;
-      await Promise.all(staleCandidates.map((s) => removeFromWatch(s.code)));
-      renderFavBoard();
-    };
-  }
+  return { items, byCode, improved, worsened, staleCandidates, buyNow };
+}
 
-  /* 담은 종목이 많으면 홈이 그만큼 길어진다 — 20종목을 담으면 20행이 그대로 나와
-     "접기 기능이 없다"는 지적을 받았다(UI/UX 진단보고서 3-1). 5개만 펼치고 접는다. */
-  const FAV_LIMIT = 5;
-  const favShown = favExpanded ? items : items.slice(0, FAV_LIMIT);
-  {
-    const mb = $("fav-more");
-    if (mb) {
-      const rest = items.length - favShown.length;
-      mb.classList.toggle("hidden", items.length <= FAV_LIMIT);
-      mb.textContent = favExpanded ? "접기 ▴" : `관심종목 ${rest}개 더 보기 ▾`;
-      mb.setAttribute("aria-expanded", favExpanded ? "true" : "false");
-      mb.onclick = () => { favExpanded = !favExpanded; renderFavBoard(); };
-    }
-  }
-  $("fav-rows").innerHTML = favShown.map((it) => {
-    const r = byCode[it.code];
-    if (!r) {
-      return `<div class="fav-row" data-code="${it.code}">
-        <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}" aria-label="${it.name} 비교 대상으로 선택"></span>
-        <span class="fav-judge"></span>
-        <span class="fav-name-col"><span class="fav-name">${it.name}</span><small class="hint">${it.code}</small></span>
-        <span class="fav-hide-mobile"></span>
-        <span class="fav-price-col"><span class="fav-na">데이터 준비 중</span></span>
-        <span class="fav-hide-mobile"></span>
-        <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거">✕</button></span>
-      </div>`;
-    }
-    const v = r.ai_verdict || {};
-    const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
-    const flag = r.currency === "USD" ? "🇺🇸 " : "";
-    const scoreDiff = it.added_score != null ? +(r.score - it.added_score).toFixed(1) : null;
-    const priceDiffPct = it.added_price ? (r.price - it.added_price) / it.added_price * 100 : null;
-    const changeBits = [];
-    if (priceDiffPct != null) changeBits.push(`담은 뒤 <span class="${updownClass(priceDiffPct)}">${sign(priceDiffPct, 1)}%</span>`);
-    if (scoreDiff != null) changeBits.push(`점수 ${it.added_score.toFixed(1)} → ${r.score} (${sign(scoreDiff, 1)})`);
-    if (it.added_verdict && v.label && it.added_verdict !== v.label) changeBits.push(`판단 ${it.added_verdict} → ${v.label}`);
-    const changeLine = changeBits.length ? `<div class="fav-change">${changeBits.join(" · ")}</div>` : "";
-    const memoLine = it.memo ? `<div class="fav-memo">📝 ${it.memo}</div>` : "";
-    const tagsLine = (it.tags && it.tags.length) ? `<div class="fav-tags">${it.tags.map((t) => `<span class="fav-tag">${t}</span>`).join("")}</div>` : "";
-    const alertOn = it.alert_buy || it.alert_price_target != null || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly;
+/* 한 줄 요약 — 예전엔 "담은 뒤 판단이 바뀐 종목"이 있을 때만 떴다. 그래서 변화가
+   없는 날엔 요약이 통째로 사라져, 매일 들어와 확인할 이유를 못 만들었다(UI/UX
+   진단보고서 7장: "요약 헤더 없음"). 지금 몇 종목이 매수 구간인지를 항상 보여준다. */
+function watchSummaryHtml(d) {
+  // ⚠️ 조각을 join으로 이으면 상향만 있을 때 "1종목은 판단이 상향됐고"처럼 문장이
+  // 끊긴 채 끝난다(실제로 그렇게 나왔다). 경우별로 완결된 문장을 만든다.
+  let tail = "";
+  if (d.improved && d.worsened) tail = `${d.improved}종목은 판단이 상향, ${d.worsened}종목은 하향됐습니다`;
+  else if (d.improved) tail = `${d.improved}종목은 판단이 상향됐습니다`;
+  else if (d.worsened) tail = `${d.worsened}종목은 판단이 하향됐습니다`;
+  const head = d.buyNow
+    ? `${d.items.length}종목 중 <b>${d.buyNow}종목이 매수 구간</b>입니다`
+    : `${d.items.length}종목 모두 지금은 매수 구간이 아닙니다`;
+  return `📌 ${head}${tail ? " · " + tail : "."}`;
+}
+
+function favRowHtml(it, r) {
+  if (!r) {
     return `<div class="fav-row" data-code="${it.code}">
       <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}" aria-label="${it.name} 비교 대상으로 선택"></span>
-      <span class="fav-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
-      <span class="fav-name-col">
-        <span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small>
-        ${changeLine}${memoLine}${tagsLine}
-      </span>
-      <span class="fav-score fav-hide-mobile" style="color:${scoreColor(r.score)}">${r.score}</span>
-      <span class="fav-price-col">
-        <span class="fav-price">${pw(r.price, r.currency)}</span>
-        <span class="fav-rate ${updownClass(r.rate)}">${sign(r.rate, 2)}%</span>
-      </span>
-      <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
-      <span class="fav-row-actions">
-        <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정">⚙</button>
-        <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록">🛒</button>
-        <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거">✕</button>
-      </span>
+      <span class="fav-judge"></span>
+      <span class="fav-name-col"><span class="fav-name">${it.name}</span><small class="hint">${it.code}</small></span>
+      <span class="fav-hide-mobile"></span>
+      <span class="fav-price-col"><span class="fav-na">데이터 준비 중</span></span>
+      <span class="fav-hide-mobile"></span>
+      <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${it.name} 관심종목에서 제거">✕</button></span>
     </div>`;
-  }).join("");
+  }
+  const v = r.ai_verdict || {};
+  const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
+  const flag = r.currency === "USD" ? "🇺🇸 " : "";
+  const scoreDiff = it.added_score != null ? +(r.score - it.added_score).toFixed(1) : null;
+  const priceDiffPct = it.added_price ? (r.price - it.added_price) / it.added_price * 100 : null;
+  const changeBits = [];
+  if (priceDiffPct != null) changeBits.push(`담은 뒤 <span class="${updownClass(priceDiffPct)}">${sign(priceDiffPct, 1)}%</span>`);
+  if (scoreDiff != null) changeBits.push(`점수 ${it.added_score.toFixed(1)} → ${r.score} (${sign(scoreDiff, 1)})`);
+  if (it.added_verdict && v.label && it.added_verdict !== v.label) changeBits.push(`판단 ${it.added_verdict} → ${v.label}`);
+  const changeLine = changeBits.length ? `<div class="fav-change">${changeBits.join(" · ")}</div>` : "";
+  const memoLine = it.memo ? `<div class="fav-memo">📝 ${it.memo}</div>` : "";
+  const tagsLine = (it.tags && it.tags.length) ? `<div class="fav-tags">${it.tags.map((t) => `<span class="fav-tag">${t}</span>`).join("")}</div>` : "";
+  const alertOn = it.alert_buy || it.alert_price_target != null || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly;
+  return `<div class="fav-row" data-code="${it.code}">
+    <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}" aria-label="${it.name} 비교 대상으로 선택"></span>
+    <span class="fav-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
+    <span class="fav-name-col">
+      <span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small>
+      ${changeLine}${memoLine}${tagsLine}
+    </span>
+    <span class="fav-score fav-hide-mobile" style="color:${scoreColor(r.score)}">${r.score}</span>
+    <span class="fav-price-col">
+      <span class="fav-price">${pw(r.price, r.currency)}</span>
+      <span class="fav-rate ${updownClass(r.rate)}">${sign(r.rate, 2)}%</span>
+    </span>
+    <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
+    <span class="fav-row-actions">
+      <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정">⚙</button>
+      <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록">🛒</button>
+      <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거">✕</button>
+    </span>
+  </div>`;
+}
 
+// 행 클릭·아이콘 버튼 배선 — 홈 카드와 전용 페이지가 같은 걸 쓴다.
+function wireFavRows(el, rerender) {
   el.querySelectorAll(".fav-row:not(.fav-row-head)").forEach((row) => {
     row.onclick = (e) => {
       if (e.target.closest(".fav-x, .fav-icon-btn, .fav-check")) return;
@@ -299,7 +264,7 @@ async function renderFavBoard() {
     };
   });
   el.querySelectorAll(".fav-x").forEach((b) => {
-    b.onclick = async (e) => { e.stopPropagation(); await removeFromWatch(b.dataset.x); renderFavBoard(); };
+    b.onclick = async (e) => { e.stopPropagation(); await removeFromWatch(b.dataset.x); rerender(); };
   });
   el.querySelectorAll("[data-gear]").forEach((b) => {
     b.onclick = (e) => { e.stopPropagation(); openWatchSettings(b.dataset.gear); };
@@ -312,6 +277,152 @@ async function renderFavBoard() {
     cb.onchange = updateFavCmpBar;
   });
   updateFavCmpBar();
+}
+
+const FAV_TABLE_HEAD = `<div class="fav-row fav-row-head">
+  <span></span><span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
+</div>`;
+
+async function renderFavBoard() {
+  const el = $("fav-board");
+  if (!currentUser) { el.classList.add("hidden"); return; }
+  const items0 = Object.values(watchMap);
+  if (!items0.length) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.innerHTML = `<h2>⭐ 관심종목 <button class="sec-link" data-route="/watchlist">전체보기 →</button></h2>
+    <p id="fav-summary" class="fav-summary hidden"></p>
+    <div id="fav-stale" class="fav-stale hidden"></div>
+    <div id="fav-cmp-bar" class="fav-cmp-bar hidden"></div>
+    <div class="fav-table">
+      ${FAV_TABLE_HEAD}
+      <div id="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>
+    </div>
+    <button id="fav-more" class="sec-more hidden" aria-expanded="false"></button>`;
+
+  const d = await fetchWatchData();
+  const { items, byCode, staleCandidates } = d;
+
+  const summaryEl = $("fav-summary");
+  summaryEl.innerHTML = watchSummaryHtml(d);
+  summaryEl.classList.remove("hidden");
+
+  if (staleCandidates.length) {
+    const staleEl = $("fav-stale");
+    staleEl.classList.remove("hidden");
+    staleEl.innerHTML = `⏳ ${staleCandidates.map((x) => x.name).join(", ")} — 담은 지 90일 넘었고 점수도 떨어졌어요. `
+      + `<button id="fav-stale-clean" class="ghost-btn small">정리하기</button>`;
+    $("fav-stale-clean").onclick = async () => {
+      if (!confirm(`${staleCandidates.length}개 종목을 관심종목에서 제거할까요?`)) return;
+      await Promise.all(staleCandidates.map((x) => removeFromWatch(x.code)));
+      renderFavBoard();
+    };
+  }
+
+  /* 담은 종목이 많으면 홈이 그만큼 길어진다 — 20종목을 담으면 20행이 그대로 나와
+     "접기 기능이 없다"는 지적을 받았다(UI/UX 진단보고서 3-1). 5개만 펼치고 접는다.
+     전부 보려면 위의 "전체보기"로 전용 페이지(/watchlist)에 간다. */
+  const FAV_LIMIT = 5;
+  const favShown = favExpanded ? items : items.slice(0, FAV_LIMIT);
+  const mb = $("fav-more");
+  if (mb) {
+    const rest = items.length - favShown.length;
+    mb.classList.toggle("hidden", items.length <= FAV_LIMIT);
+    mb.textContent = favExpanded ? "접기 ▴" : `관심종목 ${rest}개 더 보기 ▾`;
+    mb.setAttribute("aria-expanded", favExpanded ? "true" : "false");
+    mb.onclick = () => { favExpanded = !favExpanded; renderFavBoard(); };
+  }
+  $("fav-rows").innerHTML = favShown.map((it) => favRowHtml(it, byCode[it.code])).join("");
+  wireFavRows(el, renderFavBoard);
+}
+
+/* ---------------- 관심종목 전용 페이지 (/watchlist) ----------------
+   홈 카드엔 5개만 나오고 정렬·필터가 없어 "갈 곳이 없으니 모든 기능이 홈으로
+   몰린다"는 지적을 받았다(UI/UX 진단보고서 3-1·7장). 전체 목록 + 정렬 + 필터. */
+let watchSort = "added";     // added | score | upside | rate | name
+let watchFilter = "all";     // all | buy | alert | up | down
+
+async function showWatchlist() {
+  if (!currentUser) { openAuthModal("login"); return; }
+  hideAllViews();
+  $("watchlist-view").classList.remove("hidden");
+  setActiveNav("watchlist");
+  window.scrollTo({ top: 0 });
+  document.title = "관심종목 — StockLens";
+  await renderWatchlistPage();
+}
+
+async function renderWatchlistPage() {
+  const el = $("watchlist-view");
+  const d = await fetchWatchData();
+  const { items, byCode } = d;
+
+  if (!items.length) {
+    el.innerHTML = `<button class="back-btn" data-route="/">← 홈으로</button>
+      <section class="card">
+        <h2>⭐ 관심종목</h2>
+        <p class="hint-p">아직 담은 종목이 없습니다. 종목 상세 화면에서 ☆를 눌러 담아보세요.</p>
+      </section>`;
+    return;
+  }
+
+  const SORTS = [["added", "담은 순"], ["score", "점수 높은 순"], ["upside", "상승여력 순"],
+                 ["rate", "등락률 순"], ["name", "이름 순"]];
+  const FILTERS = [["all", "전체"], ["buy", "매수 구간만"], ["alert", "알림 설정한 것만"],
+                   ["up", "오늘 상승"], ["down", "오늘 하락"]];
+
+  // 필터 → 정렬 순서로 적용. 랭킹 데이터가 아직 없는 종목(byCode 미매칭)은 맨 뒤로 보낸다.
+  let list = items.filter((it) => {
+    const r = byCode[it.code];
+    if (watchFilter === "buy") return r && WATCH_BUY_TIERS.has((r.ai_verdict || {}).tier);
+    if (watchFilter === "alert") return it.alert_buy || it.alert_price_target != null
+      || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly;
+    if (watchFilter === "up") return r && r.rate > 0;
+    if (watchFilter === "down") return r && r.rate < 0;
+    return true;
+  });
+  const num = (v) => (v == null ? -Infinity : v);
+  list.sort((a, b) => {
+    const ra = byCode[a.code], rb = byCode[b.code];
+    if (!ra && !rb) return 0;
+    if (!ra) return 1;
+    if (!rb) return -1;
+    if (watchSort === "score") return num(rb.score) - num(ra.score);
+    if (watchSort === "upside") return num(rb.upside) - num(ra.upside);
+    if (watchSort === "rate") return num(rb.rate) - num(ra.rate);
+    if (watchSort === "name") return String(ra.name).localeCompare(String(rb.name), "ko");
+    return (b.created_at || 0) - (a.created_at || 0);   // added(기본): 최근에 담은 것부터
+  });
+
+  el.innerHTML = `<button class="back-btn" data-route="/">← 홈으로</button>
+    <section class="card">
+      <h2>⭐ 관심종목 <small class="hint">${items.length}종목</small></h2>
+      <p class="fav-summary">${watchSummaryHtml(d)}</p>
+      <div class="wl-controls">
+        <div class="wl-group" role="group" aria-label="정렬">
+          <span class="wl-label">정렬</span>
+          ${SORTS.map(([k, t]) => `<button class="wl-chip ${watchSort === k ? "active" : ""}" data-sort="${k}">${t}</button>`).join("")}
+        </div>
+        <div class="wl-group" role="group" aria-label="필터">
+          <span class="wl-label">필터</span>
+          ${FILTERS.map(([k, t]) => `<button class="wl-chip ${watchFilter === k ? "active" : ""}" data-filter="${k}">${t}</button>`).join("")}
+        </div>
+      </div>
+      <div id="fav-cmp-bar" class="fav-cmp-bar hidden"></div>
+      <div class="fav-table">
+        ${FAV_TABLE_HEAD}
+        <div id="wl-rows">${list.length
+          ? list.map((it) => favRowHtml(it, byCode[it.code])).join("")
+          : `<p class="hint-p">조건에 맞는 종목이 없습니다.</p>`}</div>
+      </div>
+    </section>`;
+
+  el.querySelectorAll("[data-sort]").forEach((b) => {
+    b.onclick = () => { watchSort = b.dataset.sort; renderWatchlistPage(); };
+  });
+  el.querySelectorAll("[data-filter]").forEach((b) => {
+    b.onclick = () => { watchFilter = b.dataset.filter; renderWatchlistPage(); };
+  });
+  wireFavRows(el, renderWatchlistPage);
 }
 
 // 관심종목 여러 개 체크해 이미 있는 종목비교(⚖️)로 바로 연결 — P3: "비교담기와 연결".
@@ -344,6 +455,7 @@ function updateFavCmpBar() {
 async function buyFromWatch(code) {
   const it = watchMap[code];
   if (!it) return;
+  if (location.pathname !== "/portfolio") history.pushState(null, "", "/portfolio");
   await showPortfolio();
   const nation = /^\d{6}$/.test(code) ? "KR" : "US";
   pfSelected = { code, name: it.name, nation };
@@ -479,15 +591,20 @@ function setActiveNav(view) {
   document.querySelectorAll("#main-nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
 }
 
-function goHome(fromPopstate) {
+/* 화면 전환 — 예전엔 화면을 열 때마다 나머지 6개를 일일이 hidden 처리하는 코드가
+   goHome·showPortfolio·showScreener·popstate 등 여러 곳에 복사돼 있었다. 화면을
+   하나 추가할 때(이번 /watchlist) 그 목록을 전부 찾아 고쳐야 해서 빠뜨리기 쉽다
+   — 한 곳에 모은다. */
+const ALL_VIEWS = ["landing", "report", "compare-view", "admin-view",
+                   "portfolio-view", "screener-view", "watchlist-view", "loading"];
+function hideAllViews() {
   clearInterval(priceTimer);
+  ALL_VIEWS.forEach((id) => { const e = $(id); if (e) e.classList.add("hidden"); });
+}
+
+function goHome(fromPopstate) {
   currentCode = null;
-  $("report").classList.add("hidden");
-  $("compare-view").classList.add("hidden");
-  $("admin-view").classList.add("hidden");
-  $("portfolio-view").classList.add("hidden");
-  $("screener-view").classList.add("hidden");
-  $("loading").classList.add("hidden");
+  hideAllViews();
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
   setActiveNav("home");
@@ -501,13 +618,19 @@ function goHome(fromPopstate) {
 document.querySelectorAll("#main-nav button").forEach((b) => {
   b.onclick = () => {
     const view = b.dataset.view;
-    if (view === "home") { goHome(); return; }
-    if (view === "portfolio") {
+    // 화면 전환은 전부 navigate()를 거쳐 주소가 함께 바뀌게 한다(북마크·뒤로가기 가능).
+    if (view === "home") { navigate("/"); return; }
+    if (view === "watchlist") {
       if (!currentUser) { openAuthModal("login"); return; }
-      showPortfolio();
+      navigate("/watchlist");
       return;
     }
-    if (view === "screener") { showScreener(); return; }
+    if (view === "portfolio") {
+      if (!currentUser) { openAuthModal("login"); return; }
+      navigate("/portfolio");
+      return;
+    }
+    if (view === "screener") { navigate("/screener"); return; }
     if (view === "stock") {
       if (currentCode) {
         clearInterval(priceTimer);
@@ -636,14 +759,11 @@ async function loadBacktest() {
 let screenerSectorsLoaded = false;
 
 async function showScreener() {
-  $("landing").classList.add("hidden");
-  $("report").classList.add("hidden");
-  $("compare-view").classList.add("hidden");
-  $("admin-view").classList.add("hidden");
-  $("portfolio-view").classList.add("hidden");
+  hideAllViews();
   $("screener-view").classList.remove("hidden");
   setActiveNav("screener");
   window.scrollTo({ top: 0 });
+  document.title = "스크리너 — StockLens";
   if (!screenerSectorsLoaded) {
     screenerSectorsLoaded = true;
     try {
@@ -1249,12 +1369,12 @@ async function loadMyPortfolioWidget() {
     const p = await api("/api/portfolio");
     if (!p.available || !p.items || !p.items.length) {
       board.innerHTML = mypfEmptyHtml();
-      $("mypf-add-btn").onclick = showPortfolio;
+      $("mypf-add-btn").onclick = () => navigate("/portfolio");
       return;
     }
     board.innerHTML = mypfActionsHtml(p);
     board.querySelectorAll(".mypf-action").forEach((el) => { el.onclick = () => analyze(el.dataset.code); });
-    $("mypf-view-btn").onclick = showPortfolio;
+    $("mypf-view-btn").onclick = () => navigate("/portfolio");
   } catch {
     board.innerHTML = "";   // 실패해도 홈 진입 자체는 막지 않음(조용히 숨김)
   }
@@ -3066,14 +3186,11 @@ let pfEditingCode = null;   // 지금 인라인 수정 중인 보유종목 코�
 let lastPortfolioData = null;
 
 async function showPortfolio() {
-  $("landing").classList.add("hidden");
-  $("report").classList.add("hidden");
-  $("compare-view").classList.add("hidden");
-  $("admin-view").classList.add("hidden");
-  $("screener-view").classList.add("hidden");
+  hideAllViews();
   $("portfolio-view").classList.remove("hidden");
   setActiveNav("portfolio");
   window.scrollTo({ top: 0 });
+  document.title = "포트폴리오 — StockLens";
   await loadPortfolio();
 }
 
@@ -3522,7 +3639,9 @@ initTheme();
 syncHomeForUser();   // loadMe() 전에도 한 번 — 로그아웃 기준 초기 상태를 먼저 맞춰 둔다
 renderFavBoard();
 loadRanking();
-loadMe();
+// 로그인 확인은 비동기다 — 아래 라우팅이 이 결과를 기다려야 하는 경우가 있어
+// Promise를 붙잡아 둔다(_meReady).
+const _meReady = loadMe();
 loadThemeChips();
 loadAnomalies();
 loadBacktest();
@@ -3559,20 +3678,64 @@ window.addEventListener("scroll", () => {
   _lastScrollY = y;
 }, { passive: true });
 
-// URL 라우팅: 뒤로/앞으로가기 시 주소창만 바뀌고 화면은 그대로였던 문제를 막는다 —
-// popstate가 오면 현재 주소를 다시 읽어 그에 맞는 화면으로 전환한다(pushState 없이).
-window.addEventListener("popstate", () => {
-  // 뒤로가기 시점에 포트폴리오/비교/관리자 화면이 떠 있을 수도 있다 — analyze()는 이 화면들을
-  // 닫지 않으므로(원래 랭킹·홈에서 종목 클릭 시에만 쓰이던 함수라 그럴 필요가 없었음) 여기서
-  // 먼저 정리해야 전환 후 두 화면이 겹쳐 보이는 걸 막을 수 있다.
-  $("compare-view").classList.add("hidden");
-  $("admin-view").classList.add("hidden");
-  $("portfolio-view").classList.add("hidden");
-  $("screener-view").classList.add("hidden");
-  const m = location.pathname.match(/^\/stock\/([^/]+)\/?$/);
-  if (m) analyze(decodeURIComponent(m[1]), true);
-  else goHome(true);
+/* ---------------- URL 라우팅 ----------------
+   예전엔 /stock/{code}만 라우팅되고 관심종목·스크리너·포트폴리오는 주소가 없어서
+   직접 접속하면 404였다. "갈 곳이 없으니 모든 기능이 홈으로 몰린다"는 지적의
+   원인(UI/UX 진단보고서 3-1, 4차 진단리포트 8장 — 4회 연속 지적된 항목).
+   경로 표를 한 곳에 두고, 최초 진입·뒤로가기·내부 이동이 모두 이 표를 거치게 한다. */
+const ROUTES = [
+  { re: /^\/watchlist\/?$/, auth: true,  run: () => showWatchlist() },
+  { re: /^\/screener\/?$/,                run: () => showScreener() },
+  { re: /^\/portfolio\/?$/, auth: true,  run: () => showPortfolio() },
+  { re: /^\/stock\/([^/]+)\/?$/,          run: (m) => analyze(decodeURIComponent(m[1]), true) },
+];
+
+function matchRoute(path) {
+  for (const r of ROUTES) {
+    const m = path.match(r.re);
+    if (m) return { route: r, m };
+  }
+  return null;
+}
+
+function applyRoute() {
+  const hit = matchRoute(location.pathname);
+  if (!hit) { goHome(true); return; }
+  if (hit.route.auth && !currentUser) {
+    // 로그인 화면으로 보내되 주소는 홈으로 되돌린다 — 죽은 링크가 남아 새로고침할
+    // 때마다 계속 모달만 뜨는 상황을 막는다.
+    // ⚠️ goHome(true)는 "뒤로가기로 들어온 경우"라 주소를 건드리지 않는다. 여기서는
+    // 직접 replaceState로 되돌려야 한다(히스토리에 새 항목을 쌓지 않으려고 push 대신 replace).
+    openAuthModal("login");
+    goHome(true);
+    if (location.pathname !== "/") history.replaceState(null, "", "/");
+    return;
+  }
+  hit.route.run(hit.m);
+}
+
+// 내부 이동 — 주소를 바꾸고(뒤로가기 가능) 해당 화면을 연다.
+function navigate(path) {
+  if (location.pathname !== path) history.pushState(null, "", path);
+  applyRoute();
+}
+
+// data-route="/경로"가 붙은 요소는 어디에 있든(동적 렌더 포함) 라우팅되게 위임 처리.
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-route]");
+  if (!el) return;
+  e.preventDefault();
+  navigate(el.dataset.route);
 });
-// 최초 진입이 /stock/{code}(공유된 링크·북마크·새로고침)면 그 종목을 바로 연다.
-const _initStockMatch = location.pathname.match(/^\/stock\/([^/]+)\/?$/);
-if (_initStockMatch) analyze(decodeURIComponent(_initStockMatch[1]), true);
+
+window.addEventListener("popstate", applyRoute);
+
+/* 최초 진입(공유된 링크·북마크·새로고침)이 "/"가 아니면 그 화면을 바로 연다.
+   ⚠️ 로그인 확인(loadMe)은 비동기라, /watchlist·/portfolio를 주소로 직접 열면
+   currentUser가 아직 null이어서 "로그인이 필요합니다"가 잘못 떴다. 인증이 필요한
+   경로만 확인이 끝난 뒤에 처리한다(나머지는 기다릴 이유가 없으니 즉시 실행). */
+if (location.pathname !== "/") {
+  const hit = matchRoute(location.pathname);
+  if (hit && hit.route.auth) _meReady.then(applyRoute);
+  else applyRoute();
+}

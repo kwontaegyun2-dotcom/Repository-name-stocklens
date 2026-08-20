@@ -1240,3 +1240,35 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .sec-toggle-title { font-size: 18px; }
   .sec-toggle-note { display: none; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   관심종목 전용 페이지 (/watchlist) — UI/UX 진단보고서 3-1·7장
+   홈 카드엔 5개만 나오고 정렬·필터가 없어 "갈 곳이 없으니 모든 기능이
+   홈으로 몰린다"는 지적을 받았다.
+   ═══════════════════════════════════════════════════════════════════ */
+/* 섹션 제목 옆 "전체보기 →" */
+.sec-link {
+  background: none; border: none; padding: 0; margin-left: 10px;
+  font-family: inherit; font-size: 12px; font-weight: 700;
+  color: var(--accent2); cursor: pointer; vertical-align: middle;
+}
+.sec-link:hover { text-decoration: underline; }
+
+.wl-controls { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 6px; }
+.wl-group { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.wl-label {
+  font-size: 11px; font-weight: 800; color: var(--dim);
+  min-width: 30px; letter-spacing: .04em;
+}
+.wl-chip {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 6px 13px; font-size: 12px; font-weight: 600; color: var(--muted);
+  font-family: inherit; cursor: pointer; transition: .16s; white-space: nowrap;
+}
+.wl-chip:hover { color: var(--text); border-color: var(--border-glow); }
+.wl-chip.active { background: var(--grad); color: #fff; border-color: transparent; font-weight: 700; }
+@media (max-width: 720px) {
+  .wl-controls { gap: 6px; }
+  .wl-group { gap: 5px; }
+  .wl-chip { padding: 5px 10px; font-size: 11px; }
+}

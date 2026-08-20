@@ -4,7 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=84">
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
+<link rel="stylesheet" href="/static/style.css?v=85">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -15,6 +17,7 @@
   <nav class="main-nav" id="main-nav" aria-label="주요 메뉴">
     <button data-view="home" class="active">홈</button>
     <button data-view="stock">종목분석</button>
+    <button data-view="watchlist">⭐ 관심종목</button>
     <button data-view="screener">🔎 스크리너</button>
     <button data-view="portfolio">💼 포트폴리오</button>
   </nav>
@@ -579,6 +582,11 @@
 </main>
 
 <!-- 내 포트폴리오 -->
+<!-- 관심종목 전용 페이지(/watchlist) — 내용은 app.js의 renderWatchlistPage()가 채운다.
+     홈 카드엔 5개만 나오고 정렬·필터가 없어 "갈 곳이 없으니 모든 기능이 홈으로 몰린다"는
+     지적을 받았다(UI/UX 진단보고서 3-1). -->
+<main id="watchlist-view" class="report hidden"></main>
+
 <main id="portfolio-view" class="report hidden">
   <button id="pf-back" class="back-btn">← 돌아가기</button>
 
@@ -689,6 +697,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=89"></script>
+<script src="/static/app.js?v=93"></script>
 </body>
 </html>

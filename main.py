@@ -32,6 +32,9 @@ def _startup():
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
+# sitemap·OG 태그에 쓸 공개 주소. 정식 도메인으로 옮기면 환경변수만 바꾸면 된다
+# (4차 진단리포트 8장 — 지금은 IP 기반 nip.io 주소).
+SITE_ORIGIN = os.environ.get("STOCKLENS_ORIGIN", "https://stocklens.161-33-201-126.nip.io").rstrip("/")
 # 공개 모드에서 AI 리포트 허용 여부 (기본 차단 — 소유자 비용 보호)
 AI_ALLOWED = (not PUBLIC) or os.environ.get("STOCKLENS_ALLOW_AI") == "1"
 
@@ -644,10 +647,55 @@ def index():
 # 항상 "/" 그대로라 북마크·공유·브라우저 뒤로가기가 전부 불가능했다(자체 "돌아가기" 버튼으로
 # 대신하고 있었음). 프런트는 SPA 그대로 두고(바닐라 JS 유지 원칙), /stock/{code} 요청에도
 # 같은 index.html을 내려준 뒤 클라이언트에서 location.pathname을 읽어 해당 종목을
-# 자동으로 분석·렌더링하도록 한다(static/app.js 맨 아래 initMatch 처리 참고).
+# 자동으로 분석·렌더링하도록 한다(static/app.js의 applyRoute 처리 참고).
 @app.get("/stock/{code}")
 def stock_page(code: str):
     return FileResponse(BASE / "static" / "index.html")
+
+
+# 관심종목·스크리너·포트폴리오 전용 주소. 종목 상세만 라우팅되고 이 셋은 404라
+# "갈 곳이 없으니 모든 기능이 홈으로 몰린다"는 지적을 네 차례 받았다(UI/UX 진단보고서
+# 3-1, 4차 진단리포트 8장). SPA라 서버는 같은 index.html만 내려주면 되고, 어떤 화면을
+# 열지는 클라이언트의 applyRoute()가 판단한다.
+@app.get("/watchlist")
+@app.get("/screener")
+@app.get("/portfolio")
+def spa_page():
+    return FileResponse(BASE / "static" / "index.html")
+
+
+# robots·sitemap·favicon — 세 개 모두 404였다(4차 진단리포트 8장, 4회 연속 지적).
+@app.get("/robots.txt")
+def robots():
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        # 개인 데이터가 걸린 화면은 로그인해야 볼 수 있어 크롤링해도 의미가 없다.
+        "Disallow: /portfolio\n"
+        "Disallow: /watchlist\n"
+        "Disallow: /api/\n"
+        f"Sitemap: {SITE_ORIGIN}/sitemap.xml\n"
+    )
+    return Response(content=body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    urls = [f"{SITE_ORIGIN}/", f"{SITE_ORIGIN}/screener"]
+    # 랭킹 유니버스에 있는 종목 상세는 공개 페이지라 색인 대상에 넣는다.
+    for market in ("KR", "US"):
+        for entry in ranking.UNIVERSES.get(market, [])[:200]:
+            urls.append(f"{SITE_ORIGIN}/stock/{entry[0]}")
+    body = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            + "".join(f"  <url><loc>{u}</loc></url>\n" for u in urls)
+            + "</urlset>\n")
+    return Response(content=body, media_type="application/xml")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return FileResponse(BASE / "static" / "favicon.svg", media_type="image/svg+xml")
 
 
 if __name__ == "__main__":
