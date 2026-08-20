@@ -233,10 +233,12 @@ button { cursor: pointer; font-family: inherit; }
 .today-pick-price { font-size: 17px; font-weight: 800; }
 .today-pick-score { font-size: 13px; color: var(--muted); font-weight: 600; }
 .today-pick-verdict { font-size: 14.5px; font-weight: 800; }
-/* align-items: start — 옆 박스가 2줄(예: 목표주가의 기준일 힌트)이어도 짧은 내용의 박스까지
-   grid 기본 stretch로 늘어나 "내용에 비해 박스가 크다"는 지적을 유발하던 문제 수정 */
-.today-pick-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 4px; align-items: start; }
-.today-pick-stats div { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px; text-align: center; }
+/* 2026-08-20 — "상승여력" 박스만 2줄(밸류에이션 기준 + 애널리스트 목표가 기준)이라
+   align-items:start를 쓰면 그 박스만 커 보이고 나머지 3개는 짧아 크기가 들쭉날쭉했다
+   (사용자 지적: "4개 상자박스 다 똑같은 크기로 맞춰"). 다시 stretch(기본값)로 네 박스
+   높이를 통일하고, 짧은 내용은 flex로 세로 가운데 정렬해 빈 공간이 안 어색하게 한다. */
+.today-pick-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin: 14px 0 4px; }
+.today-pick-stats div { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 9px 12px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .today-pick-stats label { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
 .today-pick-stats span { font-size: 14.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .today-pick-btn { margin-top: 14px; width: 100%; }
