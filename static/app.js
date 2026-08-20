@@ -197,12 +197,24 @@ async function renderFavBoard() {
       staleCandidates.push({ code: it.code, name: it.name });
     }
   });
+  /* 한 줄 요약 — 예전엔 "담은 뒤 판단이 바뀐 종목"이 있을 때만 떴다. 그래서 변화가
+     없는 날엔 요약이 통째로 사라져, 매일 들어와 확인할 이유를 못 만들었다(UI/UX
+     진단보고서 7장: "요약 헤더 없음"). 지금 몇 종목이 매수 구간인지를 항상 보여주고,
+     변화가 있을 때만 뒤에 덧붙인다. */
+  const BUY_TIERS = new Set(["strong_buy", "buy", "watch_buy", "accumulate"]);
+  const buyNow = items.filter((it) => {
+    const r = byCode[it.code];
+    return r && BUY_TIERS.has((r.ai_verdict || {}).tier);
+  }).length;
   const summaryEl = $("fav-summary");
-  if (improved || worsened) {
+  {
     const parts = [];
-    if (improved) parts.push(`${improved}종목이 매수 관심 구간에 진입했고`);
-    if (worsened) parts.push(`${worsened}종목은 판단이 하향됐습니다`);
-    summaryEl.textContent = `📌 ${items.length}종목 중 ${parts.join(", ")}${parts.length === 1 ? "." : ""}`;
+    if (improved) parts.push(`${improved}종목은 판단이 상향됐고`);
+    if (worsened) parts.push(`${worsened}종목은 하향됐습니다`);
+    const head = buyNow
+      ? `${items.length}종목 중 <b>${buyNow}종목이 매수 구간</b>입니다`
+      : `${items.length}종목 모두 지금은 매수 구간이 아닙니다`;
+    summaryEl.innerHTML = `📌 ${head}${parts.length ? " · " + parts.join(", ") : "."}`;
     summaryEl.classList.remove("hidden");
   }
   if (staleCandidates.length) {
@@ -221,7 +233,7 @@ async function renderFavBoard() {
     const r = byCode[it.code];
     if (!r) {
       return `<div class="fav-row" data-code="${it.code}">
-        <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
+        <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}" aria-label="${it.name} 비교 대상으로 선택"></span>
         <span class="fav-judge"></span>
         <span class="fav-name-col"><span class="fav-name">${it.name}</span><small class="hint">${it.code}</small></span>
         <span class="fav-hide-mobile"></span>
@@ -244,7 +256,7 @@ async function renderFavBoard() {
     const tagsLine = (it.tags && it.tags.length) ? `<div class="fav-tags">${it.tags.map((t) => `<span class="fav-tag">${t}</span>`).join("")}</div>` : "";
     const alertOn = it.alert_buy || it.alert_price_target != null || it.alert_score_threshold != null || it.alert_verdict_change || it.alert_anomaly;
     return `<div class="fav-row" data-code="${it.code}">
-      <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}"></span>
+      <span class="fav-cell-check"><input type="checkbox" class="fav-check" data-code="${it.code}" aria-label="${it.name} 비교 대상으로 선택"></span>
       <span class="fav-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="fav-name-col">
         <span class="fav-name">${flag}${r.name}</span><small class="hint">${r.code}</small>
@@ -257,9 +269,9 @@ async function renderFavBoard() {
       </span>
       <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
       <span class="fav-row-actions">
-        <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정">⚙</button>
-        <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록">🛒</button>
-        <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거">✕</button>
+        <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정">⚙</button>
+        <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록">🛒</button>
+        <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거">✕</button>
       </span>
     </div>`;
   }).join("");
@@ -291,7 +303,14 @@ function updateFavCmpBar() {
   const bar = $("fav-cmp-bar");
   if (!bar) return;
   const checked = [...document.querySelectorAll(".fav-check:checked")].map((c) => c.dataset.code);
-  if (checked.length < 2) { bar.classList.add("hidden"); bar.innerHTML = ""; return; }
+  // 2개 미만이면 아무것도 안 뜨던 탓에 "체크해도 아무 일이 없다"고 읽혔다(진단보고서 7장).
+  // 1개만 골랐을 때도 무엇을 할 수 있는지 알려준다.
+  if (checked.length === 1) {
+    bar.classList.remove("hidden");
+    bar.innerHTML = `1개 선택됨 · 종목을 하나 더 고르면 <b>비교</b>할 수 있어요`;
+    return;
+  }
+  if (!checked.length) { bar.classList.add("hidden"); bar.innerHTML = ""; return; }
   bar.classList.remove("hidden");
   bar.innerHTML = `${checked.length}개 선택됨 (최대 3개) · <button id="fav-cmp-go" class="ghost-btn small">⚖️ 비교하기</button>`;
   $("fav-cmp-go").onclick = async () => {
@@ -301,7 +320,7 @@ function updateFavCmpBar() {
       compareList = [];
       results.forEach((d) => addCompare(d));
       showCompare();
-    } catch (e) { alert("비교 데이터를 불러오지 못했습니다: " + e.message); }
+    } catch (e) { showError("비교 데이터를 불러오지 못했습니다: " + e.message); }
   };
 }
 
@@ -934,7 +953,7 @@ async function renderTodayPick(items) {
       syncFavBtn();
       renderFavBoard();
     } catch (err) {
-      alert(err.message);
+      showError(err.message);
     } finally {
       favBtn.disabled = false;
     }
@@ -1234,7 +1253,7 @@ async function analyze(code, fromPopstate) {
     // fromPopstate=true(뒤로가기로 들어온 실패)든 아니든 새 히스토리 항목을 쌓지 않고 그
     // 자리에서 주소만 고쳐야 뒤로/앞으로가기 스택이 꼬이지 않는다.
     if (location.pathname !== "/") history.replaceState(null, "", "/");
-    alert("분석 실패: " + err.message);
+    showError("분석 실패: " + err.message);
   }
 }
 
@@ -2171,7 +2190,7 @@ const CMP_COLORS = ["#6366f1", "#22d3ee", "#ff6b9d"];
 
 function addCompare(d) {
   if (!compareList.some((x) => x.code === d.code)) {
-    if (compareList.length >= 3) { alert("비교는 최대 3종목까지 가능합니다."); return; }
+    if (compareList.length >= 3) { showError("비교는 최대 3종목까지 가능합니다."); return; }
     compareList.push({
       code: d.code, name: d.name, currency: d.currency, market: d.nation,
       price: d.price, grade: d.total.grade, score: d.total.total_score,
@@ -2200,7 +2219,7 @@ function renderCompareTray() {
   $("cmp-go").disabled = compareList.length < 2;
 }
 function showCompare() {
-  if (compareList.length < 2) { alert("2종목 이상 담아주세요."); return; }
+  if (compareList.length < 2) { showError("2종목 이상 담아주세요."); return; }
   clearInterval(priceTimer);
   $("landing").classList.add("hidden");
   $("report").classList.add("hidden");
@@ -2617,7 +2636,7 @@ $("ai-btn").onclick = async () => {
     $("ai-report").innerHTML = mdToHtml(report);
     $("ai-report").classList.remove("hidden");
   } catch (e) {
-    alert("AI 리포트 생성 실패: " + e.message);
+    showError("AI 리포트 생성 실패: " + e.message);
   } finally {
     btn.disabled = false;
     btn.textContent = "AI 심층 분석 생성";
@@ -2831,19 +2850,27 @@ async function migrateLegacyFavs() {
   if (restored) showToast(`⭐ 예전 관심종목 ${restored}개를 복구했습니다.`);
 }
 
-function showToast(text) {
+function showToast(text, kind) {
   let t = $("app-toast");
   if (!t) {
     t = document.createElement("div");
     t.id = "app-toast";
     t.className = "app-toast";
+    // 스크린리더가 토스트 내용을 읽도록 라이브 리전으로 선언(진단보고서 6장: role 0개).
+    t.setAttribute("role", "status");
+    t.setAttribute("aria-live", "polite");
     document.body.appendChild(t);
   }
   t.textContent = text;
+  t.classList.toggle("err", kind === "error");
+  t.setAttribute("role", kind === "error" ? "alert" : "status");
   t.classList.add("show");
   clearTimeout(showToast._timer);
-  showToast._timer = setTimeout(() => t.classList.remove("show"), 4500);
+  showToast._timer = setTimeout(() => t.classList.remove("show"), kind === "error" ? 6000 : 4500);
 }
+// 브라우저 기본 alert()는 페이지를 멈춰 세우고 디자인도 통제할 수 없어, 이미 도입한
+// 토스트로 피드백 방식을 하나로 통일한다(진단보고서 7장 — alert 9건·토스트 7건 혼재).
+function showError(text) { showToast(text, "error"); }
 
 function urlBase64ToUint8Array(base64) {
   const padding = "=".repeat((4 - (base64.length % 4)) % 4);
@@ -3196,8 +3223,8 @@ function renderPortfolio(p) {
         const shares = Number($("pf-edit-shares").value);
         const priceRaw = $("pf-edit-price").value.trim();
         const avg_price = priceRaw ? Number(priceRaw) : null;
-        if (!shares || shares <= 0) { alert("수량은 0보다 큰 숫자로 입력하세요."); return; }
-        if (priceRaw && (!avg_price || avg_price <= 0)) { alert("평균단가는 0보다 큰 숫자로 입력하세요."); return; }
+        if (!shares || shares <= 0) { showError("수량은 0보다 큰 숫자로 입력하세요."); return; }
+        if (priceRaw && (!avg_price || avg_price <= 0)) { showError("평균단가는 0보다 큰 숫자로 입력하세요."); return; }
         b.disabled = true;
         try {
           await api(`/api/portfolio/${code}`, {
@@ -3208,7 +3235,7 @@ function renderPortfolio(p) {
           pfEditingCode = null;
           await loadPortfolio();
         } catch (e) {
-          alert("수정 실패: " + e.message);
+          showError("수정 실패: " + e.message);
           b.disabled = false;
         }
       };

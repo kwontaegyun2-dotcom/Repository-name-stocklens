@@ -450,6 +450,10 @@ button { cursor: pointer; font-family: inherit; }
   transition: opacity .22s, transform .22s; max-width: 90vw;
 }
 .app-toast.show { opacity: 1; transform: translate(-50%, 0); }
+/* 오류는 색으로 구분 — 브라우저 alert()를 토스트로 통일하면서 "실패"가 성공 안내와
+   똑같이 보이면 안 되기 때문(UI/UX 진단보고서 7장: alert 9건과 토스트 7건 혼재). */
+.app-toast.err { border-color: var(--up); color: var(--up); }
+.app-toast[role="alert"] { pointer-events: auto; }
 
 /* ---------- loading ---------- */
 .loading { text-align: center; padding: 130px 0; }
