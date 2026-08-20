@@ -453,7 +453,7 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
         $("screener-view").classList.add("hidden");
         $("report").classList.remove("hidden");
         setActiveNav("stock");
-        priceTimer = setInterval(refreshPrice, 4000);
+        priceTimer = setInterval(refreshPrice, 2000);
         window.scrollTo({ top: 0 });
       } else {
         goHome();
@@ -1190,7 +1190,7 @@ async function analyze(code, fromPopstate) {
     $("report").classList.remove("hidden");
     setActiveNav("stock");
     window.scrollTo({ top: 0 });
-    priceTimer = setInterval(refreshPrice, 4000);
+    priceTimer = setInterval(refreshPrice, 2000);
     // URL 라우팅: 종목 페이지를 북마크·공유·브라우저 뒤로가기로 다시 열 수 있게 주소창을
     // /stock/{code}로 갱신한다(진단리포트 지적사항 — 이전엔 주소가 항상 "/" 그대로였음).
     const path = `/stock/${encodeURIComponent(d.code)}`;

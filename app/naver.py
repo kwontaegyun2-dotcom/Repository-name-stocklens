@@ -57,9 +57,12 @@ def search(query: str, market: str = None):
 
 
 def basic(code: str):
+    # ttl을 짧게 유지 — 시세 뱃지가 "실시간이 아닌 것 같다"는 지적(2026-08-20)이 있었다.
+    # 이 캐시는 서버 전체가 공유하므로(방문자 수와 무관하게 코드당 최대 초당 1회 상한),
+    # ttl을 낮춰도 네이버 쪽 부하는 늘지 않고 화면 갱신 지연만 줄어든다.
     if is_us(code):
-        return _get(f"{A}/stock/{code}/basic", ttl=5)
-    return _get(f"{M}/stock/{code}/basic", ttl=5)
+        return _get(f"{A}/stock/{code}/basic", ttl=2)
+    return _get(f"{M}/stock/{code}/basic", ttl=2)
 
 
 def integration(code: str):
