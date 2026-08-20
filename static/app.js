@@ -103,7 +103,7 @@ function applyTheme(t, repaint) {
   document.body.classList.toggle("light", t === "light");
   // 이모지 대신 스프라이트 아이콘을 갈아 끼운다(진단보고서 4-3 — 이모지는 OS마다
   // 모양이 달라 톤을 통제할 수 없고 스크린리더가 그대로 읽는다).
-  $("theme-btn").innerHTML = `<svg class="i" aria-hidden="true"><use href="#i-${t === "light" ? "sun" : "moon"}"/></svg>`;
+  $("theme-btn").innerHTML = `<svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-${t === "light" ? "sun" : "moon"}"/></svg>`;
   $("theme-btn").setAttribute("aria-label", t === "light" ? "어두운 테마로 전환" : "밝은 테마로 전환");
   if (!repaint) return;
   /* ⚠️ 클래스만 토글하면 CSS 변수를 쓰는 요소만 바뀌고, "그릴 때의 테마 색을 굳혀 버리는"
@@ -220,7 +220,7 @@ function favRowHtml(it, r) {
       <span class="fav-hide-mobile"></span>
       <span class="fav-price-col"><span class="fav-na">데이터 준비 중</span></span>
       <span class="fav-hide-mobile"></span>
-      <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${it.name} 관심종목에서 제거"><svg class="i" aria-hidden="true"><use href="#i-close"/></svg></button></span>
+      <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${it.name} 관심종목에서 제거"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button></span>
     </div>`;
   }
   const v = r.ai_verdict || {};
@@ -250,9 +250,9 @@ function favRowHtml(it, r) {
     </span>
     <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
     <span class="fav-row-actions">
-      <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg></button>
-      <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록"><svg class="i" aria-hidden="true"><use href="#i-cart"/></svg></button>
-      <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거"><svg class="i" aria-hidden="true"><use href="#i-close"/></svg></button>
+      <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg></button>
+      <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cart"/></svg></button>
+      <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-close"/></svg></button>
     </span>
   </div>`;
 }
