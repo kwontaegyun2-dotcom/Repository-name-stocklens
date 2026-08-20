@@ -3314,7 +3314,7 @@ function renderPortfolio(p) {
   const hasHoldings = p.available || (p.excluded && p.excluded.length);
   $("pf-summary-card").classList.toggle("hidden", !hasHoldings);
   $("pf-sector-card").classList.toggle("hidden", !p.available);
-  $("pf-holdings-card").classList.toggle("hidden", !p.available);
+  $("pf-holdings-table-wrap").classList.toggle("hidden", !p.available);
   renderTodayActions(p);
   renderRiskFlags(p);
   renderExposure(p);
