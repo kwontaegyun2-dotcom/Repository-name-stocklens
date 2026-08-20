@@ -4,25 +4,25 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
-<link rel="stylesheet" href="/static/style.css?v=77">
+<link rel="stylesheet" href="/static/style.css?v=82">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
 <div class="bg-orbs"><span></span><span></span><span></span></div>
 
 <header class="topbar">
-  <div class="logo" id="logo-home">📊 Stock<span>Lens</span></div>
-  <nav class="main-nav" id="main-nav">
+  <button class="logo" id="logo-home" aria-label="StockLens 홈으로">📊 Stock<span>Lens</span></button>
+  <nav class="main-nav" id="main-nav" aria-label="주요 메뉴">
     <button data-view="home" class="active">홈</button>
     <button data-view="stock">종목분석</button>
     <button data-view="screener">🔎 스크리너</button>
     <button data-view="portfolio">💼 포트폴리오</button>
   </nav>
   <div class="search-wrap">
-    <input id="search-input" type="text" placeholder="종목명 또는 종목코드 검색 (예: 삼성전자, 005930)" autocomplete="off">
-    <div id="search-dropdown" class="dropdown hidden"></div>
+    <input id="search-input" type="text" aria-label="종목명 또는 종목코드 검색" placeholder="종목명 또는 종목코드 검색 (예: 삼성전자, 005930)" autocomplete="off">
+    <div id="search-dropdown" class="dropdown hidden" role="listbox" aria-label="검색 결과"></div>
   </div>
-  <button id="theme-btn" class="icon-btn" title="테마 전환">🌙</button>
+  <button id="theme-btn" class="icon-btn" title="테마 전환" aria-label="밝은 테마로 전환">🌙</button>
   <button id="kis-btn" class="ghost-btn">⚙ 실시간 시세 연동</button>
   <div id="auth-area" class="auth-area">
     <button id="login-btn" class="ghost-btn">로그인</button>
@@ -123,7 +123,7 @@
       <div>
         <h2>
           <span id="stock-name"></span> <small id="stock-code"></small> <em id="stock-market"></em>
-          <button id="fav-btn" class="fav-btn" title="관심종목에 담기/빼기">☆</button>
+          <button id="fav-btn" class="fav-btn" title="관심종목에 담기/빼기" aria-label="관심종목에 담기/빼기" aria-pressed="false">☆</button>
           <button id="watch-btn" class="watch-btn hidden" title="이 종목의 알림·메모 설정">⚙ 알림 설정</button>
           <button id="compare-btn" class="cmp-btn" title="비교에 담기">⚖️ 비교담기</button>
         </h2>
@@ -145,8 +145,27 @@
     </div>
   </section>
 
+  <!-- 종목상세 탭 + 스크롤 요약바 (UI/UX 진단보고서 3-2)
+       ⚠️ 예전엔 이 탭바가 y=1,742px(2.4화면 아래)에 있었다. 원인은 위의 #highlight-card
+       (AI판단·왜사야하나·가격별 투자전략·단계별 매수전략)에 data-tab이 없어 "종합" 탭
+       전용 내용인데도 모든 탭에서 항상 렌더됐기 때문. 탭을 종목 헤더 바로 밑으로 올리고
+       highlight-card에 data-tab="overview"를 줘서 종합 탭에만 나오게 했다.
+       거기에 sticky까지 걸어, 스크롤을 내려도 탭 전환을 위해 다시 위로 올라갈 필요가 없다. -->
+  <div class="detail-sticky" id="detail-sticky">
+    <div class="sticky-summary" id="sticky-summary"></div>
+    <div class="detail-tabs" id="detail-tabs" role="tablist" aria-label="종목 상세 탭">
+      <button class="active" data-tab="overview" role="tab" aria-selected="true">종합</button>
+      <button data-tab="chart" role="tab" aria-selected="false">차트</button>
+      <button data-tab="valuation" role="tab" aria-selected="false">밸류</button>
+      <button data-tab="finance" role="tab" aria-selected="false">재무</button>
+      <button data-tab="flow" id="tab-btn-flow" role="tab" aria-selected="false">수급</button>
+      <button data-tab="news" role="tab" aria-selected="false">뉴스·리포트</button>
+      <button data-tab="ai" id="tab-btn-ai" role="tab" aria-selected="false">AI분석</button>
+    </div>
+  </div>
+
   <!-- AI 최종판단 (한눈에 보기) -->
-  <section class="card highlight-card hidden" id="highlight-card">
+  <section class="card highlight-card hidden" id="highlight-card" data-tab="overview">
     <div class="ai-verdict-box">
       <div class="ai-verdict-label">🤖 StockLens AI</div>
       <div class="ai-verdict-main">
@@ -199,17 +218,6 @@
       </div>
     </div>
   </section>
-
-  <!-- 종목상세 탭 -->
-  <div class="detail-tabs" id="detail-tabs">
-    <button class="active" data-tab="overview">종합</button>
-    <button data-tab="chart">차트</button>
-    <button data-tab="valuation">밸류</button>
-    <button data-tab="finance">재무</button>
-    <button data-tab="flow" id="tab-btn-flow">수급</button>
-    <button data-tab="news">뉴스·리포트</button>
-    <button data-tab="ai" id="tab-btn-ai">AI분석</button>
-  </div>
 
   <!-- 종합 의견 -->
   <section class="card" data-tab="overview">
@@ -648,6 +656,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=81"></script>
+<script src="/static/app.js?v=86"></script>
 </body>
 </html>

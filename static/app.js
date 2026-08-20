@@ -51,21 +51,37 @@ function sparklineSvg(values, w = 70, h = 20) {
     <polyline points="${pts}" fill="none" stroke="${up ? "#2ee6a6" : "#ff4d6d"}" stroke-width="1.5" vector-effect="non-scaling-stroke"/>
   </svg>`;
 }
+/* ⚠️ 점수색·판단색은 style="color:..."로 직접 박히기 때문에 CSS의 body.light 변수
+   오버라이드가 닿지 않는다 — 라이트 모드에서 이 색들이 흰 배경 위에 그대로 올라가
+   명암비 1.70~2.76:1(AA 기준 4.5 미달)로 실측됐다(UI/UX 진단보고서 5장, 등급칩·
+   판단배지 등 30곳 이상). 테마별 팔레트를 따로 두고 현재 테마에 맞춰 고른다.
+   isLight()를 매번 호출해도 classList 조회라 비용은 무시할 수준. */
+function isLight() { return document.body.classList.contains("light"); }
+/* CSS 변수 "참조"를 그대로 돌려준다 — style="color:var(--sc-good)"로 박히면 테마를
+   바꿀 때 브라우저가 스스로 다시 해석하므로, 다시 렌더링하지 않은 화면(이상징후·
+   테마목록 등)의 색까지 자동으로 따라온다. canvas처럼 var()를 못 쓰는 곳은
+   아래 cssVar()로 실제 hex를 뽑아 쓸 것. */
+function cssVar(name) {
+  return getComputedStyle(document.body).getPropertyValue(name).trim();
+}
 function scoreColor(s) {
-  if (s >= 75) return "#2ecc71";
-  if (s >= 60) return "#4f8cff";
-  if (s >= 45) return "#f5a623";
-  return "#ff4d4d";
+  return s >= 75 ? "var(--sc-excellent)"
+       : s >= 60 ? "var(--sc-good)"
+       : s >= 45 ? "var(--sc-fair)"
+       :           "var(--sc-poor)";
+}
+function scoreColorHex(s) {   // canvas 전용 — var() 문자열을 실제 색으로 해석
+  return cssVar(s >= 75 ? "--sc-excellent" : s >= 60 ? "--sc-good" : s >= 45 ? "--sc-fair" : "--sc-poor");
 }
 function verdictColor(tier) {
   // analysis.py VERDICT_TIERS(8단계)와 짝 맞춤 — 기존 5색(#2ee6a6/#f5c518/#4f8cff/#f5a623/#ff4d6d)은
   // 그대로 두고 사이 3단계(strong_buy·watch_buy·watch_sell)에 보간색을 추가했다.
   return {
-    strong_buy: "#17c98b", buy: "#2ee6a6", watch_buy: "#a8e6c8",
-    accumulate: "#f5c518",
-    hold: "#4f8cff",
-    watch_sell: "#f0b23c", reduce: "#f5a623", sell: "#ff4d6d",
-  }[tier] || "#9aa3ba";
+    strong_buy: "var(--vd-strong-buy)", buy: "var(--vd-buy)", watch_buy: "var(--vd-watch-buy)",
+    accumulate: "var(--vd-accumulate)",
+    hold: "var(--vd-hold)",
+    watch_sell: "var(--vd-watch-sell)", reduce: "var(--vd-reduce)", sell: "var(--vd-sell)",
+  }[tier] || "var(--vd-none)";
 }
 function gradeEmoji(grade) {
   return { S: "🟢", A: "🟢", B: "🟡", C: "🟡", D: "🔴", F: "🔴" }[grade] || "⚪";
@@ -83,17 +99,31 @@ async function api(path, opts) {
 
 /* ---------------- theme ---------------- */
 const THEME_KEY = "stocklens_theme";
-function applyTheme(t) {
+function applyTheme(t, repaint) {
   document.body.classList.toggle("light", t === "light");
   $("theme-btn").textContent = t === "light" ? "☀️" : "🌙";
+  $("theme-btn").setAttribute("aria-label", t === "light" ? "어두운 테마로 전환" : "밝은 테마로 전환");
+  if (!repaint) return;
+  /* ⚠️ 클래스만 토글하면 CSS 변수를 쓰는 요소만 바뀌고, "그릴 때의 테마 색을 굳혀 버리는"
+     것들은 어두운 배경용 색을 그대로 유지한다 — 캔버스로 그린 차트, SVG 게이지,
+     style="color:..."로 색을 직접 박는 점수칩·판단배지가 그렇다. 그래서 라이트로
+     바꿔도 차트가 다크 테마로 남아 있었다(UI/UX 진단보고서 5장). 화면에 떠 있는
+     것만 다시 그린다. */
+  const activeTab = document.querySelector("#detail-tabs button.active");
+  const tabName = activeTab && activeTab.dataset.tab;
+  if (lastAnalysis && !$("report").classList.contains("hidden")) {
+    render(lastAnalysis);
+    if (tabName) showDetailTab(tabName);   // render()가 "종합"으로 리셋하므로 보던 탭 복구
+  }
+  if (!$("landing").classList.contains("hidden")) loadRanking(currentSector);
 }
 function initTheme() {
-  applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+  applyTheme(localStorage.getItem(THEME_KEY) || "dark", false);
 }
 $("theme-btn").onclick = () => {
   const t = document.body.classList.contains("light") ? "dark" : "light";
   localStorage.setItem(THEME_KEY, t);
-  applyTheme(t);
+  applyTheme(t, true);
 };
 
 /* ---------------- 관심종목 (서버 저장 — ★담기 = 🔔알림과 같은 저장소) ---------------- */
@@ -574,7 +604,7 @@ async function runScreener() {
           <div class="p">${pw(r.price, r.currency)}</div>
           <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
         </div>
-        <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
+        <div class="rank-score-chip" style="color:${col};background:color-mix(in srgb, ${col} 13%, transparent)">${r.score}</div>
         <div class="rank-tail">
           <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
           <div class="rank-upside">목표가 ${up}</div>
@@ -679,7 +709,7 @@ async function selectTheme(name) {
           <div class="p">${pw(r.price, r.currency)}</div>
           <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
         </div>
-        <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
+        <div class="rank-score-chip" style="color:${col};background:color-mix(in srgb, ${col} 13%, transparent)">${r.score}</div>
         <div class="rank-tail">
           <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
           <div class="rank-upside">목표가 ${up}</div>
@@ -1129,7 +1159,7 @@ function paintRanking() {
         <div class="p">${pw(r.price, r.currency)}</div>
         <div class="r ${updownClass(r.rate)}">${sign(r.rate, 2)}%</div>
       </div>
-      <div class="rank-score-chip" style="color:${col};background:${col}22">${r.score}</div>
+      <div class="rank-score-chip" style="color:${col};background:color-mix(in srgb, ${col} 13%, transparent)">${r.score}</div>
       <div class="rank-tail">
         <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
         <div class="rank-upside">목표가 ${up}</div>
@@ -1305,7 +1335,12 @@ function renderBuyPlan(fb, targetPrice, stopLoss, price) {
 
 /* ---------------- 종목상세 탭 ---------------- */
 function showDetailTab(tab) {
-  document.querySelectorAll("#detail-tabs button").forEach((b) => b.classList.toggle("active", b.dataset.tab === tab));
+  document.querySelectorAll("#detail-tabs button").forEach((b) => {
+    const on = b.dataset.tab === tab;
+    b.classList.toggle("active", on);
+    // role=tab을 붙였으므로 선택 상태도 같이 알려줘야 스크린리더가 "선택됨"을 읽는다.
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
   // "> [data-tab]"(직계 자식만) — 안 그러면 #detail-tabs 안의 탭 버튼도 [data-tab]이라 같이
   // 걸려서 비활성 탭 버튼들이 전부 사라지는 버그가 남(실제로 걸렸던 실수, 되돌리지 말 것).
   document.querySelectorAll("#report > [data-tab]").forEach((el) => el.classList.toggle("tab-hide", el.dataset.tab !== tab));
@@ -1351,6 +1386,19 @@ function render(d) {
   $("grade").textContent = d.total.grade;
   $("grade").style.color = scoreColor(d.total.total_score);
   $("grade-desc").textContent = d.total.grade_desc + " · " + d.total.total_score + "점";
+
+  /* sticky 요약바 — 스크롤로 종목 헤더가 화면 밖으로 나가도 "지금 어느 종목의 무슨
+     판단을 보고 있는지"가 계속 보이게 한다(UI/UX 진단보고서 3-2 권고). */
+  {
+    const v = d.ai_verdict || {};
+    const cls = updownClass(d.change);
+    $("sticky-summary").innerHTML =
+      `<span class="ss-name">${d.name}</span>` +
+      `<span class="ss-price">${pw(d.price, d.currency)}</span>` +
+      `<span class="ss-chg ${cls}">${changeStr(d.change, d.rate)}</span>` +
+      `<span class="ss-score">종합 ${d.total.total_score}점 · ${d.total.grade}등급</span>` +
+      `<span class="ss-verdict" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>`;
+  }
 
   /* AI 최종판단 요약 (한눈에 보기) — 이미 계산된 targets/technical/valuation/flows를 재사용.
      "매수 매력도 점수"(=종합점수)보다 "매수 관심" 같은 행동판단을 훨씬 크게 보여주는 게 핵심 —
@@ -1662,17 +1710,21 @@ function drawGauge(score) {
   const c = $("gauge"), ctx = c.getContext("2d");
   ctx.clearRect(0, 0, c.width, c.height);
   const cx = 75, cy = 80, r = 58;
+  // ⚠️ canvas는 CSS var()를 못 쓰므로 cssVar()로 실제 색을 뽑아 쓴다. 예전엔 트랙·숫자·
+  // 라벨 색이 전부 다크 배경 전용으로 하드코딩("#1f2635"/"#e6e9f0"/"#8a93a6")돼 있어,
+  // 라이트 모드에서 흰 배경 위에 밝은 회색 숫자가 올라가 "종합점수 86"과 등급이 거의
+  // 안 읽혔다(UI/UX 진단보고서 5장).
   ctx.lineWidth = 12; ctx.lineCap = "round";
-  ctx.strokeStyle = "#1f2635";
+  ctx.strokeStyle = cssVar("--gauge-track");
   ctx.beginPath(); ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25); ctx.stroke();
-  ctx.strokeStyle = scoreColor(score);
+  ctx.strokeStyle = scoreColorHex(score);
   ctx.beginPath();
   ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * (0.75 + 1.5 * (score / 100)));
   ctx.stroke();
-  ctx.fillStyle = "#e6e9f0"; ctx.textAlign = "center";
+  ctx.fillStyle = cssVar("--gauge-text"); ctx.textAlign = "center";
   ctx.font = "800 30px sans-serif";
   ctx.fillText(Math.round(score), cx, cy + 8);
-  ctx.font = "12px sans-serif"; ctx.fillStyle = "#8a93a6";
+  ctx.font = "12px sans-serif"; ctx.fillStyle = cssVar("--gauge-sub");
   ctx.fillText("종합점수", cx, cy + 28);
 }
 
@@ -3353,7 +3405,23 @@ if ("serviceWorker" in navigator && window.isSecureContext) {
 // 영역이 좁았음). 데스크톱은 손대지 않고, 모바일 폭(720px 이하)에서만 아래로 스크롤하면
 // 헤더를 숨기고 위로 스크롤하면 다시 보이게 한다 — 흔한 모바일 웹 패턴.
 let _lastScrollY = window.scrollY;
+/* sticky 탭바가 상단바 아래에 정확히 붙도록 상단바 실제 높이를 CSS 변수로 넘긴다
+   (반응형으로 높이가 달라져서 CSS에 상수로 박을 수 없다). */
+function syncTopbarHeight() {
+  const tb = document.querySelector(".topbar");
+  if (tb) document.documentElement.style.setProperty("--topbar-h", tb.offsetHeight + "px");
+}
+syncTopbarHeight();
+window.addEventListener("resize", syncTopbarHeight, { passive: true });
+
 window.addEventListener("scroll", () => {
+  // 종목상세 탭바가 실제로 상단에 "붙었는지" 판정 — 붙었을 때만 요약줄·그림자를 켠다.
+  const sticky = $("detail-sticky");
+  if (sticky && !$("report").classList.contains("hidden")) {
+    const stickTop = window.innerWidth <= 720
+      ? 0 : (parseInt(getComputedStyle(document.documentElement).getPropertyValue("--topbar-h")) || 62);
+    sticky.classList.toggle("pinned", sticky.getBoundingClientRect().top <= stickTop + 1);
+  }
   if (window.innerWidth > 720) return;
   const topbar = document.querySelector(".topbar");
   const y = window.scrollY;
