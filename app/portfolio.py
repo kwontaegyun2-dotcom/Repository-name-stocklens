@@ -318,7 +318,7 @@ def _today_actions(items):
         if not overweight and it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
             cards.append({
                 "level": "green", "code": it["code"], "name": it["name"], "title": "추가매수 기회",
-                "detail": f"적정매수가 대비 {it['buy_discount_pct']:.0f}%",
+                "detail": f"매수 적정가 대비 {it['buy_discount_pct']:.0f}%",
                 "action": f"{it['name']} 추가매수 검토",
             })
         if it.get("sell_reasons"):

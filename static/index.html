@@ -6,32 +6,67 @@
 <title>StockLens — 주식 종합 분석</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
-<link rel="stylesheet" href="/static/style.css?v=85">
+<link rel="stylesheet" href="/static/style.css?v=86">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
+<!-- 아이콘 스프라이트 (UI/UX 진단보고서 4-3) — 화면 골격의 이모지를 대체한다.
+     stroke=currentColor라 글자색을 그대로 따라가고, 테마가 바뀌어도 함께 바뀐다. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <g id="i-logo" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V12M10 20V5M16 20V9M22 20V14"/></g>
+    <g id="i-search" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></g>
+    <g id="i-briefcase" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="2.5" y="7.5" width="19" height="12.5" rx="2.5"/><path d="M8.5 7.5V6a2 2 0 012-2h3a2 2 0 012 2v1.5M2.5 13h19"/></g>
+    <g id="i-star" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M12 3.5l2.6 5.5 5.9.8-4.3 4.2 1.05 6-5.25-2.9-5.25 2.9 1.05-6L3.5 9.8l5.9-.8z"/></g>
+    <g id="i-target" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/></g>
+    <g id="i-trend" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 16.5l5.5-5.5 4 4L21 6.5"/><path d="M15.5 6.5H21V12"/></g>
+    <g id="i-chart" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h17M7 20v-6M12 20V7M17 20v-9"/></g>
+    <g id="i-alert" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5l9 15.5H3z"/><path d="M12 9.5v4.2M12 16.6v.1"/></g>
+    <g id="i-trophy" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 01-10 0z"/><path d="M7 5.5H4.5V8a3 3 0 003 3M17 5.5h2.5V8a3 3 0 01-3 3M12 14v3.5M8.5 20.5h7"/></g>
+    <g id="i-compass" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></g>
+    <g id="i-pin" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s6.5-6.1 6.5-10.4a6.5 6.5 0 10-13 0C5.5 14.9 12 21 12 21z"/><circle cx="12" cy="10.4" r="2.4"/></g>
+    <g id="i-moon" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M20 14.5A8.5 8.5 0 019.5 4a8.5 8.5 0 1010.5 10.5z"/></g>
+    <g id="i-sun" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M18.7 5.3l-1.6 1.6M6.9 17.1l-1.6 1.6"/></g>
+    <g id="i-gear" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 14.5a1.7 1.7 0 00.35 1.9l.06.06a2 2 0 11-2.85 2.85l-.06-.06a1.7 1.7 0 00-1.9-.35 1.7 1.7 0 00-1 1.55V21a2 2 0 11-4 0v-.13a1.7 1.7 0 00-1.1-1.55 1.7 1.7 0 00-1.9.35l-.06.06A2 2 0 114.1 16.9l.06-.06a1.7 1.7 0 00.35-1.9 1.7 1.7 0 00-1.55-1H3a2 2 0 110-4h.13A1.7 1.7 0 004.68 8.9a1.7 1.7 0 00-.35-1.9l-.06-.06A2 2 0 117.12 4.1l.06.06a1.7 1.7 0 001.9.35H9.1a1.7 1.7 0 001-1.55V3a2 2 0 114 0v.13a1.7 1.7 0 001 1.55 1.7 1.7 0 001.9-.35l.06-.06a2 2 0 112.85 2.85l-.06.06a1.7 1.7 0 00-.35 1.9v.05a1.7 1.7 0 001.55 1H21a2 2 0 110 4h-.13a1.7 1.7 0 00-1.55 1z"/></g>
+    <g id="i-cart" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9.5" cy="20" r="1.3"/><circle cx="18" cy="20" r="1.3"/><path d="M2.5 3.5h2.8l2.4 11.3h11l2.3-8.2H6.2"/></g>
+    <g id="i-close" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></g>
+    <g id="i-crown" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M3 8l3.5 3.5L12 5l5.5 6.5L21 8l-1.8 10.5H4.8z"/></g>
+    <g id="i-user" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5a7.5 7.5 0 0115 0"/></g>
+    <g id="i-money" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="2.5" y="5.5" width="19" height="13" rx="2.5"/><circle cx="12" cy="12" r="3"/></g>
+    <g id="i-steps" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 20h5v-5h5v-5h5V5h3"/></g>
+    <g id="i-gem" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M7 3.5h10l4 5.5-9 11.5L3 9z"/><path d="M3 9h18M9.5 9L12 3.5 14.5 9M12 20.5L9.5 9M12 20.5L14.5 9"/></g>
+    <g id="i-bot" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="7.5" width="17" height="12" rx="3"/><path d="M12 3.5v4M8.5 13v1.5M15.5 13v1.5"/></g>
+    <g id="i-doc" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h8l4.5 4.5V21H6z"/><path d="M14 3v5h4.5M9 12.5h6M9 16.5h6"/></g>
+    <g id="i-news" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="14" height="15" rx="2"/><path d="M17 9h3v9a2 2 0 01-4 0M6.5 9h7M6.5 12.5h7M6.5 16h4"/></g>
+    <g id="i-factory" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 20V11l6 3.5V11l6 3.5V6h6v14z"/></g>
+    <g id="i-wave" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M2.5 9c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0M2.5 15c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0"/></g>
+    <g id="i-ruler" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14.5 2.5l7 7L9.5 21.5l-7-7z"/><path d="M12 5l2 2M9.5 7.5l2 2M7 10l2 2M4.5 12.5l2 2"/></g>
+    <g id="i-sparkle" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
+  </defs>
+</svg>
+
 <div class="bg-orbs"><span></span><span></span><span></span></div>
 
 <header class="topbar">
-  <button class="logo" id="logo-home" aria-label="StockLens 홈으로">📊 Stock<span>Lens</span></button>
+  <button class="logo" id="logo-home" aria-label="StockLens 홈으로"><svg class="i" aria-hidden="true"><use href="#i-logo"/></svg> Stock<span>Lens</span></button>
   <nav class="main-nav" id="main-nav" aria-label="주요 메뉴">
     <button data-view="home" class="active">홈</button>
     <button data-view="stock">종목분석</button>
-    <button data-view="watchlist">⭐ 관심종목</button>
-    <button data-view="screener">🔎 스크리너</button>
-    <button data-view="portfolio">💼 포트폴리오</button>
+    <button data-view="watchlist"><svg class="i" aria-hidden="true"><use href="#i-star"/></svg> 관심종목</button>
+    <button data-view="screener"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg> 스크리너</button>
+    <button data-view="portfolio"><svg class="i" aria-hidden="true"><use href="#i-briefcase"/></svg> 포트폴리오</button>
   </nav>
   <div class="search-wrap">
     <input id="search-input" type="text" aria-label="종목명 또는 종목코드 검색" placeholder="종목명 또는 종목코드 검색 (예: 삼성전자, 005930)" autocomplete="off">
     <div id="search-dropdown" class="dropdown hidden" role="listbox" aria-label="검색 결과"></div>
   </div>
-  <button id="theme-btn" class="icon-btn" title="테마 전환" aria-label="밝은 테마로 전환">🌙</button>
-  <button id="kis-btn" class="ghost-btn">⚙ 실시간 시세 연동</button>
+  <button id="theme-btn" class="icon-btn" title="테마 전환" aria-label="밝은 테마로 전환"><svg class="i" aria-hidden="true"><use href="#i-moon"/></svg></button>
+  <button id="kis-btn" class="ghost-btn"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg> 실시간 시세 연동</button>
   <div id="auth-area" class="auth-area">
     <button id="login-btn" class="ghost-btn">로그인</button>
     <div id="user-chip" class="user-chip hidden">
-      <button id="admin-link" class="ghost-btn small hidden">👑 관리자</button>
-      <button id="myinfo-link" class="ghost-btn small">👤 <span id="user-name"></span></button>
+      <button id="admin-link" class="ghost-btn small hidden"><svg class="i" aria-hidden="true"><use href="#i-crown"/></svg> 관리자</button>
+      <button id="myinfo-link" class="ghost-btn small"><svg class="i" aria-hidden="true"><use href="#i-user"/></svg> <span id="user-name"></span></button>
       <button id="logout-btn" class="ghost-btn small">로그아웃</button>
     </div>
   </div>
@@ -42,7 +77,7 @@
        "분석은 StockLens가" 마케팅 문구부터 보게 돼, 첫 화면 730px 중 약 390px(절반)이
        재방문자에게 쓸모없는 공간이었다(UI/UX 진단보고서 3-1). -->
   <div class="hero" id="hero">
-    <div class="hero-badge">✨ AI 기반 종목 종합 분석</div>
+    <div class="hero-badge"><svg class="i" aria-hidden="true"><use href="#i-sparkle"/></svg> AI 기반 종목 종합 분석</div>
     <h1>분석은 <em>StockLens</em>가. <em>결정</em>은 당신이.</h1>
     <p>흩어진 수백 개의 신호와 뉴스, 증권가의 시선을 하나의 투자 판단으로.<br>
        지금이 기회인지, 잠시 기다릴 때인지 — 복잡한 분석은 저희가 대신합니다.</p>
@@ -52,7 +87,7 @@
        여덟 개 섹션이 우선순위 없이 평면으로 나열돼 "내가 지금 확인할 것"과 "둘러볼 것"이
        섞여 있던 문제(진단보고서 3-1)를 세 영역으로 나눠 정리했다. -->
   <div class="home-group" id="group-mine">
-    <div class="home-group-label">📌 내 투자</div>
+    <div class="home-group-label"><svg class="i" aria-hidden="true"><use href="#i-pin"/></svg> 내 투자</div>
     <!-- 관심종목: 홈 맨 위 (사용자 지시 — 임의 추천 종목 대신 내가 담은 종목부터) -->
     <section class="fav-board hidden" id="fav-board"></section>
     <!-- 내 포트폴리오 오늘의 할 일 -->
@@ -61,11 +96,11 @@
 
   <!-- ═══ 영역 2 · 오늘의 발견 (AI가 찾아낸 것) ═══ -->
   <div class="home-group">
-    <div class="home-group-label">🔎 오늘의 발견</div>
+    <div class="home-group-label"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg> 오늘의 발견</div>
 
     <!-- 오늘의 AI 투자기회 -->
     <section class="today-board hidden" id="today-board">
-      <h2>🎯 오늘의 AI 투자기회</h2>
+      <h2><svg class="i" aria-hidden="true"><use href="#i-target"/></svg> 오늘의 AI 투자기회</h2>
 
       <div class="today-pick-card" id="today-hero"></div>
 
@@ -85,7 +120,7 @@
 
     <!-- 이상징후 탐지 — 목록이 길어 홈을 782px 잡아먹었다. 상위 3개만 펼치고 나머지는 접는다. -->
     <section class="anomaly-board hidden" id="anomaly-board">
-      <h2>🚨 이상징후 포착</h2>
+      <h2><svg class="i" aria-hidden="true"><use href="#i-alert"/></svg> 이상징후 포착</h2>
       <p class="rank-sub">"좋은 종목"이 아니라 "뭔가 이상한 종목" — 신호 3개 이상 겹칠 때만 표시됩니다</p>
       <div id="anomaly-list" class="anomaly-list"></div>
       <button id="anomaly-more" class="sec-more hidden" aria-expanded="false"></button>
@@ -96,13 +131,13 @@
        랭킹만 펼쳐 두고 테마·점수검증은 접어 둔다. 특히 점수검증은 추적 일수가 모자라면
        "아직 데이터 부족" 카드 다섯 개가 401px를 그대로 차지했다(진단보고서 3-1). -->
   <div class="home-group">
-    <div class="home-group-label">🧭 둘러보기</div>
+    <div class="home-group-label"><svg class="i" aria-hidden="true"><use href="#i-compass"/></svg> 둘러보기</div>
 
     <!-- 실시간 랭킹 -->
     <section class="rank-board">
       <div class="rank-head">
         <div>
-          <h2>🏆 실시간 종목 랭킹</h2>
+          <h2><svg class="i" aria-hidden="true"><use href="#i-trophy"/></svg> 실시간 종목 랭킹</h2>
           <p class="rank-sub">주요 종목을 종합 점수 순으로 정렬 <span id="rank-updated"></span></p>
         </div>
         <div class="rank-market" id="rank-market">
@@ -120,7 +155,7 @@
     <!-- 테마·산업 -->
     <section class="theme-board collapsible" id="theme-board">
       <button class="sec-toggle" data-toggle="theme-body" aria-expanded="true" aria-controls="theme-body">
-        <span class="sec-toggle-title">📈 요즘 어디에 돈이 몰리고 있지?</span>
+        <span class="sec-toggle-title"><svg class="i" aria-hidden="true"><use href="#i-trend"/></svg> 요즘 어디에 돈이 몰리고 있지?</span>
         <span class="sec-toggle-icon" aria-hidden="true">▾</span>
       </button>
       <div class="sec-body" id="theme-body">
@@ -133,7 +168,7 @@
     <!-- 점수 백테스트: 우리 점수가 실제로 통했는지 매일 실제 데이터로 추적 -->
     <section class="bt-board collapsible" id="bt-board">
       <button class="sec-toggle" data-toggle="bt-body-wrap" aria-expanded="true" aria-controls="bt-body-wrap">
-        <span class="sec-toggle-title">📊 이 점수, 실제로 통했을까?</span>
+        <span class="sec-toggle-title"><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg> 이 점수, 실제로 통했을까?</span>
         <span class="sec-toggle-note" id="bt-toggle-note"></span>
         <span class="sec-toggle-icon" aria-hidden="true">▾</span>
       </button>
@@ -203,7 +238,7 @@
   <!-- AI 최종판단 (한눈에 보기) -->
   <section class="card highlight-card hidden" id="highlight-card" data-tab="overview">
     <div class="ai-verdict-box">
-      <div class="ai-verdict-label">🤖 StockLens AI</div>
+      <div class="ai-verdict-label"><svg class="i" aria-hidden="true"><use href="#i-bot"/></svg> StockLens AI</div>
       <div class="ai-verdict-main">
         <span id="ai-verdict-emoji" class="ai-verdict-emoji"></span>
         <span id="ai-verdict-tier" class="ai-verdict-tier"></span>
@@ -238,14 +273,14 @@
     </div>
 
     <div class="fair-buy-box hidden" id="fair-buy-box">
-      <div class="fb-head"><span class="fb-label">💰 가격별 투자전략</span><span class="fb-sub" id="fb-sources"></span></div>
+      <div class="fb-head"><span class="fb-label"><svg class="i" aria-hidden="true"><use href="#i-money"/></svg> 가격별 투자전략</span><span class="fb-sub" id="fb-sources"></span></div>
       <div class="fb-grid" id="fb-grid"></div>
       <div class="price-ladder" id="price-ladder"></div>
-      <p class="hint-p">PER·PEG·업종 평균·역사적 밸류·애널리스트 목표주가를 종합한 추정치이며, 안전마진(20%/10%/0%)을 차등 적용했습니다.</p>
+      <p class="hint-p">PER·PEG·업종 평균·역사적 밸류·애널리스트 컨센서스 목표가를 종합한 추정치이며, 안전마진(20%/10%/0%)을 차등 적용했습니다.</p>
     </div>
 
     <div class="buy-plan-box hidden" id="buy-plan-box">
-      <div class="fb-head"><span class="fb-label">🪜 단계별 매수 전략</span></div>
+      <div class="fb-head"><span class="fb-label"><svg class="i" aria-hidden="true"><use href="#i-steps"/></svg> 단계별 매수 전략</span></div>
       <div class="buy-plan-reached-note hidden" id="buy-plan-reached-note"></div>
       <div class="buy-plan-stages" id="buy-plan-stages"></div>
       <div class="buy-plan-footer">
@@ -257,7 +292,7 @@
 
   <!-- 종합 의견 -->
   <section class="card" data-tab="overview">
-    <h3>📊 부문별 평가</h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-chart"/></svg> 부문별 평가</h3>
     <ul id="opinion-points" class="opinion-points"></ul>
     <div class="radar-row">
       <canvas id="radar" width="340" height="300"></canvas>
@@ -265,18 +300,18 @@
     </div>
   </section>
 
-  <!-- 목표주가 / 진입타이밍 -->
+  <!-- 목표가 / 진입타이밍 -->
   <section class="card" data-tab="overview">
-    <h3>🎯 목표주가 &amp; 진입 타이밍</h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-target"/></svg> 목표가 &amp; 진입 타이밍</h3>
     <div class="target-grid">
       <div class="target-box">
-        <label>애널리스트 목표주가 평균</label>
+        <label>컨센서스 목표가 <small class="hint">애널리스트 평균</small></label>
         <div id="target-consensus" class="target-price"></div>
         <div id="target-consensus-upside" class="target-upside"></div>
         <div id="target-consensus-date" class="hint-p"></div>
       </div>
       <div class="target-box">
-        <label>기술적 목표가</label>
+        <label>기술적 저항가 <small class="hint">저항선 기반</small></label>
         <div id="target-tech" class="target-price"></div>
         <div id="target-tech-upside" class="target-upside"></div>
       </div>
@@ -292,7 +327,7 @@
 
   <!-- 차트 & 기술 분석 (통합) -->
   <section class="card" id="chart-card" data-tab="chart">
-    <h3>📈 차트 &amp; 기술 분석 <small class="hint">최대 5년 · 드래그로 이동 · 스크롤/핀치로 확대·축소</small></h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-trend"/></svg> 차트 &amp; 기술 분석 <small class="hint">최대 5년 · 드래그로 이동 · 스크롤/핀치로 확대·축소</small></h3>
 
     <!-- 봉 주기 + 기간 컨트롤 -->
     <div class="chart-toolbar">
@@ -319,7 +354,7 @@
 
     <div class="chart-legend">
       <span class="lg ma20">SMA20</span><span class="lg ma60">SMA60</span><span class="lg ma120">SMA120</span>
-      <span class="lg target">목표주가</span><span class="lg support">지지선</span><span class="lg resist">저항선</span>
+      <span class="lg target">컨센서스 목표가</span><span class="lg support">지지선</span><span class="lg resist">저항선</span>
       <span class="lg buy">▲ 매수(골든크로스)</span><span class="lg sell">▼ 매도(데드크로스)</span>
       <span class="lg avwap-hi">AVWAP(52주 신고가)</span><span class="lg avwap-lo">AVWAP(52주 신저가)</span><span class="lg avwap-ytd">AVWAP(연초)</span>
       <span class="lg sweep">🧲 유동성 스윕</span>
@@ -358,7 +393,7 @@
 
   <!-- 밸류에이션 분석 -->
   <section class="card" id="val-card" data-tab="valuation">
-    <h3>💎 밸류에이션 분석 <small class="hint">지금 비싼가? — 역사적 밸류·PEG·동종업계·EV/EBITDA·목표주가·실적방향</small></h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-gem"/></svg> 밸류에이션 분석 <small class="hint">지금 비싼가? — 역사적 밸류·PEG·동종업계·EV/EBITDA·컨센서스 목표가·실적방향</small></h3>
     <div class="pro-head">
       <div class="pro-score-box">
         <label>밸류에이션 종합</label>
@@ -392,13 +427,13 @@
 
   <!-- 투자지표 -->
   <section class="card" data-tab="valuation">
-    <h3>📐 투자지표</h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-ruler"/></svg> 투자지표</h3>
     <div id="metrics-grid" class="metrics-grid"></div>
   </section>
 
   <!-- 재무 하이라이트 -->
   <section class="card" data-tab="finance">
-    <h3>💰 재무 하이라이트 <small class="hint" id="finance-unit-hint">단위: 억원 · (E)는 컨센서스</small></h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-money"/></svg> 재무 하이라이트 <small class="hint" id="finance-unit-hint">단위: 억원 · (E)는 컨센서스</small></h3>
     <div id="finance-cns-warn" class="cns-warn hidden"></div>
     <canvas id="finance-chart" height="220"></canvas>
     <div id="finance-table" class="table-wrap"></div>
@@ -406,25 +441,25 @@
 
   <!-- 수급 동향 -->
   <section class="card" data-tab="flow">
-    <h3>🌊 투자자 수급 동향 <small class="hint">순매수, 단위: 주</small></h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-wave"/></svg> 투자자 수급 동향 <small class="hint">순매수, 단위: 주</small></h3>
     <div id="flow-table" class="table-wrap"></div>
   </section>
 
   <!-- 증권사 리포트 -->
   <section class="card" data-tab="news">
-    <h3>📑 증권사 리포트 <span id="research-consensus" class="badge"></span></h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-doc"/></svg> 증권사 리포트 <span id="research-consensus" class="badge"></span></h3>
     <div id="research-list" class="research-list"></div>
   </section>
 
   <!-- 뉴스 -->
   <section class="card" data-tab="news">
-    <h3>📰 최근 뉴스 &amp; 시장 심리 <span id="senti-badge" class="badge"></span></h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-news"/></svg> 최근 뉴스 &amp; 시장 심리 <span id="senti-badge" class="badge"></span></h3>
     <div id="news-list" class="news-list"></div>
   </section>
 
   <!-- 동일업종 -->
   <section class="card" data-tab="valuation">
-    <h3>🏭 동일업종 비교</h3>
+    <h3><svg class="i" aria-hidden="true"><use href="#i-factory"/></svg> 동일업종 비교</h3>
     <div id="peers-table" class="table-wrap"></div>
   </section>
 
@@ -436,7 +471,7 @@
     <div id="ai-report" class="ai-report hidden"></div>
   </section>
 
-  <p class="disclaimer">⚠️ 본 서비스의 모든 분석·점수·목표주가는 공개 데이터 기반의 자동 계산 결과로 투자 참고용입니다.
+  <p class="disclaimer">⚠️ 본 서비스의 모든 분석·점수·목표가는 공개 데이터 기반의 자동 계산 결과로 투자 참고용입니다.
      투자 판단과 책임은 투자자 본인에게 있습니다. 시세는 데이터 소스에 따라 지연될 수 있습니다.</p>
 </main>
 
@@ -554,7 +589,7 @@
     <input id="watch-tags" type="text" placeholder="예: 낙폭과대, 배당, 관망">
     <label>알림 조건 <small class="hint">조건을 켜면 이 브라우저에 웹 푸시로 알려드립니다(최대 15분 지연)</small></label>
     <div class="watch-alert-opts">
-      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-buy"> 매수 신호 포착 <small class="hint">종합점수 65점↑ + 적정매수가 이하</small></label>
+      <label class="watch-alert-row"><input type="checkbox" id="watch-alert-buy"> 매수 신호 포착 <small class="hint">종합점수 65점↑ + 매수 적정가 이하</small></label>
       <label class="watch-alert-row"><input type="checkbox" id="watch-alert-price-on"> 목표가 도달 <input type="number" id="watch-alert-price" placeholder="가격" class="watch-alert-input"></label>
       <label class="watch-alert-row"><input type="checkbox" id="watch-alert-score-on"> 종합점수 <input type="number" id="watch-alert-score" placeholder="점수" class="watch-alert-input"> 점 돌파·이탈</label>
       <label class="watch-alert-row"><input type="checkbox" id="watch-alert-verdict"> 판단 등급 변경 시</label>
@@ -697,6 +732,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=93"></script>
+<script src="/static/app.js?v=94"></script>
 </body>
 </html>

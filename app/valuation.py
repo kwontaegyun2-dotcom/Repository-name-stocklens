@@ -496,12 +496,12 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     if upside is not None:
         # 목표주가는 후행 경향이 있어 과신 금물 → 상승여력 60%에서 상한(92점)
         sc = _clamp(50 + max(-60.0, min(upside, 60.0)) * 0.7)
-        parts["목표주가"] = sc
+        parts["컨센서스 목표가"] = sc
         signals.append(("bull" if upside > 15 else "bear" if upside < 0 else "neutral",
-                        f"애널리스트 목표주가 대비 상승여력 {upside:+.1f}%"
-                        + (" (목표주가는 후행 경향이 있어 참고용)" if upside > 0 else "")))
+                        f"컨센서스 목표가 대비 상승여력 {upside:+.1f}%"
+                        + (" (컨센서스 목표가는 후행 경향이 있어 참고용)" if upside > 0 else "")))
         checklist.append({
-            "item": "목표주가 상승 여력이 있는가?",
+            "item": "컨센서스 목표가 대비 상승 여력이 있는가?",
             "verdict": f"{upside:+.1f}%",
             "ok": upside > 0,
             "detail": f"목표 {cons.get('target_price'):,.0f}" if cons.get("target_price") else "-",
@@ -538,7 +538,7 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
 
     # 종합: 사용자 우선순위대로 가중
     weights = {"역사적밸류": 0.30, "PEG": 0.25, "동종업계": 0.15,
-               "EV/EBITDA": 0.10, "목표주가": 0.10, "실적방향": 0.10}
+               "EV/EBITDA": 0.10, "컨센서스 목표가": 0.10, "실적방향": 0.10}
     tw = sum(w for k, w in weights.items() if k in parts)
     score = sum(parts[k] * weights[k] for k in parts) / tw if tw else 50.0
     # 등급은 표시값(반올림 후) 기준으로 판정 — analysis.py total_evaluation()과 같은 원칙

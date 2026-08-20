@@ -101,7 +101,9 @@ async function api(path, opts) {
 const THEME_KEY = "stocklens_theme";
 function applyTheme(t, repaint) {
   document.body.classList.toggle("light", t === "light");
-  $("theme-btn").textContent = t === "light" ? "☀️" : "🌙";
+  // 이모지 대신 스프라이트 아이콘을 갈아 끼운다(진단보고서 4-3 — 이모지는 OS마다
+  // 모양이 달라 톤을 통제할 수 없고 스크린리더가 그대로 읽는다).
+  $("theme-btn").innerHTML = `<svg class="i" aria-hidden="true"><use href="#i-${t === "light" ? "sun" : "moon"}"/></svg>`;
   $("theme-btn").setAttribute("aria-label", t === "light" ? "어두운 테마로 전환" : "밝은 테마로 전환");
   if (!repaint) return;
   /* ⚠️ 클래스만 토글하면 CSS 변수를 쓰는 요소만 바뀌고, "그릴 때의 테마 색을 굳혀 버리는"
@@ -218,7 +220,7 @@ function favRowHtml(it, r) {
       <span class="fav-hide-mobile"></span>
       <span class="fav-price-col"><span class="fav-na">데이터 준비 중</span></span>
       <span class="fav-hide-mobile"></span>
-      <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${it.name} 관심종목에서 제거">✕</button></span>
+      <span class="fav-row-actions"><button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${it.name} 관심종목에서 제거"><svg class="i" aria-hidden="true"><use href="#i-close"/></svg></button></span>
     </div>`;
   }
   const v = r.ai_verdict || {};
@@ -248,9 +250,9 @@ function favRowHtml(it, r) {
     </span>
     <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
     <span class="fav-row-actions">
-      <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정">⚙</button>
-      <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록">🛒</button>
-      <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거">✕</button>
+      <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정"><svg class="i" aria-hidden="true"><use href="#i-gear"/></svg></button>
+      <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록"><svg class="i" aria-hidden="true"><use href="#i-cart"/></svg></button>
+      <button class="fav-x" data-x="${it.code}" title="관심종목에서 제거" aria-label="${r.name} 관심종목에서 제거"><svg class="i" aria-hidden="true"><use href="#i-close"/></svg></button>
     </span>
   </div>`;
 }
@@ -1096,7 +1098,7 @@ function opportunityReasons(r) {
   // 목표주가 상승여력은 가장 낮은 우선순위 — 다른 신호가 없을 때만 보조로 노출하고,
   // "목표주가 기준"임을 명시해 다른 신호(수급·저평가 등)와 근거 성격이 다름을 드러낸다.
   if (r.upside != null && r.upside >= 20) {
-    reasons.push({ txt: `목표주가 기준 상승여력 +${Math.round(r.upside)}%`, w: r.upside * 0.15 });
+    reasons.push({ txt: `컨센서스 목표가 기준 상승여력 +${Math.round(r.upside)}%`, w: r.upside * 0.15 });
   }
   reasons.sort((a, b) => b.w - a.w);
   return reasons.slice(0, 2).map((x) => x.txt);
@@ -1144,9 +1146,9 @@ async function renderTodayPick(items) {
       </div>
     </div>
     <div class="today-pick-stats">
-      <div><label>적정매수가</label><span id="today-pick-fair">불러오는 중…</span></div>
-      <div><label>적정가(밸류에이션)</label><span id="today-pick-fairvalue">불러오는 중…</span></div>
-      <div><label>목표주가(애널리스트)</label><span id="today-pick-target">${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
+      <div><label>매수 적정가</label><span id="today-pick-fair">불러오는 중…</span></div>
+      <div><label>적정가치 <small class="hint">밸류에이션</small></label><span id="today-pick-fairvalue">불러오는 중…</span></div>
+      <div><label>컨센서스 목표가</label><span id="today-pick-target">${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
       <div><label>상승여력</label><span id="today-pick-upside" class="${updownClass(best.upside)}">${bestUp}</span></div>
     </div>
     <button class="primary-btn today-pick-btn" id="today-pick-btn">종목 자세히 보기</button>`;
@@ -1244,9 +1246,9 @@ async function renderTodayPick(items) {
       const flagBadge = cons.upside_flagged
         ? ` <span class="info-dot" tabindex="0">⚠️<span class="tooltip-pop">${cons.upside_flag_reason}</span></span>`
         : "";
-      let html = `<span class="${updownClass(valUp)}">${sign(valUp, 1)}%</span> <small class="hint">밸류에이션 기준</small>`;
+      let html = `<span class="${updownClass(valUp)}">${sign(valUp, 1)}%</span> <small class="hint">적정가치 기준</small>`;
       if (consUp != null) {
-        html += `<br><span class="${updownClass(consUp)}" style="font-size:12px">${sign(consUp, 1)}% 애널리스트 목표가 기준${flagBadge}</span>`;
+        html += `<br><span class="${updownClass(consUp)}" style="font-size:12px">${sign(consUp, 1)}% 컨센서스 목표가 기준${flagBadge}</span>`;
       }
       upsideEl.innerHTML = html;
     }
@@ -1296,11 +1298,11 @@ function renderTodayValuation(val, best) {
   const pbrNote = cur.pbr != null ? ` · PBR ${cur.pbr}배(참고)` : "";
   const summaryHtml = `
     <div class="today-val-summary">
-      <b>${val.verdict}</b> — 종합 밸류에이션 ${val.score}점 · 적정가 <b>${pw(fb.fair_value, best.currency)}</b>
+      <b>${val.verdict}</b> — 종합 밸류에이션 ${val.score}점 · 적정가치 <b>${pw(fb.fair_value, best.currency)}</b>
       (지표 ${fb.sources}개 종합, 현재가 대비 ${sign(fb.optimistic.upside, 1)}%)${pbrNote}
     </div>`;
 
-  el.innerHTML = `<div class="today-val-title">📐 적정주가는 어떻게 나왔나</div>${summaryHtml}${rowsHtml}`;
+  el.innerHTML = `<div class="today-val-title">📐 적정가치는 어떻게 나왔나</div>${summaryHtml}${rowsHtml}`;
 }
 
 /* ---------------- 내 포트폴리오 (홈 위젯 — "오늘 내가 할 일") ---------------- */
@@ -1539,9 +1541,9 @@ function renderPriceLadder(fb, price, target) {
 function renderBuyPlan(fb, targetPrice, stopLoss, price) {
   $("buy-plan-box").classList.remove("hidden");
   const stages = [
-    { label: "1차 매수", pct: 30, price: fb.optimistic.price },
-    { label: "2차 매수", pct: 30, price: fb.base.price },
-    { label: "3차 매수", pct: 40, price: fb.conservative.price },
+    { label: "분할 진입 1차", pct: 30, price: fb.optimistic.price },
+    { label: "분할 진입 2차", pct: 30, price: fb.base.price },
+    { label: "분할 진입 3차", pct: 40, price: fb.conservative.price },
   ];
   let cumPct = 0;
   const reachedIdx = [];
@@ -1658,9 +1660,9 @@ function render(d) {
     const fbBase = t.fair_buy ? t.fair_buy.base : null;
     if (fbBase && d.price) {
       const diffPct = (d.price - fbBase.price) / fbBase.price * 100;
-      if (diffPct <= -3) $("hl-discount").textContent = `현재 가격은 적정가 대비 ${Math.abs(diffPct).toFixed(1)}% 저평가되어 있습니다.`;
-      else if (diffPct >= 3) $("hl-discount").textContent = `현재 가격은 적정가 대비 ${diffPct.toFixed(1)}% 고평가되어 있습니다.`;
-      else $("hl-discount").textContent = `현재 가격은 적정가와 비슷한 수준입니다.`;
+      if (diffPct <= -3) $("hl-discount").textContent = `현재 가격은 적정가치 대비 ${Math.abs(diffPct).toFixed(1)}% 저평가되어 있습니다.`;
+      else if (diffPct >= 3) $("hl-discount").textContent = `현재 가격은 적정가치 대비 ${diffPct.toFixed(1)}% 고평가되어 있습니다.`;
+      else $("hl-discount").textContent = `현재 가격은 적정가치와 비슷한 수준입니다.`;
     } else {
       $("hl-discount").textContent = "";
     }
@@ -1671,13 +1673,13 @@ function render(d) {
     // 그대로 "왜 사야 하나"에 노출되는 문제가 있었다(2차 진단리포트 4-1). 기준일을 함께
     // 보여주고, 괴리가 커 반영 비중을 낮춘 경우(analysis.consensus_info) 배지로 알린다.
     const cons = d.consensus || {};
-    const targetLabel = "목표주가" + (cons.date ? ` <small class="hint">(${cons.date} 기준)</small>` : "");
+    const targetLabel = "컨센서스 목표가" + (cons.date ? ` <small class="hint">(${cons.date} 기준)</small>` : "");
     const upsideFlagBadge = cons.upside_flagged
       ? ` <span class="info-dot" tabindex="0">⚠️<span class="tooltip-pop">${cons.upside_flag_reason}</span></span>`
       : "";
     const items = [
       { label: "현재가", value: pw(d.price) },
-      { label: "적정매수가", value: fbBase ? pw(fbBase.price) : "-" },
+      { label: "매수 적정가", value: fbBase ? pw(fbBase.price) : "-" },
       { label: targetLabel, value: t.consensus ? pw(t.consensus) : "-" },
       { label: "상승여력", value: (t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-") + upsideFlagBadge,
         cls: updownClass(t.consensus_upside) },
@@ -1794,7 +1796,7 @@ function render(d) {
     $("cons-opinion").textContent = d.consensus.opinion ? `애널리스트: ${d.consensus.opinion} (${d.consensus.recomm_mean}/5)` : "";
     const e = tech.entry;
     $("entry-grid").innerHTML = `
-      <div class="entry-item buy"><label>🟢 매수 관심 구간</label><div>${pwRange(e.buy_zone_low, e.buy_zone_high)}</div></div>
+      <div class="entry-item buy"><label>🟢 지지 밴드 <small class="hint">기술적 지지 구간</small></label><div>${pwRange(e.buy_zone_low, e.buy_zone_high)}</div></div>
       <div class="entry-item sell"><label>🔴 매도·차익실현 구간</label><div>${pwRange(e.sell_zone_low, e.sell_zone_high)}</div></div>
       <div class="entry-item"><label>지지선</label><div class="up">${pw(e.support)}${tech.support_confluence ? ` <small class="hint">(컨플루언스 ${pw(tech.support_confluence)})</small>` : ""}</div></div>
       <div class="entry-item"><label>저항선</label><div class="down">${pw(e.resistance)}${tech.resistance_confluence ? ` <small class="hint">(컨플루언스 ${pw(tech.resistance_confluence)})</small>` : ""}</div></div>
@@ -2236,7 +2238,7 @@ function drawChart() {
     if (!price) return;
     candleSeries.createPriceLine({ price, color, lineWidth: 1, lineStyle: LC.LineStyle.Dashed, axisLabelVisible: true, title });
   };
-  addPriceLine(d.targets.consensus, "#f6465d", "목표주가");
+  addPriceLine(d.targets.consensus, "#f6465d", "컨센서스 목표가");
   if (d.technical.available) {
     addPriceLine(d.technical.support, "#3e7bfa", "지지");
     addPriceLine(d.technical.resistance, "#9aa3ba", "저항");
@@ -2465,7 +2467,7 @@ function renderComparePick() {
   if (!best) return;
   $("cmp-pick-name").textContent = `🏆 ${best.name}`;
   $("cmp-pick-name").style.color = scoreColor(best.score);
-  const upsideTxt = best.upside != null ? ` · 목표주가 상승여력 ${sign(best.upside, 1)}%` : "";
+  const upsideTxt = best.upside != null ? ` · 컨센서스 목표가 기준 상승여력 ${sign(best.upside, 1)}%` : "";
   $("cmp-pick-reason").textContent = `종합점수 ${best.score}점 (${best.grade}등급)${upsideTxt}`;
 }
 function drawCompareRadar() {
@@ -3358,7 +3360,7 @@ function renderPortfolio(p) {
       ["종합점수 (리스크 반영)", p.score != null ? `${p.score}점` : "-"],
       ["종목 품질 점수", p.quality_score != null ? `${p.quality_score}점` : "-"],
       ["밸류에이션 점수", p.valuation_score != null ? `${p.valuation_score}점` : "-"],
-      ["기대수익률 (목표주가 기준)", p.expected_return != null ? `${sign(p.expected_return, 1)}%` : "-"],
+      ["기대수익률 (컨센서스 목표가 기준)", p.expected_return != null ? `${sign(p.expected_return, 1)}%` : "-"],
       ["변동성 (연환산)", p.volatility != null ? `${p.volatility}%` : "데이터 부족"],
       ["최대 낙폭 (최근 1년)", p.max_drawdown != null ? `${p.max_drawdown}%` : "데이터 부족"],
     ];

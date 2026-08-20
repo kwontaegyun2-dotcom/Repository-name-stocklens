@@ -1272,3 +1272,24 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .wl-group { gap: 5px; }
   .wl-chip { padding: 5px 10px; font-size: 11px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   인라인 SVG 아이콘 (UI/UX 진단보고서 4-3)
+   ───────────────────────────────────────────────────────────────────
+   이모지는 운영체제·브라우저마다 모양과 색이 달라 디자인 톤을 통제할 수 없고,
+   스크린리더가 "차트 증가 이모지"처럼 그대로 읽는다. 화면 골격(네비·섹션 제목·
+   아이콘 버튼)만 SVG로 교체했다 — 🟢🔴 판단 티어처럼 색으로 상태를 전달하는
+   것들은 선형 아이콘으로 바꾸면 정보가 줄어 그대로 뒀다.
+   ═══════════════════════════════════════════════════════════════════ */
+.i {
+  width: 1em; height: 1em;
+  vertical-align: -0.14em;
+  flex-shrink: 0;
+  /* stroke=currentColor라 글자색·테마를 그대로 따라간다 */
+  color: inherit;
+}
+/* 섹션 제목의 아이콘은 본문보다 살짝 작게 — 이모지보다 SVG가 시각적으로 커 보인다 */
+h2 > .i, h3 > .i, .sec-toggle-title > .i { width: .92em; height: .92em; opacity: .85; }
+.home-group-label > .i { width: 1.05em; height: 1.05em; }
+.logo > .i { width: .95em; height: .95em; color: var(--accent2); }
+.icon-btn > .i { width: 1.05em; height: 1.05em; display: block; }
