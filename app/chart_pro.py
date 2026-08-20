@@ -225,9 +225,13 @@ def darvas_box(candles, lookback=90):
     width = (top - bottom) / bottom * 100 if bottom else 0
     breakout = price >= top * 0.995
     breakdown = price <= bottom * 1.005
+    # 4차 진단리포트 4-2 — 볼륨 프로파일과 같은 결함. 추세 구간(45일간 크게 오른 종목)에
+    # "박스권"을 씌우면 폭 139.7% 같은 값이 나온다 — 그건 박스가 아니라 그냥 상승폭이다.
+    # 폭이 현재가의 60%를 넘으면 박스권으로 보지 않는다.
+    reliable = width <= 60
     return {
         "top": round(top, 1), "bottom": round(bottom, 1),
-        "width_pct": round(width, 1),
+        "width_pct": round(width, 1), "reliable": reliable,
         "breakout": breakout, "breakdown": breakdown,
         "range_high": round(max(highs), 1), "range_low": round(min(lows), 1),
     }
@@ -515,36 +519,47 @@ def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
         rng = max(c["high"] - c["low"], 1e-9)
         vol_t = c.get("volume") or 0
 
+        # 4차 진단리포트 4-3 — 조건 네 개(꼬리 50%·거래량 1.5배·당일 종가 되돌림)를 전부
+        # AND로 걸면서 1,300일(약 5년)에 스윕이 단 2건만 잡혔다. 탐지를 넓히고(꼬리 40%·
+        # 거래량 1.2배) 되돌림 마감도 "당일 종가"에서 "3봉 이내 종가"로 완화한 뒤, 대신
+        # strength(강도 점수)로 약한 스윕과 강한 스윕을 가른다 — 탐지를 좁혀 아예 안 잡히게
+        # 하는 것보다, 넓게 잡고 강도로 거르는 편이 낫다는 지적을 반영.
         ref_high = max(seg[i]["high"] for i in range(t - ref_window, t))
-        if c["high"] > ref_high and c["close"] < ref_high:
-            upper_wick = (c["high"] - max(c["open"], c["close"])) / rng
-            if upper_wick >= 0.5 and vol_t >= 1.5 * ma_vol:
-                depth = (c["high"] - ref_high) / atr14
-                reject = (c["high"] - c["close"]) / rng
-                volx = vol_t / ma_vol
-                touches = sum(1 for i in range(max(0, t - 60), t)
-                               if abs(seg[i]["high"] - ref_high) / ref_high <= 0.005)
-                strength = _clamp(25 * min(depth, 2) + 35 * reject + 20 * min(volx / 3, 1) + 20 * min(touches / 3, 1))
-                events.append({"type": "high_sweep", "idx": seg_start + t, "date": c["date"],
-                                "level": round(ref_high, 1), "strength": round(strength, 1),
-                                "depth_atr": round(depth, 2), "reject_ratio": round(reject, 2),
-                                "vol_x": round(volx, 2), "touches": touches, "status": "sweep"})
-                continue   # 한 봉에서 고점·저점 스윕이 동시에 뜨는 건 노이즈라 우선 처리
+        if c["high"] > ref_high:
+            reclose_idx = next((j for j in range(t, min(t + 3, m)) if seg[j]["close"] < ref_high), None)
+            if reclose_idx is not None:
+                upper_wick = (c["high"] - max(c["open"], c["close"])) / rng
+                if upper_wick >= 0.4 and vol_t >= 1.2 * ma_vol:
+                    reclose_c = seg[reclose_idx]
+                    depth = (c["high"] - ref_high) / atr14
+                    reject = (c["high"] - reclose_c["close"]) / rng
+                    volx = vol_t / ma_vol
+                    touches = sum(1 for i in range(max(0, t - 60), t)
+                                   if abs(seg[i]["high"] - ref_high) / ref_high <= 0.005)
+                    strength = _clamp(25 * min(depth, 2) + 35 * reject + 20 * min(volx / 3, 1) + 20 * min(touches / 3, 1))
+                    events.append({"type": "high_sweep", "idx": seg_start + t, "date": c["date"],
+                                    "level": round(ref_high, 1), "strength": round(strength, 1),
+                                    "depth_atr": round(depth, 2), "reject_ratio": round(reject, 2),
+                                    "vol_x": round(volx, 2), "touches": touches, "status": "sweep"})
+                    continue   # 한 봉에서 고점·저점 스윕이 동시에 뜨는 건 노이즈라 우선 처리
 
         ref_low = min(seg[i]["low"] for i in range(t - ref_window, t))
-        if c["low"] < ref_low and c["close"] > ref_low:
-            lower_wick = (min(c["open"], c["close"]) - c["low"]) / rng
-            if lower_wick >= 0.5 and vol_t >= 1.5 * ma_vol:
-                depth = (ref_low - c["low"]) / atr14
-                reject = (c["close"] - c["low"]) / rng
-                volx = vol_t / ma_vol
-                touches = sum(1 for i in range(max(0, t - 60), t)
-                               if abs(seg[i]["low"] - ref_low) / ref_low <= 0.005)
-                strength = _clamp(25 * min(depth, 2) + 35 * reject + 20 * min(volx / 3, 1) + 20 * min(touches / 3, 1))
-                events.append({"type": "low_sweep", "idx": seg_start + t, "date": c["date"],
-                                "level": round(ref_low, 1), "strength": round(strength, 1),
-                                "depth_atr": round(depth, 2), "reject_ratio": round(reject, 2),
-                                "vol_x": round(volx, 2), "touches": touches, "status": "sweep"})
+        if c["low"] < ref_low:
+            reclose_idx = next((j for j in range(t, min(t + 3, m)) if seg[j]["close"] > ref_low), None)
+            if reclose_idx is not None:
+                lower_wick = (min(c["open"], c["close"]) - c["low"]) / rng
+                if lower_wick >= 0.4 and vol_t >= 1.2 * ma_vol:
+                    reclose_c = seg[reclose_idx]
+                    depth = (ref_low - c["low"]) / atr14
+                    reject = (reclose_c["close"] - c["low"]) / rng
+                    volx = vol_t / ma_vol
+                    touches = sum(1 for i in range(max(0, t - 60), t)
+                                   if abs(seg[i]["low"] - ref_low) / ref_low <= 0.005)
+                    strength = _clamp(25 * min(depth, 2) + 35 * reject + 20 * min(volx / 3, 1) + 20 * min(touches / 3, 1))
+                    events.append({"type": "low_sweep", "idx": seg_start + t, "date": c["date"],
+                                    "level": round(ref_low, 1), "strength": round(strength, 1),
+                                    "depth_atr": round(depth, 2), "reject_ratio": round(reject, 2),
+                                    "vol_x": round(volx, 2), "touches": touches, "status": "sweep"})
 
     events.sort(key=lambda e: e["idx"])
 
@@ -608,7 +623,30 @@ def liquidity_sweeps(candles, lookback=180, ref_window=20, vol_window=20):
 
 
 # ---------------------------------------------------------------- 볼륨 프로파일
-def volume_profile(candles, lookback=120):
+def volume_profile(candles):
+    """볼륨 프로파일 — 룩백 20/60/120일을 병렬 계산해 그중 가치영역이 유효하게(신뢰도
+    high) 나오는 가장 짧은 창을 채택한다.
+
+    4차 진단리포트 4-2 — 120일 하나만 계산하면 "추세 구간(예: 1년간 6배 오른 종목)에
+    프로파일을 씌우면 가치영역이 전체 가격범위를 뒤덮는" 문제가 추세 종목마다 항상
+    발생해 결국 아무것도 못 쓰게 된다. 20일 프로파일은 최근 박스권만 담아 가치영역이
+    좁게 나오므로, 짧은 창부터 시도해 신뢰도가 확보되는 순간 그 결과를 쓴다. 셋 다
+    low면(장기 추세 초입 등) 가장 데이터가 많은 120일 결과를 참고용으로 반환한다."""
+    candidates = []
+    for lb in (20, 60, 120):
+        r = _volume_profile_single(candles, lb)
+        if r:
+            r["lookback_days"] = lb
+            candidates.append(r)
+    if not candidates:
+        return None
+    best = next((r for r in candidates if r["reliability"] == "high"), candidates[-1])
+    best["candidates"] = [{"lookback_days": r["lookback_days"], "reliability": r["reliability"],
+                            "poc": r["poc"], "vah": r["vah"], "val": r["val"]} for r in candidates]
+    return best
+
+
+def _volume_profile_single(candles, lookback):
     """볼륨 프로파일 — 가격대별 거래량 분포(시간이 아닌 "가격" 축 히스토그램).
     ⚠️ 진짜 볼륨 프로파일은 틱(체결) 데이터로 만들지만, 이 프로젝트엔 일봉만 있다 —
     "일봉 기반 추정 프로파일"임을 신호 문구에 항상 명시한다.
@@ -757,34 +795,49 @@ def smart_money_flow(flows, closes):
         cum_organ.append(co)
         smart_delta.append(cf + co)
 
-    # 다이버전스 — 최근 20일 가격 변화 vs 스마트머니 누적델타 변화(부호만 비교; 유통주식
-    # 수를 몰라 절대량 정규화는 불가능해 방향성 신호로만 쓴다).
+    # 다이버전스 — 가격 변화 vs 스마트머니 누적델타 변화(부호만 비교; 유통주식 수를
+    # 몰라 절대량 정규화는 불가능해 방향성 신호로만 쓴다).
+    # 4차 진단리포트 4-4 — 기존엔 창을 21일로 하드코딩해, flows가 60일로 늘어난 뒤에도
+    # 실제로는 최근 20영업일만 보고 있었다. 예를 들어 매도가 대부분 21~60일 구간에
+    # 몰려 있으면 최근 20일 변화만으론 절대 안 잡힌다. 실제 flows 창(최대 60일) 전체로
+    # 맞추고, 임계값도 20일 기준(±5%)에서 최대 60일 기준(±3%)으로 완화한다.
     divergence = None
-    if len(closes) >= 21 and closes[-21]:
-        price_chg = (closes[-1] - closes[-21]) / closes[-21]
-        smart_chg = smart_delta[-1] - smart_delta[-21] if len(smart_delta) >= 21 else 0
-        if price_chg < -0.05 and smart_chg > 0:
+    window = min(len(smart_delta) - 1, len(closes) - 1)
+    if window >= 10 and closes[-window - 1]:
+        price_chg = (closes[-1] - closes[-window - 1]) / closes[-window - 1]
+        smart_chg = smart_delta[-1] - smart_delta[0]
+        if price_chg < -0.03 and smart_chg > 0:
             divergence = "bullish"
-        elif price_chg > 0.05 and smart_chg < 0:
+        elif price_chg > 0.03 and smart_chg < 0:
             divergence = "bearish"
 
-    # 외국인 추정 평균단가 — 순매수한 날의 종가를 순매수 수량으로 가중평균.
-    buy_days = [d for d in days if (d.get("foreigner") or 0) > 0 and d.get("close")]
-    foreign_avg_cost = None
-    if buy_days:
-        den = sum(d["foreigner"] for d in buy_days)
-        foreign_avg_cost = sum(d["close"] * d["foreigner"] for d in buy_days) / den if den else None
-
-    # 연속성 — 외국인 연속 순매수 일수(최신부터), 최근 5일 집중도(전체 20일 대비).
+    # 연속성 — 외국인 연속 순매수/순매도 일수(최신부터), 최근 5일 집중도(전체 20일 대비).
     streak = 0
     for d in reversed(days):
         if (d.get("foreigner") or 0) > 0:
             streak += 1
         else:
             break
+    sell_streak = 0
+    for d in reversed(days):
+        if (d.get("foreigner") or 0) < 0:
+            sell_streak += 1
+        else:
+            break
     last5 = sum(abs(d.get("foreigner") or 0) for d in days[-5:])
     last20 = sum(abs(d.get("foreigner") or 0) for d in days[-20:])
     concentration = round(last5 / last20, 2) if last20 else None
+
+    # 외국인 추정 평균단가 — 순매수한 날의 종가를 순매수 수량으로 가중평균.
+    # 4차 진단리포트 4-4 — 순매도가 지배적인 구간엔 순매수일 표본이 적어 값이 불안정해진다.
+    # 관측 구간 전체 순매수 총량이 순매도 총량보다 클 때만(=매수가 우세할 때만) 계산한다.
+    net_buy_total = sum(d.get("foreigner") or 0 for d in days if (d.get("foreigner") or 0) > 0)
+    net_sell_total = -sum(d.get("foreigner") or 0 for d in days if (d.get("foreigner") or 0) < 0)
+    buy_days = [d for d in days if (d.get("foreigner") or 0) > 0 and d.get("close")]
+    foreign_avg_cost = None
+    if buy_days and net_buy_total > net_sell_total:
+        den = sum(d["foreigner"] for d in buy_days)
+        foreign_avg_cost = sum(d["close"] * d["foreigner"] for d in buy_days) / den if den else None
 
     price = closes[-1] if closes else None
     cost_upside = round((price - foreign_avg_cost) / foreign_avg_cost * 100, 1) if (foreign_avg_cost and price) else None
@@ -794,7 +847,9 @@ def smart_money_flow(flows, closes):
         score += 20
     elif divergence == "bearish":
         score -= 20
-    score += _clamp(streak * 2, 0, 10) - 5
+    # 매수 연속일은 가점, 매도 연속일은 감점 — 예전엔 매도 연속에 대한 대칭 페널티가
+    # 없어 "연속 순매도"가 점수에 전혀 반영되지 않았다(4차 진단리포트 4-4).
+    score += _clamp(streak * 2, 0, 10) - _clamp(sell_streak * 2, 0, 10)
     if concentration is not None:
         score += (concentration - 0.25) * 20
     score = _clamp(score)
@@ -805,6 +860,7 @@ def smart_money_flow(flows, closes):
         "divergence": divergence,
         "foreign_avg_cost": round(foreign_avg_cost, 1) if foreign_avg_cost else None,
         "foreign_avg_cost_upside": cost_upside,
+        "sell_streak_foreign": sell_streak,
         "streak_foreign": streak, "concentration": concentration,
         "days": len(days), "score": round(score, 1),
     }
@@ -823,6 +879,12 @@ def confluence(avwap, vp, sweeps, smart, price):
     근거가 같은 가격대에서 겹칠 때" 신뢰도 높은 지지/저항으로 묶어준다 — 기존 지지선·
     저항선이 "왜 이 가격인지" 설명이 없었던 문제(3차 진단리포트)를 근거 목록으로 답한다.
 
+    4차 진단리포트 4-1 — 이전엔 같은 "계열"(예: AVWAP 앵커 6개)이 우연히 겹치면 "N중
+    겹침, 신뢰도 X"로 표시돼, 사실은 독립적인 근거가 아니라 같은 계산이 여러 번 반복된
+    것을 강한 신호로 오인시켰다(SK하이닉스 사례: AVWAP 3개 겹침을 "3중 겹침"으로 표시).
+    같은 계열은 최고 가중치 하나로만 세고, 서로 다른 계열(AVWAP·볼륨프로파일·스윕·수급)
+    이 겹칠 때만 가산점을 준다. 계열이 2개 미만인 클러스터는 노이즈로 보고 뺀다.
+
     ⚠️ "미방문 POC"(과거 POC 중 이후 한 번도 되돌아가지 않은 지점)는 일별 POC 이력을
     누적 저장해야 계산 가능한 상태 저장형 기능이라 이번 범위에서는 제외했다."""
     if not price:
@@ -830,21 +892,25 @@ def confluence(avwap, vp, sweeps, smart, price):
     levels = []
     if avwap:
         for label, ln in avwap["lines"].items():
-            levels.append({"price": ln["value"], "src": f"AVWAP({label})", "w": _AVWAP_IMPORTANCE.get(label, 1.0)})
-    if vp and vp["reliability"] != "low":
-        levels.append({"price": vp["poc"], "src": "POC", "w": 1.3})
-        levels.append({"price": vp["vah"], "src": "VAH", "w": 1.0})
-        levels.append({"price": vp["val"], "src": "VAL", "w": 1.0})
+            levels.append({"price": ln["value"], "src": f"AVWAP({label})", "fam": "AVWAP",
+                            "w": _AVWAP_IMPORTANCE.get(label, 1.0)})
+    if vp:
+        # reliability=low여도(추세 구간) 거래량이 몰린 가격대 자체(HVN)는 유효하다 —
+        # 가치영역 해석(POC/VAH/VAL)만 신뢰도에 의존하므로 그것만 low일 때 뺀다.
+        if vp["reliability"] != "low":
+            levels.append({"price": vp["poc"], "src": "POC", "fam": "PROFILE", "w": 1.3})
+            levels.append({"price": vp["vah"], "src": "VAH", "fam": "PROFILE", "w": 1.0})
+            levels.append({"price": vp["val"], "src": "VAL", "fam": "PROFILE", "w": 1.0})
         for h in vp.get("hvn", []):
-            levels.append({"price": h, "src": "HVN", "w": 1.1})
+            levels.append({"price": h, "src": "HVN", "fam": "PROFILE", "w": 1.1})
     if sweeps:
         for e in sweeps.get("recent", []):
             if e["status"] != "sweep":
                 continue
             src = "스윕저점" if e["type"] == "low_sweep" else "스윕고점"
-            levels.append({"price": e["level"], "src": src, "w": e["strength"] / 100 * 1.2})
+            levels.append({"price": e["level"], "src": src, "fam": "SWEEP", "w": e["strength"] / 100 * 1.2})
     if smart and smart.get("foreign_avg_cost"):
-        levels.append({"price": smart["foreign_avg_cost"], "src": "외국인평단", "w": 1.2})
+        levels.append({"price": smart["foreign_avg_cost"], "src": "외국인평단", "fam": "FLOW", "w": 1.2})
     if not levels:
         return []
 
@@ -861,12 +927,18 @@ def confluence(avwap, vp, sweeps, smart, price):
 
     out = []
     for c in clusters:
+        fam_best = {}
+        for it in c["items"]:
+            fam_best[it["fam"]] = max(fam_best.get(it["fam"], 0), it["w"])
+        fams = list(fam_best.keys())
+        if len(fams) < 2:
+            continue   # 계열 1개뿐이면 "겹침"이 아니라 같은 계산의 반복 — 노이즈로 제외
         avg_price = sum(c["prices"]) / len(c["prices"])
         sources = [it["src"] for it in c["items"]]
-        w_sum = sum(it["w"] for it in c["items"])
-        score = w_sum * (1 + 0.15 * (len(sources) - 1))   # 겹칠수록 가산
+        base = sum(fam_best.values())         # 계열별 최고 가중치만 합산(계열 내 중복 가산 금지)
+        score = base * (1 + 0.25 * (len(fams) - 1))   # 서로 다른 계열이 많이 겹칠수록 가산
         out.append({"price": round(avg_price, 1), "type": "지지" if avg_price < price else "저항",
-                     "score": round(score, 2), "sources": sources})
+                     "score": round(score, 2), "sources": sources, "families": fams})
     out.sort(key=lambda x: -x["score"])
     return out[:8]
 
@@ -940,6 +1012,12 @@ def analyze(candles, bench_closes=None, flows=None):
     smart = smart_money_flow(flows, closes)
     conf = confluence(avwap, vp, sweeps, smart, price)
     conf_prox = confluence_proximity(conf, price)
+    # 4차 진단리포트 4-1/8 — "지지선·저항선을 컨플루언스 결과로 대체하라"는 설계서
+    # 요청이 반영되지 않아, 화면의 지지선(단순 피벗 기반)과 컨플루언스 1위 가격이
+    # 서로 다르게 표시되는 문제가 있었다. 여러 근거가 겹친 가장 강한 지지/저항을
+    # 뽑아 반환한다 — main.py가 이 값이 있으면 화면 표시를 이걸로 교체한다.
+    conf_support = max((c for c in conf if c["type"] == "지지"), key=lambda c: c["score"], default=None)
+    conf_resistance = max((c for c in conf if c["type"] == "저항"), key=lambda c: c["score"], default=None)
 
     atr_pct = round(a / price * 100, 2) if a and price else None
 
@@ -973,7 +1051,9 @@ def analyze(candles, bench_closes=None, flows=None):
             signals.append(("bull", "가격 대비 OBV 강세 다이버전스 — 세력 매집 정황"))
         elif ob["divergence"] == "bearish":
             signals.append(("bear", "가격 대비 OBV 약세 다이버전스 — 분산 정황"))
-    if box:
+    # 4차 진단리포트 4-2 — 폭 139.7% 같은 값을 "박스권"이라 부르면 안 된다(추세 구간을
+    # 박스로 오인). reliable=False면 점수·신호 반영에서 빼고 참고용으로만 노출한다.
+    if box and box["reliable"]:
         if box["breakout"]:
             parts["박스"] = 85.0
             signals.append(("bull", f"박스권 상단({box['top']:,.0f}) 돌파 — 신고가 시도"))
@@ -982,6 +1062,8 @@ def analyze(candles, bench_closes=None, flows=None):
             signals.append(("bear", f"박스권 하단({box['bottom']:,.0f}) 이탈 — 지지 붕괴"))
         else:
             parts["박스"] = 50.0
+    elif box:
+        signals.append(("neutral", f"최근 구간 변동폭 {box['width_pct']:.0f}% — 박스권이 아닌 추세 구간이라 박스 판정 생략"))
     if fib:
         signals.append(("neutral", f"피보나치 {fib['retrace_pct']:.0f}% 되돌림 — {fib['zone']}"))
     if avwap:
@@ -1032,6 +1114,8 @@ def analyze(candles, bench_closes=None, flows=None):
             signals.append((tone, f"외국인 추정 평균단가 {smart['foreign_avg_cost']:,.0f}원 — 현재가 대비 {smart['foreign_avg_cost_upside']:+.1f}% {'이익' if smart['foreign_avg_cost_upside'] >= 0 else '손실'} 구간"))
         if smart["streak_foreign"] >= 5:
             signals.append(("bull", f"외국인 {smart['streak_foreign']}일 연속 순매수 — 수급 유입 지속"))
+        elif smart.get("sell_streak_foreign", 0) >= 5:
+            signals.append(("bear", f"외국인 {smart['sell_streak_foreign']}일 연속 순매도 — 수급 이탈 지속"))
 
     # 컨플루언스 — 서로 다른 근거 2개 이상이 겹친 구간만 신호로 노출(1개짜리는 노이즈).
     for c in [x for x in conf if len(x["sources"]) >= 2][:3]:
@@ -1091,6 +1175,8 @@ def analyze(candles, bench_closes=None, flows=None):
         "volume_profile": vp,
         "smart_money": smart,
         "confluence": conf,
+        "confluence_support": conf_support,
+        "confluence_resistance": conf_resistance,
         "signals": [{"type": t, "text": s} for t, s in signals],
         "bars": len(candles),
     }

@@ -220,6 +220,19 @@ def api_analyze(code: str, request: Request = None):
     # 고급 차트 분석 (스테이지·상대강도·추세템플릿·VCP·OBV·AVWAP·유동성스윕·볼륨프로파일·
     # 수급 오더플로우 등)
     pro = safe(lambda: chart_pro.analyze(candle_data, bench, flows), {"available": False})
+
+    # 4차 진단리포트 4-1/8 — "지지선·저항선을 컨플루언스 결과로 대체하라"던 설계서 요청.
+    # ⚠️ 전면 교체는 하지 않는다 — support/resistance는 매수 관심 구간·손절가·기술적
+    # 목표주가(tech_target) 계산의 입력값이라, 표시값만 바꾸면 "지지선은 A인데 매수
+    # 관심 구간은 B 기준"처럼 이 리포트가 지적한 것과 같은 종류의 새 불일치가 생긴다.
+    # 대신 컨플루언스 값을 별도 필드로 노출해 화면에서 "여러 근거가 겹친 지지/저항"을
+    # 기존 피벗 기준과 나란히 보여준다(entry_plan 재계산은 별도 검증이 필요해 보류).
+    if tech.get("available") and pro.get("available"):
+        if pro.get("confluence_support"):
+            tech["support_confluence"] = pro["confluence_support"]["price"]
+        if pro.get("confluence_resistance"):
+            tech["resistance_confluence"] = pro["confluence_resistance"]["price"]
+
     fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
     senti = analysis.news_sentiment(news_items, stock_name=name)
     cons = analysis.consensus_info(integ, price)

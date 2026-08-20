@@ -755,6 +755,15 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
     if op_cur is not None and op_cur < 0:
         cap = _clamp(50 + opm, 20, 50) if opm is not None else 45.0
         growth_score = min(growth_score, cap)
+    # 4차 진단리포트 3-2 — 위 op_cur<0 케이스만으론 "수익성 한 자리 점수 + 성장성 80점
+    # 이상"이라는 모순을 다 못 걸렀다(심텍 ROE -32%·성장성 80.7, 나노신소재 ROE 0.7%·
+    # 성장성 94.6 — 둘 다 영업이익 자체는 흑자라 위 조건에 안 걸림). 수익성 점수와
+    # 직접 연동하는 상한을 추가로 건다 — "돈을 거의/전혀 못 버는데 성장성만 만점"인
+    # 산식의 모순을 막는다.
+    if prof_score < 20:
+        growth_score = min(growth_score, 60.0)
+    elif prof_score < 35:
+        growth_score = min(growth_score, 75.0)
 
     # 안정성: 국내는 부채비율·유보율, 미국(부채 데이터 없음)은 흑자·자산효율 프록시
     # ⚠️ 은행·보험·지주는 부채비율이 구조적으로 1000%+ 라 이를 '위험'으로 보면 안 된다.

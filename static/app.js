@@ -1509,8 +1509,8 @@ function render(d) {
     $("entry-grid").innerHTML = `
       <div class="entry-item buy"><label>🟢 매수 관심 구간</label><div>${pwRange(e.buy_zone_low, e.buy_zone_high)}</div></div>
       <div class="entry-item sell"><label>🔴 매도·차익실현 구간</label><div>${pwRange(e.sell_zone_low, e.sell_zone_high)}</div></div>
-      <div class="entry-item"><label>지지선</label><div class="up">${pw(e.support)}</div></div>
-      <div class="entry-item"><label>저항선</label><div class="down">${pw(e.resistance)}</div></div>
+      <div class="entry-item"><label>지지선</label><div class="up">${pw(e.support)}${tech.support_confluence ? ` <small class="hint">(컨플루언스 ${pw(tech.support_confluence)})</small>` : ""}</div></div>
+      <div class="entry-item"><label>저항선</label><div class="down">${pw(e.resistance)}${tech.resistance_confluence ? ` <small class="hint">(컨플루언스 ${pw(tech.resistance_confluence)})</small>` : ""}</div></div>
       <div class="entry-item"><label>손절 참고가</label><div class="down">${pw(e.stop_loss)}</div></div>`;
   }
 
@@ -1768,9 +1768,15 @@ function drawChart() {
   const crossC = light ? "#8790a3" : "#66708c";
   const upC = "#f6465d", downC = "#3e7bfa";       // 빨강 상승 · 파랑 하락
 
+  // 4차 진단리포트 5장 — Y축이 "2800000"처럼 천 단위 구분 없이 표시됐다.
+  // lightweight-charts는 priceFormat.precision만으론 구분기호를 안 붙여줘 커스텀
+  // localization.priceFormatter가 필요하다.
+  const fmtAxis = (p) => curCur === "USD" ? p.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : Math.round(p).toLocaleString("ko-KR");
   chart = LC.createChart(el, {
     layout: { background: { color: "transparent" }, textColor: txt, fontFamily: "Pretendard, sans-serif", fontSize: 11 },
     grid: { vertLines: { color: gridC }, horzLines: { color: gridC } },
+    localization: { priceFormatter: fmtAxis },
     rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.08, bottom: 0.26 } },
     timeScale: { borderVisible: false, rightOffset: 5, minBarSpacing: 1, fixRightEdge: true },
     crosshair: {
@@ -1828,7 +1834,9 @@ function drawChart() {
   });
 
   const volSeries = chart.addHistogramSeries({ priceFormat: { type: "volume" }, priceScaleId: "vol", lastValueVisible: false });
-  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 } });
+  // 4차 진단리포트 5장 — 거래량 패널 축에 "-400,000" 같은 음수 라벨이 남아 있었다.
+  // 거래량은 항상 0 이상이라 축 라벨 자체가 필요 없는 보조 패널 — 아예 숨긴다.
+  chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.86, bottom: 0 }, visible: false });
   volSeries.setData(d.candles.map((c) => ({
     time: toDate(c.date), value: c.volume,
     color: c.close >= c.open ? "rgba(246,70,93,.35)" : "rgba(62,123,250,.35)",
@@ -1915,11 +1923,15 @@ function drawChart() {
         const anchorIdx = d.candles.findIndex((c) => c.date === info.anchor_date);
         if (anchorIdx < 0 || !info.series || !info.series.length) return;
         const primary = PRIMARY_ANCHORS.has(label);
+        // 4차 진단리포트 5장 — 우측 축에 신고저가·외국인평단·현재가·갭·스윕·컨플루언스·
+        // 실적발표·연초·지지·신저가까지 라벨 열 개 가까이 겹쳐 판독이 어려웠다.
+        // 보조 앵커(갭·거래량폭발·최근스윕) 3개는 선은 그대로 그리되 축 라벨은 끄고,
+        // 핵심 4개(신고저가·YTD·실적발표)만 라벨을 남겨 겹침을 절반 이하로 줄인다.
         const line = chart.addLineSeries({
           color: AVWAP_COLOR[label] || "#a855f7",
           lineWidth: primary ? 2 : 1,
           lineStyle: primary ? LC.LineStyle.Solid : LC.LineStyle.Dotted,
-          priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+          priceLineVisible: false, lastValueVisible: primary, crosshairMarkerVisible: false,
           title: label,
         });
         line.setData(info.series.map((v, i) => ({ time: toDate(d.candles[anchorIdx + i].date), value: v })));
@@ -1962,7 +1974,8 @@ function drawChart() {
   // 굵게). 전용 밴드를 새로 그리는 대신 이미 검증된 목표가/지지/저항과 같은 가격선
   // 방식을 재사용한다.
   if (tf === "day" && pro.confluence) {
-    pro.confluence.filter((c) => c.sources.length >= 2).slice(0, 5).forEach((c) => {
+    // 4차 진단리포트 5장 — 우측 라벨 중첩 완화를 위해 5개→3개(가장 강한 것만)로 축소.
+    pro.confluence.filter((c) => c.sources.length >= 2).slice(0, 3).forEach((c) => {
       const color = c.type === "지지" ? "#2ee6a6" : "#ff4d6d";
       const width = Math.min(1 + Math.floor(c.sources.length / 2), 3);
       candleSeries.createPriceLine({
@@ -2371,8 +2384,8 @@ function renderChartPro(p) {
                 `3개월 ${sign(rs.detail["63d"] ?? 0, 1)}%p · 6개월 ${sign(rs.detail["126d"] ?? 0, 1)}%p`]);
   }
   if (p.fibonacci) cells.push(["피보나치 되돌림", `${p.fibonacci.retrace_pct}%`, p.fibonacci.zone]);
-  if (p.box) cells.push(["박스권", `${fmt(p.box.bottom)} ~ ${fmt(p.box.top)}`,
-    p.box.breakout ? "상단 돌파 중" : p.box.breakdown ? "하단 이탈" : `폭 ${p.box.width_pct}%`]);
+  if (p.box) cells.push([p.box.reliable ? "박스권" : "박스권 <span class=\"down\">⚠️ 추세 구간</span>", `${fmt(p.box.bottom)} ~ ${fmt(p.box.top)}`,
+    p.box.reliable ? (p.box.breakout ? "상단 돌파 중" : p.box.breakdown ? "하단 이탈" : `폭 ${p.box.width_pct}%`) : `폭 ${p.box.width_pct}% — 박스권 아님, 참고용`]);
   if (p.atr_pct != null) cells.push(["ATR 변동성", `${p.atr_pct}%`,
     p.atr_pct > 5 ? "고변동 — 비중 축소 권장" : "일간 평균 등락폭"]);
   if (p.obv) cells.push(["OBV 자금흐름", `<span class="${p.obv.slope >= 0 ? "up" : "down"}">${sign(p.obv.slope, 1)}</span>`,
@@ -2400,7 +2413,9 @@ function renderChartPro(p) {
     // 4차 진단리포트 P0-2 — reliability=low인데 카드엔 해석 문구만 보이고 경고가 안 보이면
     // 플래그를 단 의미가 없다. low일 땐 값 칸 자체에 "⚠️ 신뢰도 낮음"을 노출한다.
     const vpVal = vp.reliability === "low" ? `${fmt(vp.poc)} <span class="down">⚠️ 신뢰도 낮음</span>` : fmt(vp.poc);
-    cells.push(["볼륨 프로파일 POC", vpVal, `가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position}`]);
+    // 4차 진단리포트 4-2 — 룩백을 20/60/120일 중 신뢰도가 확보되는 최단 창으로 자동
+    // 선택하므로, 어느 창을 쓴 결과인지 병기해야 "왜 이 가치영역인지"가 명확하다.
+    cells.push(["볼륨 프로파일 POC", vpVal, `${vp.lookback_days}일 기준 · 가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position}`]);
   }
   if (p.smart_money) {
     // ⚠️ 예전 "오더플로우 근사"(CLV×거래량)는 캔들 몸통·꼬리를 다시 쓴 것뿐이라 새 정보가
