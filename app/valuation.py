@@ -131,6 +131,73 @@ def _per_history_from_per_row(per_series):
     }
 
 
+def pbr_history(fin_rows, candles):
+    """연도별 평균 PBR — per_history()와 같은 방법론(그 해 평균주가 ÷ 그 해 BPS)이지만
+    '선행' 개념은 적용하지 않는다. BPS는 순이익 유보·자사주 등으로 완만히만 변해
+    forward의 의미가 EPS만큼 크지 않으므로 trailing PBR만 계산한다.
+    fin_rows: analysis._finance_rows() 결과. 반환 shape은 per_history()와 맞춤."""
+    bps_series = None
+    pbr_series = None
+    for name, series in (fin_rows or {}).items():
+        n = name.strip()
+        if n == "BPS":
+            bps_series = series
+        elif n == "PBR":
+            pbr_series = series
+    if not candles:
+        return None
+    if not bps_series:
+        # 미국은 BPS 행이 없다(실측 확인) — 대신 제공되는 PBR 행을 그대로 쓴다.
+        return _ratio_history_from_row(pbr_series, "pbr")
+
+    rows = []
+    for s in bps_series:
+        y = _fy_year(s.get("period"))
+        if y and s.get("value") is not None:
+            rows.append({"year": y, "bps": s["value"], "consensus": s.get("consensus", False)})
+    if not rows:
+        return None
+    rows.sort(key=lambda r: r["year"])
+
+    out = []
+    for r in rows:
+        y = r["year"]
+        avg_p = _year_avg_price(candles, y)
+        pbr = round(avg_p / r["bps"], 2) if (avg_p and r["bps"] and r["bps"] > 0) else None
+        out.append({"year": y, "bps": r["bps"], "consensus": r["consensus"],
+                    "avg_price": round(avg_p) if avg_p else None, "pbr": pbr})
+
+    hist = [o["pbr"] for o in out if o["pbr"] and not o["consensus"]]
+    return {
+        "years": out,
+        "avg_pbr": round(sum(hist) / len(hist), 2) if hist else None,
+        "pbr_count": len(hist),
+    }
+
+
+def _ratio_history_from_row(series, key):
+    """EPS/BPS 행이 없는 시장(미국)용 폴백 — 제공되는 배수 행을 그대로 연도별 값으로 사용."""
+    if not series:
+        return None
+    out = []
+    for s in series:
+        y = _fy_year(s.get("period"))
+        v = s.get("value")
+        if y and v and v > 0:
+            out.append({"year": y, key: round(v, 2), "consensus": s.get("consensus", False),
+                        "avg_price": None})
+    if not out:
+        return None
+    out.sort(key=lambda r: r["year"])
+    hist = [o[key] for o in out if not o["consensus"]]
+    return {
+        "years": out,
+        f"avg_{key}": round(sum(hist) / len(hist), 2) if hist else None,
+        f"{key}_count": len(hist),
+        "from_per_row": True,
+    }
+
+
 def _band_score(ratio):
     """현재 ÷ 과거평균 배수를 점수로. 1.0=적정(60점), 낮을수록 고점.
     0.7배 이하 → 90+ / 1.0배 → 60 / 1.5배 → 30 / 2.0배 이상 → 12"""
@@ -389,6 +456,7 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
     per = metrics.get("per")
     fper = metrics.get("cns_per")
     hist = per_history(fin_rows, candles)
+    pbr_hist = pbr_history(fin_rows, candles)
 
     parts, signals, checklist = {}, [], []
 
@@ -562,6 +630,7 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
         "parts": {k: round(v, 1) for k, v in parts.items()},
         "band": band,
         "history": hist,
+        "pbr_history": pbr_hist,
         "backtest": backtest,
         "peg": peg,
         "peer": peer,

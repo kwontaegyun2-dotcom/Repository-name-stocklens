@@ -179,9 +179,10 @@ def api_analyze(code: str, request: Request = None):
 
     # 독립적인 네트워크 호출을 병렬로 수집한다 (순차 실행 대비 응답시간 대폭 단축).
     # 뉴스·증권사 리포트는 상위 3건만 받아 전송량과 AI 프롬프트 크기를 줄인다.
-    with ThreadPoolExecutor(max_workers=7) as ex:
+    with ThreadPoolExecutor(max_workers=8) as ex:
         f_integ = ex.submit(safe, lambda: naver.integration(code), {})
         f_fin = ex.submit(safe, lambda: naver.finance(code, "annual"), {})
+        f_fin_q = ex.submit(safe, lambda: naver.finance(code, "quarter"), {})
         f_news = ex.submit(safe, lambda: naver.news(code, 3), [])
         f_research = ex.submit(safe, lambda: naver.research(code, 3), [])
         f_trend = ex.submit(safe, lambda: naver.trend(code), [])
@@ -193,6 +194,7 @@ def api_analyze(code: str, request: Request = None):
             f_bench = ex.submit(safe, lambda: naver.index_candles("KOSPI", 1300), [])
         integ = f_integ.result()
         fin_annual = f_fin.result()
+        fin_quarter = f_fin_q.result()
         news_items = f_news.result()
         research_items = f_research.result()
         deal_trend = f_trend.result()
@@ -236,7 +238,7 @@ def api_analyze(code: str, request: Request = None):
         if pro.get("confluence_resistance"):
             tech["resistance_confluence"] = pro["confluence_resistance"]["price"]
 
-    fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR")
+    fund = analysis.fundamental_analysis(infos, fin_annual, market="US" if us else "KR", fin_quarter=fin_quarter)
     senti = analysis.news_sentiment(news_items, stock_name=name)
     cons = analysis.consensus_info(integ, price)
     total = analysis.total_evaluation(fund, tech, senti, cons, deal_trend, pro)
@@ -322,6 +324,7 @@ def api_analyze(code: str, request: Request = None):
         "opinion": opinion,
         "metrics": fund["metrics"],
         "finance_rows": fund["finance_rows"],
+        "finance_rows_quarterly": fund["finance_rows_quarterly"],
         "technical": tech,
         "chart_pro": pro,
         "valuation": val,

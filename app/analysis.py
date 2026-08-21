@@ -612,11 +612,43 @@ def _highlight_rows(rows: dict, market: str = "KR") -> dict:
             if market == "US" and unit == "eok":
                 series = [{**s, "value": s["value"] / 100.0 if s["value"] is not None else None} for s in series]
             out[disp] = {"unit": unit, "series": series}
+        elif disp in ("영업이익률", "순이익률") and "매출액" in out:
+            # 미국은 마진(%) 행 자체가 없다(실측 확인) — 매출액·영업이익(EBIT)·당기순이익으로
+            # 직접 계산해 채운다. 스칼라(현재값)는 이미 fundamental_analysis()에서 이렇게
+            # 근사하고 있었는데, 재무 하이라이트 표·차트용 "시계열"은 이 보완이 없었다.
+            num_key = "영업이익" if disp == "영업이익률" else "당기순이익"
+            if num_key in out:
+                num_by_p = {s["period"]: s["value"] for s in out[num_key]["series"]}
+                derived = []
+                for s in out["매출액"]["series"]:
+                    rv, nv = s["value"], num_by_p.get(s["period"])
+                    val = (nv / rv * 100.0) if (rv and nv is not None) else None
+                    derived.append({"period": s["period"], "value": round(val, 2) if val is not None else None,
+                                    "consensus": s["consensus"]})
+                if any(d["value"] is not None for d in derived):
+                    out[disp] = {"unit": unit, "series": derived}
+
+    # 배당성향(주당배당금 ÷ EPS) — 네이버 재무 API에 이 행 자체가 없어 EPS·주당배당금(DPS)
+    # 두 행으로 직접 계산한다. 미국은 DPS 행이 없어(실측 확인) 자연히 비어 있게 된다.
+    dps_series = _exact_row(rows, "주당배당금")
+    if dps_series and "EPS" in out:
+        eps_by_p = {s["period"]: s["value"] for s in out["EPS"]["series"]}
+        derived = []
+        for s in dps_series:
+            eps_v = eps_by_p.get(s["period"])
+            v = s.get("value")
+            val = (v / eps_v * 100.0) if (v is not None and eps_v and eps_v > 0) else None
+            derived.append({"period": s["period"], "value": round(val, 1) if val is not None else None,
+                            "consensus": s.get("consensus", False)})
+        if any(d["value"] is not None for d in derived):
+            out["배당성향"] = {"unit": "pct", "series": derived}
     return out
 
 
-def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> dict:
-    """infos: {code: value} (국내=integration.totalInfos, 미국=basic.stockItemTotalInfos)"""
+def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR", fin_quarter: dict = None) -> dict:
+    """infos: {code: value} (국내=integration.totalInfos, 미국=basic.stockItemTotalInfos)
+    fin_quarter: naver.finance(code,"quarter") 원본 — 있으면 분기별 재무 하이라이트도 함께 반환.
+    """
     infos = infos or {}
     per = to_num(infos.get("per"))
     cns_per = to_num(infos.get("cnsPer"))
@@ -813,6 +845,9 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR") -> d
         # 재무 하이라이트 표: 연도별 추이를 보여줄 핵심 지표들(있는 것만, 지정 순서대로).
         # 국내/미국 행 이름이 달라(영업이익/EBIT, 당기순이익/세후손익 등) 별칭으로 매칭한다.
         "finance_rows": _highlight_rows(rows, market),
+        # 분기별 버전 — 네이버가 실적 3~5분기(+컨센서스 1분기)만 준다(연간 3년치보다 기간은
+        # 짧지만 더 촘촘한 최근 추이를 보여줄 수 있어 별도로 함께 제공, 프론트 토글용).
+        "finance_rows_quarterly": _highlight_rows(_finance_rows(fin_quarter), market) if fin_quarter else {},
         # 밸류에이션 분석용 전체 행(EPS·PER·EBITDA 등) — 응답에는 싣지 않는다
         "all_rows": rows,
         "scores": {

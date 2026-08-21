@@ -1603,7 +1603,13 @@ function showDetailTab(tab) {
   // 전체 구간으로 되돌아가는 실제 버그가 있었다(진단리포트로 확인). 그래서 finance-chart와
   // 동일하게 탭이 열릴 때 drawChart()를 다시 호출해 컨테이너가 보이는 상태에서 기간 필터를
   // 다시 적용해야 한다.
-  if (tab === "finance" && lastAnalysis) renderFinance(lastAnalysis.finance_rows);
+  if (tab === "finance" && lastAnalysis) renderFinance(finPeriodMode === "quarter" ? lastAnalysis.finance_rows_quarterly : lastAnalysis.finance_rows);
+  // val-band-chart도 finance-chart와 같은 이유(숨겨진 상태에서 그리면 clientWidth=0)로
+  // "밸류" 탭이 실제로 보여질 때 다시 그려야 한다.
+  if (tab === "valuation" && lastAnalysis && lastAnalysis.valuation) {
+    const vv = lastAnalysis.valuation;
+    renderValBandChart(vv.history, vv.pbr_history, vv.current);
+  }
   if (tab === "chart" && chartCtx.code) drawChart();
 }
 document.querySelectorAll("#detail-tabs button").forEach((b) => {
@@ -1614,6 +1620,7 @@ document.querySelectorAll("#detail-tabs button").forEach((b) => {
 function render(d) {
   lastAnalysis = d;
   curCur = d.currency || "KRW";
+  finPeriodMode = "annual";    // 종목이 바뀔 때마다 재무 하이라이트도 "연간"으로 리셋
   showDetailTab("overview");   // 종목이 바뀔 때마다 "종합" 탭으로 리셋
   /* header */
   $("stock-logo").src = d.logo || "";
@@ -1875,6 +1882,16 @@ function render(d) {
     `<div class="metric"><label>시가총액</label><div>${m.market_cap ? fmt(m.market_cap / 10000, 1) + (curCur === "USD" ? "조 달러" : "조원") : "-"}</div></div>`;
 
   /* finance */
+  $("fin-period-controls").innerHTML = ["annual", "quarter"].map((m) =>
+    `<button data-mode="${m}" class="${m === finPeriodMode ? "active" : ""}">${m === "annual" ? "연간" : "분기"}</button>`).join("");
+  $("fin-period-controls").querySelectorAll("button").forEach((b) => {
+    b.onclick = () => {
+      finPeriodMode = b.dataset.mode;
+      $("fin-period-controls").querySelectorAll("button").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      renderFinance(finPeriodMode === "quarter" ? lastAnalysis.finance_rows_quarterly : lastAnalysis.finance_rows);
+    };
+  });
   renderFinance(d.finance_rows);
 
   /* flows (미국은 수급 데이터 없음) */
@@ -2419,6 +2436,7 @@ function drawChart() {
 /* ---------------- compare ---------------- */
 let compareList = [];
 let lastAnalysis = null;
+let finPeriodMode = "annual";   // "annual" | "quarter" — 재무 하이라이트 탭 토글 상태
 const CMP_COLORS = ["#6366f1", "#22d3ee", "#ff6b9d"];
 
 function addCompare(d) {
@@ -2579,6 +2597,7 @@ function renderValuation(v) {
         y.fper != null ? `${y.fper}배` : "-",
       ]));
   } else $("val-history").innerHTML = "";
+  renderValBandChart(h, v.pbr_history, v.current);
 
   /* 과거 유사 밸류에이션 시점 백테스트 */
   const bt = v.backtest;
@@ -2766,6 +2785,63 @@ function renderChartPro(p) {
 }
 
 
+/* PER/PBR 밴드 차트 — 연도별 배수 막대 + 과거평균 점선 + "현재" 막대(밝은 색)로
+   "지금이 과거 밴드 대비 어디쯤인가"를 한눈에 보여준다. 네이버가 실적 3년(+컨센서스
+   1년)만 주므로 "5년 밴드"가 아니라 실제 확보된 연도만큼만 그린다(과장하지 않음 —
+   라벨에 실제 연도를 그대로 표기). */
+function renderValBandChart(h, hp, cur) {
+  const cvs = $("valband-chart");
+  if (!cvs) return;
+  const perYears = ((h && h.years) || []).filter((y) => y.per != null);
+  const pbrYears = ((hp && hp.years) || []).filter((y) => y.pbr != null);
+  if (!perYears.length && !pbrYears.length) { cvs.classList.add("hidden"); return; }
+  cvs.classList.remove("hidden");
+
+  const ctx = cvs.getContext("2d");
+  cvs.width = cvs.parentElement.clientWidth - 48;
+  const W = cvs.width, H = cvs.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const drawPanel = (x0, w, years, key, curVal, label, color) => {
+    if (!years.length) return;
+    const vals = years.map((y) => y[key]);
+    const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+    const maxV = Math.max(...vals, curVal || 0) * 1.2 || 1;
+    const pad = 26;
+    const slots = years.length + (curVal != null ? 1 : 0);
+    const gw = (w - pad * 2) / slots;
+    const bw = Math.min(gw - 10, 40);
+    const y = (v) => H - 24 - (v / maxV) * (H - 46);
+
+    ctx.strokeStyle = "#1f2635"; ctx.beginPath();
+    ctx.moveTo(x0 + pad, y(0)); ctx.lineTo(x0 + w - pad, y(0)); ctx.stroke();
+    ctx.strokeStyle = "#8a93a6"; ctx.setLineDash([4, 3]); ctx.beginPath();
+    ctx.moveTo(x0 + pad, y(avg)); ctx.lineTo(x0 + w - pad, y(avg)); ctx.stroke();
+    ctx.setLineDash([]);
+
+    years.forEach((yr, i) => {
+      const cx = x0 + pad + i * gw + gw / 2;
+      ctx.fillStyle = yr.consensus ? color + "77" : color;
+      ctx.fillRect(cx - bw / 2, y(vals[i]), bw, y(0) - y(vals[i]));
+      ctx.fillStyle = "#8a93a6"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText(`${yr.year}${yr.consensus ? "(E)" : ""}`, cx, H - 8);
+    });
+    if (curVal != null) {
+      const cx = x0 + pad + years.length * gw + gw / 2;
+      ctx.fillStyle = "#ff9f43";
+      ctx.fillRect(cx - bw / 2, y(curVal), bw, y(0) - y(curVal));
+      ctx.fillStyle = "#8a93a6"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+      ctx.fillText("현재", cx, H - 8);
+    }
+    ctx.fillStyle = color; ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText(`${label} · 점선=과거평균 ${avg.toFixed(1)}배`, x0 + pad, 14);
+  };
+
+  const half = perYears.length && pbrYears.length ? W / 2 : W;
+  if (perYears.length) drawPanel(0, half, perYears, "per", cur && cur.per, "PER", "#4f8cff");
+  if (pbrYears.length) drawPanel(perYears.length ? half : 0, half, pbrYears, "pbr", cur && cur.pbr, "PBR", "#2ecc71");
+}
+
 /* ---------------- finance ---------------- */
 const _UNIT_LABEL = { eok: "억", pct: "%", x: "배", won: "원" };
 
@@ -2857,6 +2933,62 @@ function renderFinance(rows) {
     return [label, ...cells];
   });
   $("finance-table").innerHTML = tableHTML(header, bodyRows);
+
+  renderFinanceRatios(rows);
+}
+
+/* 부채비율·배당성향 추이 — renderFinance()가 넘긴 것과 같은 rows(연간/분기 토글 공유)를
+   그대로 재사용. 미국은 두 지표 다 원본 데이터가 없어(부채비율 미제공, 배당성향은
+   EPS·DPS 둘 다 있어야 계산되는데 US는 DPS 행 자체가 없음) 자연히 숨겨진다. */
+function renderFinanceRatios(rows) {
+  const cvs = $("finance-ratio-chart"), title = $("finance-ratio-title");
+  const debt = (rows["부채비율"] && rows["부채비율"].series) || [];
+  const payout = (rows["배당성향"] && rows["배당성향"].series) || [];
+  const hasDebt = debt.some((p) => p.value != null);
+  const hasPayout = payout.some((p) => p.value != null);
+  if (!hasDebt && !hasPayout) {
+    cvs.classList.add("hidden"); title.classList.add("hidden");
+    return;
+  }
+  cvs.classList.remove("hidden"); title.classList.remove("hidden");
+
+  const ctx = cvs.getContext("2d");
+  cvs.width = cvs.parentElement.clientWidth - 48;
+  const W = cvs.width, H = cvs.height, pad = 34;
+  ctx.clearRect(0, 0, W, H);
+
+  const periods = (hasDebt ? debt : payout).map((p) => p.period);
+  const allVals = [...debt, ...payout].map((p) => p.value).filter((v) => v != null);
+  const maxV = Math.max(...allVals, 1) * 1.15;
+  const x = (i) => pad + i * (W - pad * 2) / Math.max(periods.length - 1, 1);
+  const y = (v) => H - 24 - (v / maxV) * (H - 44);
+
+  const line = (series, color, label, labelY) => {
+    if (!series.some((p) => p.value != null)) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    let started = false;
+    series.forEach((p, i) => {
+      if (p.value == null) return;
+      if (!started) { ctx.moveTo(x(i), y(p.value)); started = true; } else ctx.lineTo(x(i), y(p.value));
+    });
+    ctx.stroke();
+    ctx.fillStyle = color;
+    series.forEach((p, i) => {
+      if (p.value == null) return;
+      ctx.beginPath(); ctx.arc(x(i), y(p.value), 3, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+    ctx.fillText(`${label}(%)`, pad, labelY);
+  };
+  line(debt, "#e74c3c", "부채비율", 14);
+  line(payout, "#9b59b6", "배당성향", 28);
+
+  ctx.fillStyle = "#8a93a6"; ctx.font = "10px sans-serif"; ctx.textAlign = "center";
+  const step = Math.max(Math.ceil(periods.length / 8), 1);
+  periods.forEach((p, i) => {
+    if (i % step !== 0 && i !== periods.length - 1) return;
+    ctx.fillText(`${p.slice(0, 4)}${p.length > 4 ? "." + p.slice(4, 6) : ""}`, x(i), H - 6);
+  });
 }
 
 /* ---------------- AI report ---------------- */

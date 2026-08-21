@@ -6,7 +6,7 @@
 <title>StockLens — 주식 종합 분석</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
-<link rel="stylesheet" href="/static/style.css?v=88">
+<link rel="stylesheet" href="/static/style.css?v=89">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -407,6 +407,9 @@
     <!-- 1순위: 역사적 밸류에이션 비교 -->
     <div class="val-band" id="val-band"></div>
 
+    <!-- PER/PBR 밴드 차트 (연도별 배수 vs 현재) -->
+    <canvas id="valband-chart" height="200" class="hidden"></canvas>
+
     <!-- 연도별 PER 이력 -->
     <div class="table-wrap" id="val-history"></div>
 
@@ -436,8 +439,11 @@
   <section class="card" data-tab="finance">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-money"/></svg> 재무 하이라이트 <small class="hint" id="finance-unit-hint">단위: 억원 · (E)는 컨센서스</small></h3>
     <div id="finance-cns-warn" class="cns-warn hidden"></div>
+    <div class="chart-controls" id="fin-period-controls"></div>
     <canvas id="finance-chart" height="220"></canvas>
     <div id="finance-table" class="table-wrap"></div>
+    <h4 class="chart-sub-head hidden" id="finance-ratio-title">부채비율 · 배당성향 추이</h4>
+    <canvas id="finance-ratio-chart" height="160" class="hidden"></canvas>
   </section>
 
   <!-- 수급 동향 -->
@@ -738,6 +744,6 @@
 
 <footer class="site-footer">StockLens © 2026</footer>
 
-<script src="/static/app.js?v=97"></script>
+<script src="/static/app.js?v=98"></script>
 </body>
 </html>
