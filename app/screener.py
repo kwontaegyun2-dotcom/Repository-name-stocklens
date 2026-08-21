@@ -15,6 +15,7 @@ _NUMERIC_FIELDS = {
     "debt_max": ("debt_ratio", "max"),
     "div_min": ("dividend_yield", "min"),
     "upside_min": ("upside", "min"),
+    "op_growth_min": ("op_growth_fwd", "min"),
 }
 _GRADE_ORDER = ["F", "D", "C", "B", "A", "S"]
 

@@ -78,6 +78,7 @@ def api_screener(
     score_min: float = None, per_min: float = None, per_max: float = None,
     pbr_max: float = None, roe_min: float = None, debt_max: float = None,
     div_min: float = None, upside_min: float = None, foreign_buy: bool = False,
+    op_growth_min: float = None,
     request: Request = None,
 ):
     _rate_limit(request, limit=30, window=60)
@@ -86,6 +87,7 @@ def api_screener(
         "score_min": score_min, "per_min": per_min, "per_max": per_max,
         "pbr_max": pbr_max, "roe_min": roe_min, "debt_max": debt_max,
         "div_min": div_min, "upside_min": upside_min, "foreign_buy": foreign_buy,
+        "op_growth_min": op_growth_min,
     }
     return screener.run(conditions)
 
@@ -651,9 +653,50 @@ def index():
 # 대신하고 있었음). 프런트는 SPA 그대로 두고(바닐라 JS 유지 원칙), /stock/{code} 요청에도
 # 같은 index.html을 내려준 뒤 클라이언트에서 location.pathname을 읽어 해당 종목을
 # 자동으로 분석·렌더링하도록 한다(static/app.js의 applyRoute 처리 참고).
+_INDEX_HTML = (BASE / "static" / "index.html").read_text(encoding="utf-8")
+_INDEX_TITLE = '<title>StockLens — 주식 종합 분석</title>'
+_INDEX_DESC = ('<meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 '
+               '한 번에 채점해 \'지금 사도 되는지\'를 8단계로 알려주는 AI 종합 분석 서비스.">')
+
+
+def _og_meta(code: str):
+    """OG/title 메타용 가벼운 조회 — 추가 네트워크 호출 없이 랭킹 유니버스(이름)+백그라운드
+    캐시(점수·등급)만 사용한다. UI/UX 검증보고서 6-5 — 종목 상세 링크를 카카오톡·슬랙 등에
+    붙여넣으면 제목·설명 없는 회색 상자만 뜨던 문제."""
+    us = naver.is_us(code)
+    market = "US" if us else "KR"
+    name = next((n for c, n, _ in ranking.UNIVERSES.get(market, []) if c == code), None)
+    if not name:
+        return None
+    item = next((it for it in ranking.get(market)["items"] if it["code"] == code), None)
+    return {"name": name, "grade": item.get("grade") if item else None,
+            "score": item.get("score") if item else None}
+
+
 @app.get("/stock/{code}")
 def stock_page(code: str):
-    return FileResponse(BASE / "static" / "index.html")
+    import html as _html
+    meta = _og_meta(code)
+    if not meta:
+        return Response(content=_INDEX_HTML, media_type="text/html")
+    name = _html.escape(meta["name"])
+    desc = (f"{name} 종합점수 {meta['score']}점 · {meta['grade']}등급 — AI가 재무·기술적 추세·"
+            f"수급까지 종합 분석한 결과를 StockLens에서 확인하세요."
+            if meta.get("score") is not None
+            else f"{name} — StockLens에서 AI 종합 분석 결과를 확인하세요.")
+    title = f"{name} — StockLens"
+    url = f"{SITE_ORIGIN}/stock/{code}"
+    og_tags = (
+        f'<title>{title}</title>\n'
+        f'<meta property="og:title" content="{title}">\n'
+        f'<meta property="og:description" content="{desc}">\n'
+        f'<meta property="og:type" content="website">\n'
+        f'<meta property="og:url" content="{url}">\n'
+        f'<meta name="twitter:card" content="summary">\n'
+    )
+    page = _INDEX_HTML.replace(_INDEX_TITLE, og_tags).replace(
+        _INDEX_DESC, f'<meta name="description" content="{desc}">')
+    return Response(content=page, media_type="text/html")
 
 
 # 관심종목·스크리너·포트폴리오 전용 주소. 종목 상세만 라우팅되고 이 셋은 404라
@@ -699,6 +742,19 @@ def sitemap():
 @app.get("/favicon.ico")
 def favicon():
     return FileResponse(BASE / "static" / "favicon.svg", media_type="image/svg+xml")
+
+
+# 이용약관·개인정보처리방침 (UI/UX 검증보고서 6-4, 2026-08-21) — ⚠️ 초안이다. 실제
+# 사업자 정보·법률 검토 없이는 유료 서비스의 법적 근거로 쓸 수 없다. static/terms.html·
+# privacy.html 상단의 안내 문구 참고.
+@app.get("/terms")
+def terms_page():
+    return FileResponse(BASE / "static" / "terms.html")
+
+
+@app.get("/privacy")
+def privacy_page():
+    return FileResponse(BASE / "static" / "privacy.html")
 
 
 if __name__ == "__main__":

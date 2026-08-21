@@ -39,6 +39,14 @@ function sign(v, digits = 0) {
   if (v == null) return "-";
   return (v > 0 ? "+" : "") + fmt(v, digits);
 }
+/* 컨센서스 목표주가 괴리율 배지 — 괴리가 너무 커서(analysis.py TARGET_UPSIDE_OUTLIER=60%)
+   판단 반영 비중을 서버가 이미 낮춘 값이면 "⚠️"를 붙인다. 목표가 자체를 숨기지는 않되
+   과신하지 말라는 신호만 덧붙인다(UI/UX 검증보고서 6-7, 2026-08-21 — 랭킹·스크리너
+   응답에 원본 upside가 아무 표시 없이 노출되던 것을 보완). */
+function upsideBadge(r) {
+  return (r && r.upside_flagged)
+    ? ' <span class="upside-flag" title="목표주가 괴리가 커 신뢰도가 낮습니다">⚠️</span>' : "";
+}
 // 값 배열 → 인라인 SVG 미니 추세선(오더플로우 누적 델타처럼 숫자 하나로는 안 보이는
 // 흐름을 pro-item 카드 안에 작게 곁들일 때 사용).
 function sparklineSvg(values, w = 70, h = 20) {
@@ -248,7 +256,7 @@ function favRowHtml(it, r) {
       <span class="fav-price">${pw(r.price, r.currency)}</span>
       <span class="fav-rate ${updownClass(r.rate)}">${sign(r.rate, 2)}%</span>
     </span>
-    <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}</span>
+    <span class="fav-upside fav-hide-mobile ${updownClass(r.upside)}">${up}${upsideBadge(r)}</span>
     <span class="fav-row-actions">
       <button class="fav-icon-btn ${alertOn ? "on" : ""}" data-gear="${it.code}" title="알림·메모 설정" aria-label="${r.name} 알림·메모 설정"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gear"/></svg></button>
       <button class="fav-icon-btn" data-buy="${it.code}" title="매수했어요 → 포트폴리오에 등록" aria-label="${r.name} 매수 기록 — 포트폴리오에 등록"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cart"/></svg></button>
@@ -790,9 +798,11 @@ async function runScreener() {
   numField("scr-debt-max", "debt_max");
   numField("scr-div-min", "div_min");
   numField("scr-upside-min", "upside_min");
+  numField("scr-op-growth-min", "op_growth_min");
   if ($("scr-foreign-buy").checked) q.set("foreign_buy", "true");
 
-  $("scr-results").innerHTML = `<div class="rank-loading"><div class="spinner sm"></div><span>조건에 맞는 종목을 찾는 중…</span></div>`;
+  $("scr-results").innerHTML = Array.from({ length: 5 }).map(() =>
+    `<div class="skel skel-row"></div>`).join("");
   $("scr-count").textContent = "";
   try {
     const d = await api(`/api/screener?${q.toString()}`);
@@ -805,11 +815,14 @@ async function runScreener() {
       const col = scoreColor(r.score);
       const up = r.upside != null ? `${sign(r.upside, 0)}%` : "-";
       const flag = r.currency === "USD" ? "🇺🇸" : "🇰🇷";
+      // 등급만 있고 투자판단 배지가 없어 상세로 들어가야 매수인지 관망인지 알 수
+      // 있었다(UI/UX 검증보고서 6-6) — 랭킹과 같은 ai_verdict를 그대로 재사용.
+      const v = r.ai_verdict || {};
       return `
       <div class="rank-row" data-code="${r.code}">
         <div class="rank-num" style="color:${col}">${r.grade}</div>
         <div class="rank-info">
-          <div class="rank-name">${flag} ${r.name}</div>
+          <div class="rank-name">${flag} ${r.name} <span class="scr-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || ""}</span></div>
           <div class="rank-sector">${r.sector} · ${r.code}<span class="scr-extra">${r.per != null ? ` · PER ${fmt(r.per, 1)}배` : ""}${r.roe != null ? ` · ROE ${fmt(r.roe, 1)}%` : ""}</span></div>
         </div>
         <div class="rank-price">
@@ -819,7 +832,7 @@ async function runScreener() {
         <div class="rank-score-chip" style="color:${col};background:color-mix(in srgb, ${col} 13%, transparent)">${r.score}</div>
         <div class="rank-tail">
           <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
-          <div class="rank-upside">목표가 ${up}</div>
+          <div class="rank-upside">목표가 ${up}${upsideBadge(r)}</div>
           <div class="rank-bar"><i style="width:${r.score}%;background:${col}"></i></div>
         </div>
       </div>`;
@@ -844,6 +857,27 @@ function resetScreener() {
 $("scr-back").onclick = goHome;
 $("scr-run").onclick = runScreener;
 $("scr-reset").onclick = resetScreener;
+
+// 프리셋 — "PER 몇 배가 싼 건지 아는 사람은 이미 스크리너가 필요 없는 사람"이라는
+// 지적(UI/UX 검증보고서 6-6). 값을 눈에 보이는 입력칸에 채우고 바로 검색한다.
+const SCREENER_PRESETS = [
+  { label: "저PER 우량주", fields: { "scr-per-max": 10, "scr-roe-min": 15, "scr-grade": "B" } },
+  { label: "고배당", fields: { "scr-div-min": 3, "scr-debt-max": 100 } },
+  { label: "성장주", fields: { "scr-op-growth-min": 20, "scr-grade": "A" } },
+  { label: "외국인 연속 순매수", fields: { "scr-grade": "B" }, checks: ["scr-foreign-buy"] },
+  { label: "상승여력 큰 우량주", fields: { "scr-upside-min": 20, "scr-grade": "B" } },
+];
+$("scr-presets").innerHTML = SCREENER_PRESETS.map((p, i) =>
+  `<button type="button" class="scr-preset-chip" data-preset="${i}">${p.label}</button>`).join("");
+$("scr-presets").querySelectorAll("button").forEach((b) => {
+  b.onclick = () => {
+    resetScreener();
+    const preset = SCREENER_PRESETS[b.dataset.preset];
+    Object.entries(preset.fields).forEach(([id, v]) => { $(id).value = v; });
+    (preset.checks || []).forEach((id) => { $(id).checked = true; });
+    runScreener();
+  };
+});
 
 /* ---------------- 이상징후 탐지 ---------------- */
 let anomalyExpanded = false;
@@ -937,7 +971,7 @@ async function selectTheme(name) {
         <div class="rank-score-chip" style="color:${col};background:color-mix(in srgb, ${col} 13%, transparent)">${r.score}</div>
         <div class="rank-tail">
           <div class="rank-grade" style="color:${col}">${r.grade}등급</div>
-          <div class="rank-upside">목표가 ${up}</div>
+          <div class="rank-upside">목표가 ${up}${upsideBadge(r)}</div>
           <div class="rank-bar"><i style="width:${r.score}%;background:${col}"></i></div>
         </div>
       </div>`;
@@ -1160,7 +1194,7 @@ async function renderTodayPick(items) {
       <div><label>매수 적정가</label><span id="today-pick-fair">불러오는 중…</span></div>
       <div><label>적정가치 <small class="hint">밸류에이션</small></label><span id="today-pick-fairvalue">불러오는 중…</span></div>
       <div><label>컨센서스 목표가</label><span id="today-pick-target">${best.target_price ? pw(best.target_price, best.currency) : "-"}</span></div>
-      <div><label>상승여력</label><span id="today-pick-upside" class="${updownClass(best.upside)}">${bestUp}</span></div>
+      <div><label>상승여력</label><span id="today-pick-upside" class="${updownClass(best.upside)}">${bestUp}${upsideBadge(best)}</span></div>
     </div>
     <button class="primary-btn today-pick-btn" id="today-pick-btn">종목 자세히 보기</button>`;
   $("today-pick-btn").onclick = () => analyze(best.code);
@@ -1222,7 +1256,7 @@ async function renderTodayPick(items) {
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="today-name">${r.name}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>
-      <span class="today-upside ${updownClass(r.upside)}">${up}</span>
+      <span class="today-upside ${updownClass(r.upside)}">${up}${upsideBadge(r)}</span>
       <span class="today-reason">${reasonText}</span>
     </div>`;
   }).join("");
@@ -2282,7 +2316,12 @@ function drawChart() {
       lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
       priceFormat: { type: "price", precision: 0, minMove: 1 },
     });
-    chart.priceScale("smart-money").applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, borderVisible: false });
+    // ⚠️ UI/UX 검증보고서 6-3(2026-08-21) — 거래량("vol" 스케일, 항상 0 이상이라 축은
+    // 숨김)과 스마트머니 누적 델타(음수 가능, 축 보임)가 같은 하단 구간(top 0.82~0.86
+    // 둘 다 사실상 겹침)에 그려져 "거래량 축에 -400,000 같은 음수가 있다"는 오해를
+    // 샀다. 실제로는 두 계열이 겹쳐 보인 것 — 스마트머니를 거래량 바로 위 별도 밴드로
+    // 분리해 두 계열이 시각적으로 안 겹치게 한다.
+    chart.priceScale("smart-money").applyOptions({ scaleMargins: { top: 0.68, bottom: 0.18 }, borderVisible: false });
     const days = sm.smart_delta_series.length;
     const startIdx = d.candles.length - days;
     if (startIdx >= 0) {
@@ -2295,8 +2334,14 @@ function drawChart() {
   // 굵게). 전용 밴드를 새로 그리는 대신 이미 검증된 목표가/지지/저항과 같은 가격선
   // 방식을 재사용한다.
   if (tf === "day" && pro.confluence) {
-    // 4차 진단리포트 5장 — 우측 라벨 중첩 완화를 위해 5개→3개(가장 강한 것만)로 축소.
-    pro.confluence.filter((c) => c.sources.length >= 2).slice(0, 3).forEach((c) => {
+    // 4차 진단리포트 5장 — 우측 라벨 중첩 완화를 위해 5개→3개(가장 강한 것만)로 축소했었다.
+    // ⚠️ UI/UX 검증보고서 6-3(2026-08-21) — 그래도 SK하이닉스처럼 지지·저항·진입가가
+    // 좁은 구간에 몰린 종목은 3개마저 30px 간격 안에서 겹쳤다. lightweight-charts v4는
+    // 축 라벨 충돌을 자동으로 피해주는 공개 API가 없어(라이브러리 제약, 직접 캔버스를
+    // 침범하지 않는 한 프로그램적 회피가 불가) 라벨 개수 자체를 더 줄이는 쪽으로
+    // 대응한다 — 3개→1개(가장 겹침이 강한 구간 하나만). 나머지 후보는 여전히
+    // pro.confluence 데이터에 남아있어 필요하면 나중에 토글로 되살릴 수 있다.
+    pro.confluence.filter((c) => c.sources.length >= 2).slice(0, 1).forEach((c) => {
       const color = c.type === "지지" ? "#2ee6a6" : "#ff4d6d";
       const width = Math.min(1 + Math.floor(c.sources.length / 2), 3);
       candleSeries.createPriceLine({
@@ -3340,9 +3385,13 @@ async function showPortfolio() {
 }
 
 async function loadPortfolio() {
+  // 보유종목이 많으면 몇 초 걸리는데 예전엔 문구 한 줄만 있어 "안 되는 건가" 오인하기
+  // 쉬웠다(UI/UX 검증보고서 6장/5번). 최종 레이아웃 모양의 스켈레톤으로 대체.
   $("pf-summary-card").classList.remove("hidden");
-  $("pf-total").textContent = "";
-  $("pf-metrics").innerHTML = `<p class="hint-p">불러오는 중... (보유 종목이 많으면 몇 초 걸릴 수 있어요)</p>`;
+  $("pf-total").innerHTML = `<div class="skel skel-line w40 h24" style="width:200px"></div>`;
+  $("pf-grade-hero").innerHTML = `<div class="skel skel-card h90"></div>`;
+  $("pf-metrics").innerHTML = Array.from({ length: 6 }).map(() =>
+    `<div class="skel skel-row" style="height:60px"></div>`).join("");
   $("pf-warnings").innerHTML = "";
   $("pf-actions-card").classList.add("hidden");
   $("pf-risk-card").classList.add("hidden");
@@ -3499,11 +3548,17 @@ function renderPortfolio(p) {
       $("pf-grade-hero").innerHTML = "";
     }
 
+    // "D등급·주의"라고 경고하면서 바로 옆에 기대수익률 +70.8%를 같은 크기로 띄우면
+    // 위험하니 주의하라면서 70% 수익을 기대하라는 모순으로 읽힌다(UI/UX 검증보고서 6-7).
+    // 목표가 괴리가 큰 종목이 섞여 있으면(portfolio.py가 이미 가중치를 낮춰 계산한 값) 그
+    // 사실을 짧게 덧붙인다 — 계산 자체는 이미 damped 값이라 새 로직은 아니다.
+    const expReturnNote = p.expected_return_flagged
+      ? `<br><small class="pf-exp-warn">⚠️ 목표주가 괴리가 큰 종목이 있어 반영 비중을 낮췄습니다</small>` : "";
     const cells = [
       ["종합점수 (리스크 반영)", p.score != null ? `${p.score}점` : "-"],
       ["종목 품질 점수", p.quality_score != null ? `${p.quality_score}점` : "-"],
       ["밸류에이션 점수", p.valuation_score != null ? `${p.valuation_score}점` : "-"],
-      ["기대수익률 (컨센서스 목표가 기준)", p.expected_return != null ? `${sign(p.expected_return, 1)}%` : "-"],
+      ["기대수익률 (컨센서스 목표가 기준)", (p.expected_return != null ? `${sign(p.expected_return, 1)}%` : "-") + expReturnNote],
       ["변동성 (연환산)", p.volatility != null ? `${p.volatility}%` : "데이터 부족"],
       ["최대 낙폭 (최근 1년)", p.max_drawdown != null ? `${p.max_drawdown}%` : "데이터 부족"],
     ];

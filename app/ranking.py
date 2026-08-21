@@ -312,9 +312,22 @@ def _score(entry, market, bench=None):
             "grade_desc": total["grade_desc"],
             "categories": total["categories"],
             "upside": cons.get("upside"),
+            # 목표주가 괴리가 커(analysis.TARGET_UPSIDE_OUTLIER=60%) 상세페이지에서는
+            # 이미 판단 반영 비중을 낮추던 값인데, 랭킹/스크리너/포트폴리오는 이 플래그
+            # 없이 원본 upside를 그대로 노출하고 있었다(UI/UX 검증보고서 6-7 — 포트폴리오가
+            # D등급이라면서 기대수익률 +70.8%를 아무 경고 없이 보여준 근본 원인). 새 계산
+            # 없이 consensus_info()가 이미 만들어둔 값을 그대로 실어 보내기만 하면 된다.
+            "upside_flagged": cons.get("upside_flagged"),
             "target_price": cons.get("target_price"),
             "ai_verdict": ai_verdict,
-            "verdict": tech.get("verdict") if tech.get("available") else None,
+            # ⚠️ 예전엔 "verdict"(tech.get("verdict"), 단기 진입타이밍)도 여기서 함께
+            # 내려보냈다 — UI/UX 검증보고서(2026-08-21) 6-1이 지적: ai_verdict(펀더멘털
+            # 종합)와 verdict(단기 기술)는 서로 다른 걸 측정하는 지표라 값이 늘 다르고,
+            # 랭킹/스크리너 응답에 라벨 없이 나란히 실리면 "서버가 판단을 두 개 내려보낸다"
+            # 는 모순으로 읽힌다. 실제로 클라이언트 어느 리스트 렌더러도 이 필드를 읽지
+            # 않는 죽은 페이로드였음(확인 완료) — 그래서 되살리지 말고 제거. 상세페이지
+            # (main.py)의 tech.verdict는 "언제 살까" 라벨과 함께 별도 카드에 여전히 노출됨,
+            # 그건 그대로 유지(HANDOFF 3.11 — 두 지표를 억지로 합치면 오히려 부정확해짐).
             "rsi": tech.get("rsi") if tech.get("available") else None,
             "op_growth_fwd": fm.get("op_growth_fwd"),
             "per_ratio": per_ratio,

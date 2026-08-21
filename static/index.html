@@ -6,7 +6,7 @@
 <title>StockLens — 주식 종합 분석</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
-<link rel="stylesheet" href="/static/style.css?v=89">
+<link rel="stylesheet" href="/static/style.css?v=90">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -40,6 +40,10 @@
     <g id="i-doc" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h8l4.5 4.5V21H6z"/><path d="M14 3v5h4.5M9 12.5h6M9 16.5h6"/></g>
     <g id="i-news" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="14" height="15" rx="2"/><path d="M17 9h3v9a2 2 0 01-4 0M6.5 9h7M6.5 12.5h7M6.5 16h4"/></g>
     <g id="i-factory" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 20V11l6 3.5V11l6 3.5V6h6v14z"/></g>
+    <!-- 이모지 아이콘 정리(UI/UX 검증보고서 6장, 2026-08-21) — 종목비교(⚖️)·실질노출(💣)
+         용으로 새로 추가한 2개, 나머지는 기존 스프라이트를 재사용한다. -->
+    <g id="i-scale" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M7 21h10M5 7h5M14 7h5M5 7L2.5 12.5a2.5 2.5 0 005 0L5 7zM19 7l-2.5 5.5a2.5 2.5 0 005 0L19 7z"/></g>
+    <g id="i-layers" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5M3 8l9 5 9-5" opacity=".45"/></g>
     <g id="i-wave" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M2.5 9c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0M2.5 15c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0"/></g>
     <g id="i-ruler" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14.5 2.5l7 7L9.5 21.5l-7-7z"/><path d="M12 5l2 2M9.5 7.5l2 2M7 10l2 2M4.5 12.5l2 2"/></g>
     <g id="i-sparkle" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
@@ -181,9 +185,22 @@
   </div>
 </main>
 
+<!-- 종목상세 로딩 스켈레톤 (UI/UX 검증보고서 6장/5번 항목, 2026-08-21) — API 응답까지
+     4~6초 걸리는데 빈 화면(스피너 하나)만 있으면 실패로 오인하기 쉽다는 지적. 최종
+     레이아웃(헤더·AI판단·카드) 모양을 미리 흐릿하게 보여줘 "로딩 중"임을 체감시킨다. -->
 <div id="loading" class="loading hidden">
-  <div class="spinner"></div>
-  <p id="loading-text">데이터 수집 및 분석 중...</p>
+  <div class="skel-page">
+    <div class="skel-header-row">
+      <div class="skel skel-logo"></div>
+      <div class="skel-header-lines">
+        <div class="skel skel-line w40 h24"></div>
+        <div class="skel skel-line w60"></div>
+      </div>
+    </div>
+    <div class="skel skel-card h140"></div>
+    <div class="skel skel-card h90"></div>
+    <div class="skel skel-card h220"></div>
+  </div>
 </div>
 
 <main id="report" class="report hidden">
@@ -197,7 +214,7 @@
           <span id="stock-name"></span> <small id="stock-code"></small> <em id="stock-market"></em>
           <button id="fav-btn" class="fav-btn" title="관심종목에 담기/빼기" aria-label="관심종목에 담기/빼기" aria-pressed="false">☆</button>
           <button id="watch-btn" class="watch-btn hidden" title="이 종목의 알림·메모 설정">⚙ 알림 설정</button>
-          <button id="compare-btn" class="cmp-btn" title="비교에 담기">⚖️ 비교담기</button>
+          <button id="compare-btn" class="cmp-btn" title="비교에 담기"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-scale"/></svg> 비교담기</button>
         </h2>
         <div class="live-row">
           <span id="live-price" class="live-price"></span>
@@ -226,18 +243,18 @@
   <div class="detail-sticky" id="detail-sticky">
     <div class="sticky-summary" id="sticky-summary"></div>
     <div class="detail-tabs" id="detail-tabs" role="tablist" aria-label="종목 상세 탭">
-      <button class="active" data-tab="overview" role="tab" aria-selected="true">종합</button>
-      <button data-tab="chart" role="tab" aria-selected="false">차트</button>
-      <button data-tab="valuation" role="tab" aria-selected="false">밸류</button>
-      <button data-tab="finance" role="tab" aria-selected="false">재무</button>
+      <button class="active" id="tab-btn-overview" data-tab="overview" role="tab" aria-selected="true">종합</button>
+      <button id="tab-btn-chart" data-tab="chart" role="tab" aria-selected="false">차트</button>
+      <button id="tab-btn-valuation" data-tab="valuation" role="tab" aria-selected="false">밸류</button>
+      <button id="tab-btn-finance" data-tab="finance" role="tab" aria-selected="false">재무</button>
       <button data-tab="flow" id="tab-btn-flow" role="tab" aria-selected="false">수급</button>
-      <button data-tab="news" role="tab" aria-selected="false">뉴스·리포트</button>
+      <button id="tab-btn-news" data-tab="news" role="tab" aria-selected="false">뉴스·리포트</button>
       <button data-tab="ai" id="tab-btn-ai" role="tab" aria-selected="false">AI분석</button>
     </div>
   </div>
 
   <!-- AI 최종판단 (한눈에 보기) -->
-  <section class="card highlight-card hidden" id="highlight-card" data-tab="overview">
+  <section class="card highlight-card hidden" id="highlight-card" data-tab="overview" role="tabpanel" aria-labelledby="tab-btn-overview">
     <div class="ai-verdict-box">
       <div class="ai-verdict-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bot"/></svg> StockLens AI</div>
       <div class="ai-verdict-main">
@@ -289,10 +306,14 @@
         <div><label>위험관리 가격 (손절)</label><span id="buy-plan-stop"></span></div>
       </div>
     </div>
+
+    <!-- 투자 고지문 (UI/UX 검증보고서 6-4, 2026-08-21) — 판단·매수전략이 단정적 표현으로
+         크게 노출되는 만큼, 참고용 정보라는 안내를 판단 카드 하단에 짧게 덧붙인다. -->
+    <p class="hl-disclaimer">※ 위 판단·목표가·매수전략은 투자 참고용 정보이며 투자 자문·권유가 아닙니다. 최종 투자 판단과 그 책임은 이용자 본인에게 있습니다.</p>
   </section>
 
   <!-- 종합 의견 -->
-  <section class="card" data-tab="overview">
+  <section class="card" data-tab="overview" role="tabpanel" aria-labelledby="tab-btn-overview">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg> 부문별 평가</h3>
     <ul id="opinion-points" class="opinion-points"></ul>
     <div class="radar-row">
@@ -302,7 +323,7 @@
   </section>
 
   <!-- 목표가 / 진입타이밍 -->
-  <section class="card" data-tab="overview">
+  <section class="card" data-tab="overview" role="tabpanel" aria-labelledby="tab-btn-overview">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-target"/></svg> 목표가 &amp; 진입 타이밍</h3>
     <div class="target-grid">
       <div class="target-box">
@@ -327,7 +348,7 @@
   </section>
 
   <!-- 차트 & 기술 분석 (통합) -->
-  <section class="card" id="chart-card" data-tab="chart">
+  <section class="card" id="chart-card" data-tab="chart" role="tabpanel" aria-labelledby="tab-btn-chart">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trend"/></svg> 차트 &amp; 기술 분석 <small class="hint">최대 5년 · 드래그로 이동 · 스크롤/핀치로 확대·축소</small></h3>
 
     <!-- 봉 주기 + 기간 컨트롤 -->
@@ -393,7 +414,7 @@
 
 
   <!-- 밸류에이션 분석 -->
-  <section class="card" id="val-card" data-tab="valuation">
+  <section class="card" id="val-card" data-tab="valuation" role="tabpanel" aria-labelledby="tab-btn-valuation">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gem"/></svg> 밸류에이션 분석 <small class="hint">지금 비싼가? — 역사적 밸류·PEG·동종업계·EV/EBITDA·컨센서스 목표가·실적방향</small></h3>
     <div class="pro-head">
       <div class="pro-score-box">
@@ -430,13 +451,13 @@
   </section>
 
   <!-- 투자지표 -->
-  <section class="card" data-tab="valuation">
+  <section class="card" data-tab="valuation" role="tabpanel" aria-labelledby="tab-btn-valuation">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ruler"/></svg> 투자지표</h3>
     <div id="metrics-grid" class="metrics-grid"></div>
   </section>
 
   <!-- 재무 하이라이트 -->
-  <section class="card" data-tab="finance">
+  <section class="card" data-tab="finance" role="tabpanel" aria-labelledby="tab-btn-finance">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-money"/></svg> 재무 하이라이트 <small class="hint" id="finance-unit-hint">단위: 억원 · (E)는 컨센서스</small></h3>
     <div id="finance-cns-warn" class="cns-warn hidden"></div>
     <div class="chart-controls" id="fin-period-controls"></div>
@@ -447,32 +468,32 @@
   </section>
 
   <!-- 수급 동향 -->
-  <section class="card" data-tab="flow">
+  <section class="card" data-tab="flow" role="tabpanel" aria-labelledby="tab-btn-flow">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wave"/></svg> 투자자 수급 동향 <small class="hint">순매수, 단위: 주</small></h3>
     <div id="flow-table" class="table-wrap"></div>
   </section>
 
   <!-- 증권사 리포트 -->
-  <section class="card" data-tab="news">
+  <section class="card" data-tab="news" role="tabpanel" aria-labelledby="tab-btn-news">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> 증권사 리포트 <span id="research-consensus" class="badge"></span></h3>
     <div id="research-list" class="research-list"></div>
   </section>
 
   <!-- 뉴스 -->
-  <section class="card" data-tab="news">
+  <section class="card" data-tab="news" role="tabpanel" aria-labelledby="tab-btn-news">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-news"/></svg> 최근 뉴스 &amp; 시장 심리 <span id="senti-badge" class="badge"></span></h3>
     <div id="news-list" class="news-list"></div>
   </section>
 
   <!-- 동일업종 -->
-  <section class="card" data-tab="valuation">
+  <section class="card" data-tab="valuation" role="tabpanel" aria-labelledby="tab-btn-valuation">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-factory"/></svg> 동일업종 비교</h3>
     <div id="peers-table" class="table-wrap"></div>
   </section>
 
   <!-- AI 리포트 -->
-  <section class="card" id="ai-card" data-tab="ai">
-    <h3>🤖 Claude AI 심층 분석 리포트</h3>
+  <section class="card" id="ai-card" data-tab="ai" role="tabpanel" aria-labelledby="tab-btn-ai">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bot"/></svg> Claude AI 심층 분석 리포트</h3>
     <p id="ai-hint" class="hint-p"></p>
     <button id="ai-btn" class="primary-btn hidden">AI 심층 분석 생성</button>
     <div id="ai-report" class="ai-report hidden"></div>
@@ -491,14 +512,14 @@
     <div class="cmp-pick-reason" id="cmp-pick-reason"></div>
   </section>
   <section class="card">
-    <h3>⚖️ 종목 비교 <small class="hint">부문별 점수 겹쳐보기</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-scale"/></svg> 종목 비교 <small class="hint">부문별 점수 겹쳐보기</small></h3>
     <div class="cmp-radar-row">
       <canvas id="cmp-radar" width="360" height="330"></canvas>
       <div id="cmp-legend" class="cmp-legend"></div>
     </div>
   </section>
   <section class="card">
-    <h3>📊 지표 비교 <small class="hint">각 항목 최우수는 강조</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg> 지표 비교 <small class="hint">각 항목 최우수는 강조</small></h3>
     <div class="table-wrap" id="cmp-table"></div>
   </section>
 </main>
@@ -634,7 +655,7 @@
 
   <!-- 내 포트폴리오 AI 진단 (총자산·손익·AI점수·경고를 한 블록에 — 이 화면의 핵심) -->
   <section class="card hidden" id="pf-summary-card">
-    <h3>💼 내 포트폴리오 <small class="hint">국내+미국 지원 · 미국 종목은 실시간 환율로 원화 환산해 합산됩니다</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-briefcase"/></svg> 내 포트폴리오 <small class="hint">국내+미국 지원 · 미국 종목은 실시간 환율로 원화 환산해 합산됩니다</small></h3>
     <div class="pf-total" id="pf-total"></div>
     <div class="pf-grade-hero" id="pf-grade-hero"></div>
     <ul id="pf-warnings" class="pf-warnings"></ul>
@@ -647,7 +668,7 @@
        신규 사용자도 추가할 수 있어야 하므로, 카드 자체는 pf-available 여부와
        무관하게 항상 보이게 두고(hidden 클래스 없음) 안쪽 테이블만 조건부로 채운다. -->
   <section class="card" id="pf-holdings-card">
-    <h3>📋 보유 종목</h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> 보유 종목</h3>
     <div class="hidden" id="pf-holdings-table-wrap">
       <div class="table-wrap" id="pf-holdings-table"></div>
     </div>
@@ -668,7 +689,7 @@
   </section>
 
   <section class="card hidden" id="pf-actions-card">
-    <h3>🤖 오늘의 Action</h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bot"/></svg> 오늘의 Action</h3>
     <p id="pf-actions-summary" class="pf-actions-summary"></p>
     <div id="pf-actions-list" class="pf-actions-list"></div>
     <div id="pf-todo-wrap" class="pf-todo-wrap hidden">
@@ -678,17 +699,17 @@
   </section>
 
   <section class="card hidden" id="pf-risk-card">
-    <h3>🚨 포트폴리오 이상징후</h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg> 포트폴리오 이상징후</h3>
     <div id="pf-risk-list" class="pf-risk-list"></div>
   </section>
 
   <section class="card hidden" id="pf-exposure-card">
-    <h3>💣 실질 노출 <small class="hint">테마 기준 — 종목은 달라도 같은 산업에 겹쳐 노출된 비중</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg> 실질 노출 <small class="hint">테마 기준 — 종목은 달라도 같은 산업에 겹쳐 노출된 비중</small></h3>
     <div id="pf-exposure-bars" class="pf-sector-bars"></div>
   </section>
 
   <section class="card hidden" id="pf-sector-card">
-    <h3>🏭 업종별 비중</h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-factory"/></svg> 업종별 비중</h3>
     <div id="pf-sector-bars" class="pf-sector-bars"></div>
   </section>
 
@@ -699,7 +720,7 @@
   </section>
 
   <section class="card hidden" id="pf-rebalance-card">
-    <h3>🤖 AI 리밸런싱 <small class="hint">AI판단(매수~매도) 신뢰도 기준 권장 비중 · 종목당 상한 적용</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bot"/></svg> AI 리밸런싱 <small class="hint">AI판단(매수~매도) 신뢰도 기준 권장 비중 · 종목당 상한 적용</small></h3>
     <div id="pf-rebalance-list" class="pf-rebalance-list"></div>
   </section>
 </main>
@@ -708,7 +729,11 @@
 <main id="screener-view" class="report hidden">
   <button id="scr-back" class="back-btn">← 돌아가기</button>
   <section class="card">
-    <h3>🔎 조건 조합 스크리너 <small class="hint">랭킹에 이미 집계된 지표로 필터링 — 조건을 걸고 검색하세요</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg> 조건 조합 스크리너 <small class="hint">랭킹에 이미 집계된 지표로 필터링 — 조건을 걸고 검색하세요</small></h3>
+    <!-- 프리셋 (UI/UX 검증보고서 6-6, 2026-08-21) — 빈 양식으로 시작하면 "PER 몇 배가
+         싼 건지" 이미 아는 사람만 쓸 수 있다는 지적. 누르면 조건이 채워지면서 바로
+         검색돼, 값을 보며 조건이 뭘 뜻하는지 배울 수 있게 한다. -->
+    <div class="scr-presets" id="scr-presets"></div>
     <div class="scr-form" id="scr-form">
       <div class="scr-field">
         <label>시장</label>
@@ -729,6 +754,7 @@
       <div class="scr-field"><label>부채비율(%) ≤</label><input id="scr-debt-max" type="number" placeholder="예: 100" step="1"></div>
       <div class="scr-field"><label>배당수익률(%) ≥</label><input id="scr-div-min" type="number" placeholder="예: 2" step="0.1"></div>
       <div class="scr-field"><label>목표가 상승여력(%) ≥</label><input id="scr-upside-min" type="number" placeholder="예: 20" step="1"></div>
+      <div class="scr-field"><label>영업이익 성장 전망(%) ≥</label><input id="scr-op-growth-min" type="number" placeholder="예: 20" step="1"></div>
       <div class="scr-field scr-check"><label><input id="scr-foreign-buy" type="checkbox"> 외국인 5일 연속 순매수(국내만)</label></div>
     </div>
     <div class="scr-actions">
@@ -742,8 +768,11 @@
   </section>
 </main>
 
-<footer class="site-footer">StockLens © 2026</footer>
+<footer class="site-footer">
+  <p class="footer-disclaimer">StockLens가 제공하는 점수·등급·목표주가·매수전략 등 모든 분석 결과는 투자 판단을 돕기 위한 참고용 정보이며, 투자 자문이나 매수·매도 권유가 아닙니다. 과거의 수익률이나 분석 결과는 미래 수익을 보장하지 않으며, 투자 판단과 그에 따른 손익의 책임은 이용자 본인에게 있습니다.</p>
+  <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
+</footer>
 
-<script src="/static/app.js?v=98"></script>
+<script src="/static/app.js?v=99"></script>
 </body>
 </html>

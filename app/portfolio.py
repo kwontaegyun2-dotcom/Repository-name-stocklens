@@ -565,6 +565,12 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
             "change": d.get("change", 0) * fx_mult if d.get("change") is not None else None,
             "val_score": (d.get("valuation") or {}).get("score"),
             "upside": (d.get("targets") or {}).get("consensus_upside"),
+            # 목표주가 괴리가 커서(analysis.TARGET_UPSIDE_OUTLIER) 상세페이지가 이미
+            # 신뢰도를 낮춰둔 종목인지 — 그대로 원화 가중평균에 넣으면 "D등급인데
+            # 기대수익률 +70.8%" 같은 모순이 난다(UI/UX 검증보고서 6-7). d.consensus는
+            # main.py가 이미 계산해둔 걸 통째로 실어주므로 새 계산 없이 그대로 읽는다.
+            "upside_flagged": (d.get("consensus") or {}).get("upside_flagged", False),
+            "upside_weight": (d.get("consensus") or {}).get("upside_weight", 1.0),
             "sector": _SECTOR_MAP.get(row["code"], "미분류"),
             "price_by_date": {c["date"]: c["close"] * fx_mult for c in (d.get("candles") or [])},
         })
@@ -583,6 +589,14 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
 
     def _wavg(key):
         pairs = [(it["weight"], it[key]) for it in items if it.get(key) is not None]
+        tw = sum(w for w, _ in pairs)
+        return round(sum(w * v for w, v in pairs) / tw, 1) if tw else None
+
+    def _wavg_upside():
+        # 일반 _wavg와 달리 종목별 upside_weight(목표가 괴리 검증 가중치)까지 곱해서
+        # 신뢰도 낮은 목표가가 포트폴리오 기대수익률을 부풀리지 않게 한다.
+        pairs = [(it["weight"] * it.get("upside_weight", 1.0), it["upside"])
+                 for it in items if it.get("upside") is not None]
         tw = sum(w for w, _ in pairs)
         return round(sum(w * v for w, v in pairs) / tw, 1) if tw else None
 
@@ -655,7 +669,8 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         "grade": grade,
         "grade_desc": grade_desc,
         "valuation_score": _wavg("val_score"),
-        "expected_return": _wavg("upside"),
+        "expected_return": _wavg_upside(),
+        "expected_return_flagged": any(it.get("upside_flagged") for it in items),
         "volatility": vol,
         "max_drawdown": mdd,
         "warnings": warnings,
