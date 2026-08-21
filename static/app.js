@@ -164,10 +164,9 @@ async function removeFromWatch(code) {
 // 정작 답을 못 했다(종합점수·상승여력이 없어 지금 볼 만한지 판단 불가) — 사용자 지적으로
 // 실시간 랭킹(.rank-row)·오늘의 PICK(.today-row)과 같은 밀도의 정보형 행으로 다시 짬.
 // + "담은 뒤 뭐가 달라졌나"(added_* 스냅샷 대비 변화)와 메모·태그·정리 제안을 추가.
-let favExpanded = false;
 const WATCH_BUY_TIERS = new Set(["strong_buy", "buy", "watch_buy", "accumulate"]);
 
-/* 관심종목 데이터 준비 — 홈 카드(#fav-board)와 전용 페이지(/watchlist)가 같은 걸 쓴다.
+/* 관심종목 데이터 준비 — 전용 페이지(/watchlist)가 쓴다.
    국내/미국이 섞일 수 있어 두 시장 랭킹을 모두 조회해 매칭한다(둘 다 백그라운드에서
    이미 채점된 데이터라 추가 계산 없음). */
 async function fetchWatchData() {
@@ -293,61 +292,18 @@ const FAV_TABLE_HEAD = `<div class="fav-row fav-row-head">
   <span></span><span>판단</span><span>종목</span><span class="fav-hide-mobile">종합점수</span><span>현재가</span><span class="fav-hide-mobile">상승여력</span><span></span>
 </div>`;
 
-async function renderFavBoard() {
-  const el = $("fav-board");
-  if (!currentUser) { el.classList.add("hidden"); return; }
-  const items0 = Object.values(watchMap);
-  if (!items0.length) { el.classList.add("hidden"); return; }
-  el.classList.remove("hidden");
-  el.innerHTML = `<h2>⭐ 관심종목 <button class="sec-link" data-route="/watchlist">전체보기 →</button></h2>
-    <p id="fav-summary" class="fav-summary hidden"></p>
-    <div id="fav-stale" class="fav-stale hidden"></div>
-    <div id="fav-cmp-bar" class="fav-cmp-bar hidden"></div>
-    <div class="fav-table">
-      ${FAV_TABLE_HEAD}
-      <div id="fav-rows"><div class="rank-loading"><div class="spinner sm"></div><span>불러오는 중...</span></div></div>
-    </div>
-    <button id="fav-more" class="sec-more hidden" aria-expanded="false"></button>`;
-
-  const d = await fetchWatchData();
-  const { items, byCode, staleCandidates } = d;
-
-  const summaryEl = $("fav-summary");
-  summaryEl.innerHTML = watchSummaryHtml(d);
-  summaryEl.classList.remove("hidden");
-
-  if (staleCandidates.length) {
-    const staleEl = $("fav-stale");
-    staleEl.classList.remove("hidden");
-    staleEl.innerHTML = `⏳ ${staleCandidates.map((x) => x.name).join(", ")} — 담은 지 90일 넘었고 점수도 떨어졌어요. `
-      + `<button id="fav-stale-clean" class="ghost-btn small">정리하기</button>`;
-    $("fav-stale-clean").onclick = async () => {
-      if (!confirm(`${staleCandidates.length}개 종목을 관심종목에서 제거할까요?`)) return;
-      await Promise.all(staleCandidates.map((x) => removeFromWatch(x.code)));
-      renderFavBoard();
-    };
-  }
-
-  /* 담은 종목이 많으면 홈이 그만큼 길어진다 — 20종목을 담으면 20행이 그대로 나와
-     "접기 기능이 없다"는 지적을 받았다(UI/UX 진단보고서 3-1). 5개만 펼치고 접는다.
-     전부 보려면 위의 "전체보기"로 전용 페이지(/watchlist)에 간다. */
-  const FAV_LIMIT = 5;
-  const favShown = favExpanded ? items : items.slice(0, FAV_LIMIT);
-  const mb = $("fav-more");
-  if (mb) {
-    const rest = items.length - favShown.length;
-    mb.classList.toggle("hidden", items.length <= FAV_LIMIT);
-    mb.textContent = favExpanded ? "접기 ▴" : `관심종목 ${rest}개 더 보기 ▾`;
-    mb.setAttribute("aria-expanded", favExpanded ? "true" : "false");
-    mb.onclick = () => { favExpanded = !favExpanded; renderFavBoard(); };
-  }
-  $("fav-rows").innerHTML = favShown.map((it) => favRowHtml(it, byCode[it.code])).join("");
-  wireFavRows(el, renderFavBoard);
+// 관심종목 홈 카드는 제거됐다(2026-08-21, 사용자 지시 — 전용 /watchlist 탭과 중복).
+// 뮤테이션(추가·삭제·설정변경·로그인상태변경) 뒤 새로고침이 필요한 곳은 이 헬퍼로
+// "지금 관심종목 탭이 보이는 중이면만" 다시 그린다 — 홈에 더 이상 관심종목이 없으므로.
+function refreshWatchViewIfActive() {
+  if (!$("watchlist-view").classList.contains("hidden")) renderWatchlistPage();
 }
 
 /* ---------------- 관심종목 전용 페이지 (/watchlist) ----------------
-   홈 카드엔 5개만 나오고 정렬·필터가 없어 "갈 곳이 없으니 모든 기능이 홈으로
-   몰린다"는 지적을 받았다(UI/UX 진단보고서 3-1·7장). 전체 목록 + 정렬 + 필터. */
+   예전엔 홈 카드(5개만, 정렬·필터 없음)와 이 전용 페이지가 같이 있었는데, "탭이 이미
+   있는데 홈에 왜 또 있냐"는 지적으로 홈 카드를 없애고(2026-08-21) 이 페이지에 기능을
+   더 실었다: 정리 후보 배너(예전엔 홈에만 있었음)·통계 요약 바·담은 뒤 수익률 정렬·
+   체크한 종목 일괄 삭제. */
 let watchSort = "added";     // added | score | upside | rate | name
 let watchFilter = "all";     // all | buy | alert | up | down
 
@@ -361,10 +317,16 @@ async function showWatchlist() {
   await renderWatchlistPage();
 }
 
+// 담은 뒤 수익률(%) — favRowHtml()의 changeLine 계산과 같은 식, 정렬에도 쓰려고 분리.
+function addedReturnPct(it, r) {
+  if (!r || !it.added_price) return null;
+  return (r.price - it.added_price) / it.added_price * 100;
+}
+
 async function renderWatchlistPage() {
   const el = $("watchlist-view");
   const d = await fetchWatchData();
-  const { items, byCode } = d;
+  const { items, byCode, staleCandidates } = d;
 
   if (!items.length) {
     el.innerHTML = `<button class="back-btn" data-route="/">← 홈으로</button>
@@ -376,7 +338,7 @@ async function renderWatchlistPage() {
   }
 
   const SORTS = [["added", "담은 순"], ["score", "점수 높은 순"], ["upside", "상승여력 순"],
-                 ["rate", "등락률 순"], ["name", "이름 순"]];
+                 ["rate", "등락률 순"], ["added_return", "담은 뒤 수익률 순"], ["name", "이름 순"]];
   const FILTERS = [["all", "전체"], ["buy", "매수 구간만"], ["alert", "알림 설정한 것만"],
                    ["up", "오늘 상승"], ["down", "오늘 하락"]];
 
@@ -399,14 +361,37 @@ async function renderWatchlistPage() {
     if (watchSort === "score") return num(rb.score) - num(ra.score);
     if (watchSort === "upside") return num(rb.upside) - num(ra.upside);
     if (watchSort === "rate") return num(rb.rate) - num(ra.rate);
+    if (watchSort === "added_return") return num(addedReturnPct(b, rb)) - num(addedReturnPct(a, ra));
     if (watchSort === "name") return String(ra.name).localeCompare(String(rb.name), "ko");
     return (b.created_at || 0) - (a.created_at || 0);   // added(기본): 최근에 담은 것부터
   });
+
+  // 통계 요약 — 예전엔 한 줄 문장(watchSummaryHtml)뿐이라 "평균적으로 잘 담았나"를
+  // 알려면 하나하나 훑어야 했다. 관심종목 전체를 미니 포트폴리오처럼 한눈에 보여준다.
+  const withUpside = items.map((it) => byCode[it.code]).filter((r) => r && r.upside != null);
+  const avgUpside = withUpside.length ? withUpside.reduce((s, r) => s + r.upside, 0) / withUpside.length : null;
+  const withRate = items.map((it) => byCode[it.code]).filter((r) => r && r.rate != null);
+  const avgRate = withRate.length ? withRate.reduce((s, r) => s + r.rate, 0) / withRate.length : null;
+  const returns = items.map((it) => addedReturnPct(it, byCode[it.code])).filter((v) => v != null);
+  const avgReturn = returns.length ? returns.reduce((s, v) => s + v, 0) / returns.length : null;
+  const statsHtml = `<div class="pro-grid">
+    <div class="pro-item"><label>매수 구간</label><div class="pro-val">${d.buyNow}<small> / ${items.length}종목</small></div></div>
+    <div class="pro-item"><label>평균 상승여력</label><div class="pro-val ${updownClass(avgUpside)}">${avgUpside != null ? sign(avgUpside, 1) + "%" : "-"}</div></div>
+    <div class="pro-item"><label>오늘 평균 등락</label><div class="pro-val ${updownClass(avgRate)}">${avgRate != null ? sign(avgRate, 2) + "%" : "-"}</div></div>
+    <div class="pro-item"><label>담은 뒤 평균 수익률</label><div class="pro-val ${updownClass(avgReturn)}">${avgReturn != null ? sign(avgReturn, 1) + "%" : "데이터 부족"}</div></div>
+  </div>`;
+
+  const staleHtml = staleCandidates.length
+    ? `<div id="fav-stale" class="fav-stale">⏳ ${staleCandidates.map((x) => x.name).join(", ")} — 담은 지 90일 넘었고 점수도 떨어졌어요. `
+      + `<button id="fav-stale-clean" class="ghost-btn small">정리하기</button></div>`
+    : "";
 
   el.innerHTML = `<button class="back-btn" data-route="/">← 홈으로</button>
     <section class="card">
       <h2>⭐ 관심종목 <small class="hint">${items.length}종목</small></h2>
       <p class="fav-summary">${watchSummaryHtml(d)}</p>
+      ${statsHtml}
+      ${staleHtml}
       <div class="wl-controls">
         <div class="wl-group" role="group" aria-label="정렬">
           <span class="wl-label">정렬</span>
@@ -426,6 +411,13 @@ async function renderWatchlistPage() {
       </div>
     </section>`;
 
+  if (staleCandidates.length) {
+    $("fav-stale-clean").onclick = async () => {
+      if (!confirm(`${staleCandidates.length}개 종목을 관심종목에서 제거할까요?`)) return;
+      await Promise.all(staleCandidates.map((x) => removeFromWatch(x.code)));
+      renderWatchlistPage();
+    };
+  }
   el.querySelectorAll("[data-sort]").forEach((b) => {
     b.onclick = () => { watchSort = b.dataset.sort; renderWatchlistPage(); };
   });
@@ -440,24 +432,31 @@ function updateFavCmpBar() {
   const bar = $("fav-cmp-bar");
   if (!bar) return;
   const checked = [...document.querySelectorAll(".fav-check:checked")].map((c) => c.dataset.code);
-  // 2개 미만이면 아무것도 안 뜨던 탓에 "체크해도 아무 일이 없다"고 읽혔다(진단보고서 7장).
-  // 1개만 골랐을 때도 무엇을 할 수 있는지 알려준다.
-  if (checked.length === 1) {
-    bar.classList.remove("hidden");
-    bar.innerHTML = `1개 선택됨 · 종목을 하나 더 고르면 <b>비교</b>할 수 있어요`;
-    return;
-  }
   if (!checked.length) { bar.classList.add("hidden"); bar.innerHTML = ""; return; }
   bar.classList.remove("hidden");
-  bar.innerHTML = `${checked.length}개 선택됨 (최대 3개) · <button id="fav-cmp-go" class="ghost-btn small">⚖️ 비교하기</button>`;
-  $("fav-cmp-go").onclick = async () => {
-    const codes = checked.slice(0, 3);
-    try {
-      const results = await Promise.all(codes.map((c) => api(`/api/analyze/${c}`)));
-      compareList = [];
-      results.forEach((d) => addCompare(d));
-      showCompare();
-    } catch (e) { showError("비교 데이터를 불러오지 못했습니다: " + e.message); }
+  // 일괄 삭제(2026-08-21 추가) — 체크박스가 원래 비교용이었는데, 여러 종목을 한 번에
+  // 정리하고 싶을 때 하나씩 지우는 것 말고는 방법이 없었다(관심종목 탭 고도화 요청).
+  const delBtn = `<button id="fav-bulk-del" class="ghost-btn small">🗑 선택 삭제</button>`;
+  // 2개 미만이면 비교 안내가 아무것도 안 뜨던 탓에 "체크해도 아무 일이 없다"고 읽혔다
+  // (진단보고서 7장). 1개만 골랐을 때도 무엇을 할 수 있는지 알려준다.
+  if (checked.length === 1) {
+    bar.innerHTML = `1개 선택됨 · 종목을 하나 더 고르면 <b>비교</b>할 수 있어요 · ${delBtn}`;
+  } else {
+    bar.innerHTML = `${checked.length}개 선택됨 (비교는 최대 3개) · <button id="fav-cmp-go" class="ghost-btn small">⚖️ 비교하기</button> · ${delBtn}`;
+    $("fav-cmp-go").onclick = async () => {
+      const codes = checked.slice(0, 3);
+      try {
+        const results = await Promise.all(codes.map((c) => api(`/api/analyze/${c}`)));
+        compareList = [];
+        results.forEach((d) => addCompare(d));
+        showCompare();
+      } catch (e) { showError("비교 데이터를 불러오지 못했습니다: " + e.message); }
+    };
+  }
+  $("fav-bulk-del").onclick = async () => {
+    if (!confirm(`선택한 ${checked.length}개 종목을 관심종목에서 제거할까요?`)) return;
+    await Promise.all(checked.map((c) => removeFromWatch(c)));
+    renderWatchlistPage();
   };
 }
 
@@ -548,7 +547,7 @@ $("watch-modal-save").onclick = async () => {
     });
     await loadWatchlist();
     updateWatchBtn();
-    renderFavBoard();
+    refreshWatchViewIfActive();
     msg.textContent = "저장했습니다." + pushWarn;
     setTimeout(() => $("watch-modal").classList.add("hidden"), pushWarn ? 2000 : 600);
   } catch (e) {
@@ -618,7 +617,7 @@ function goHome(fromPopstate) {
   $("landing").classList.remove("hidden");
   window.scrollTo({ top: 0 });
   setActiveNav("home");
-  renderFavBoard();
+  refreshWatchViewIfActive();
   loadRanking(currentSector);
   loadMyPortfolioWidget();
   if (!fromPopstate && location.pathname !== "/") history.pushState(null, "", "/");
@@ -1218,7 +1217,7 @@ async function renderTodayPick(items) {
         await addToWatch(best.code, best.name, best.price, best.score, bv.label, bv.tier);
       }
       syncFavBtn();
-      renderFavBoard();
+      refreshWatchViewIfActive();
     } catch (err) {
       showError(err.message);
     } finally {
@@ -3124,7 +3123,7 @@ async function loadMe() {
   await migrateLegacyFavs();
   updateFavBtn();
   updateWatchBtn();
-  renderFavBoard();
+  refreshWatchViewIfActive();
   loadMyPortfolioWidget();
 }
 
@@ -3170,7 +3169,7 @@ $("auth-submit").onclick = async () => {
     await migrateLegacyFavs();
     updateFavBtn();
     updateWatchBtn();
-    renderFavBoard();
+    refreshWatchViewIfActive();
     loadMyPortfolioWidget();
   } catch (e) {
     $("auth-msg").textContent = "오류: " + e.message;
@@ -3184,7 +3183,7 @@ $("logout-btn").onclick = async () => {
   renderAuthUI();
   updateFavBtn();
   updateWatchBtn();
-  renderFavBoard();
+  refreshWatchViewIfActive();
   loadMyPortfolioWidget();
   if (!$("admin-view").classList.contains("hidden")) goHome();
 };
@@ -3837,7 +3836,7 @@ $("chart-tf").querySelectorAll("button").forEach((b) => {
 
 initTheme();
 syncHomeForUser();   // loadMe() 전에도 한 번 — 로그아웃 기준 초기 상태를 먼저 맞춰 둔다
-renderFavBoard();
+refreshWatchViewIfActive();
 loadRanking();
 // 로그인 확인은 비동기다 — 아래 라우팅이 이 결과를 기다려야 하는 경우가 있어
 // Promise를 붙잡아 둔다(_meReady).

@@ -6,7 +6,7 @@
 <title>StockLens — 주식 종합 분석</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 <meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
-<link rel="stylesheet" href="/static/style.css?v=90">
+<link rel="stylesheet" href="/static/style.css?v=91">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -93,8 +93,8 @@
        섞여 있던 문제(진단보고서 3-1)를 세 영역으로 나눠 정리했다. -->
   <div class="home-group" id="group-mine">
     <div class="home-group-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pin"/></svg> 내 투자</div>
-    <!-- 관심종목: 홈 맨 위 (사용자 지시 — 임의 추천 종목 대신 내가 담은 종목부터) -->
-    <section class="fav-board hidden" id="fav-board"></section>
+    <!-- 관심종목은 홈에서 제거(2026-08-21, 사용자 지시) — 전용 /watchlist 탭이 이미
+         있어 중복이었다. 대신 그 탭을 더 고도화했다(app.js renderWatchlistPage 참고). -->
     <!-- 내 포트폴리오 오늘의 할 일 -->
     <section class="mypf-board" id="mypf-board"></section>
   </div>
@@ -773,6 +773,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=99"></script>
+<script src="/static/app.js?v=100"></script>
 </body>
 </html>

@@ -248,12 +248,7 @@ button { cursor: pointer; font-family: inherit; }
 .hero h1 em { font-style: normal; background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .hero p { color: var(--muted); font-size: var(--fs-xl); margin-bottom: 0; }
 
-/* ---------- favorites board ---------- */
-.fav-board {
-  background: var(--card); border: 1px solid var(--border);
-  border-radius: 20px; padding: 20px 24px; margin-bottom: 18px; backdrop-filter: blur(14px);
-}
-.fav-board h2 { font-size: var(--fs-xl); font-weight: 800; margin-bottom: 14px; }
+/* ---------- favorites (관심종목, 전용 /watchlist 탭에서만 씀 — 홈에서는 제거됨) ---------- */
 .fav-summary { font-size: var(--fs-sm); font-weight: 600; color: var(--text2); background: var(--grad-soft); border: 1px solid var(--border-glow); border-radius: 12px; padding: 10px 14px; margin-bottom: 10px; }
 .fav-stale { font-size: var(--fs-xs); color: var(--muted); background: rgba(245,166,35,.08); border: 1px solid rgba(245,166,35,.3); border-radius: 12px; padding: 9px 14px; margin-bottom: 10px; }
 .fav-stale button { margin-left: 4px; }
@@ -846,7 +841,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
   .main-nav button { flex: 1; padding: 9px 6px; font-size: var(--fs-xs); }
   .search-wrap { order: 2; flex: 1 1 auto; }
   .card { padding: 18px 16px; }
-  .rank-board, .fav-board, .today-board { padding: 18px 16px; }
+  .rank-board, .today-board { padding: 18px 16px; }
   .rank-row { grid-template-columns: 34px 1.5fr 70px 1fr; gap: 8px; padding: 12px 12px; }
   /* fav-row와 동일한 이유(min-content가 좁은 칸을 눌러버리는 grid 버그, 위 참고)로
      5칸을 억지로 한 줄에 넣는 대신 이름/가격 위, 사유/상승여력 아래 2줄로 나눈다. */
