@@ -1126,12 +1126,23 @@ function pickOpportunities(items) {
   return [...base].sort((a, b) => opportunityScore(b) - opportunityScore(a)).slice(0, 5);
 }
 
+// 매수/적극매수 tier 전체에서 뽑은 top5 안에서도, opportunityScore가 가장 높은
+// 1종목이 펀더멘털상 며칠씩 부동의 1위를 유지하는 경우가 흔해 "맨날 같은 종목만
+// 뜬다"는 지적을 받았다(실측: 셀트리온 고정). 날짜를 시드로 top5 중 하나를 골라
+// 매일 자정 기준으로 로테이션한다 — 같은 날 안에서는 새로고침해도 바뀌지 않고,
+// 다음 날엔 다른 종목으로 넘어간다. 목록 자체(today-rows)는 점수순 그대로 둔다.
+function dailyPickIndex(n) {
+  if (n <= 1) return 0;
+  const days = Math.floor(Date.now() / 86400000);
+  return days % n;
+}
+
 async function renderTodayPick(items) {
   const board = $("today-board");
   if (!items || !items.length) { board.classList.add("hidden"); return; }
   board.classList.remove("hidden");
   const top = pickOpportunities(items);
-  const best = top[0];
+  const best = top[dailyPickIndex(top.length)];
   const bv = best.ai_verdict || {};
   const bestUp = best.upside != null ? `${sign(best.upside, 1)}%` : "-";
   $("today-hero").innerHTML = `
@@ -1207,7 +1218,7 @@ async function renderTodayPick(items) {
     const up = r.upside != null ? `${sign(r.upside, 1)}%` : "-";
     const reasons = opportunityReasons(r);
     const reasonText = reasons.length ? reasons.join(" · ") : "-";
-    return `<div class="today-row" data-code="${r.code}">
+    return `<div class="today-row ${r.code === best.code ? "today-row-picked" : ""}" data-code="${r.code}">
       <span class="today-judge" style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>
       <span class="today-name">${r.name}</span>
       <span class="today-price">${pw(r.price, r.currency)}</span>

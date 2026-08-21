@@ -355,6 +355,7 @@ button { cursor: pointer; font-family: inherit; }
 .today-row { display: grid; grid-template-columns: 84px 1.2fr 92px 76px 1.6fr; align-items: center; gap: 10px; padding: 11px 14px; border-radius: 12px; }
 .today-row:not(.today-row-head) { background: var(--surface); border: 1px solid transparent; cursor: pointer; transition: .16s; }
 .today-row:not(.today-row-head):hover { background: var(--grad-soft); border-color: var(--border-glow); transform: translateX(4px); }
+.today-row-picked:not(.today-row-head) { border-color: var(--accent); background: var(--grad-soft); }
 .today-row-head { color: var(--muted); font-size: 12px; font-weight: 700; padding: 0 14px; }
 .today-judge { font-size: 13px; font-weight: 800; min-width: 0; }
 .today-name { font-size: 14px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -838,16 +839,20 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
      가깝게 눌렸다(사용자 지적: "종목명이 제대로 안나옴", 실측 42px). 좁은 화면에서 한 줄에
      다 넣는 대신 이름 위, 가격/액션 아래로 2줄 카드형 레이아웃으로 바꿔 이름에 넉넉한 폭을 준다. */
   .fav-row-head { display: none; }
+  /* ⚠️ 판단 배지가 메모·태그 아래 맨 밑에 깔리고, 가격은 (이름칸이 변동내역·메모·
+     태그로 길어지는 만큼) 세로 중앙에 붕 떠 이름과 안 붙어 보이던 문제(사용자
+     지적: "즐겨찾기 부분이 이상해"). 판단을 이름 바로 위로 올려 데스크톱과 같은
+     순서(체크→판단→이름)로 맞추고, 가격은 그 두 줄 옆에 상단 정렬로 붙인다. */
   .fav-row {
     grid-template-columns: 22px 1fr auto;
-    grid-template-areas: "check name price" "check judge actions";
-    row-gap: 6px; column-gap: 10px; padding: 12px;
+    grid-template-areas: "check judge price" "check name price" "check actions actions";
+    row-gap: 4px; column-gap: 10px; padding: 12px;
   }
   .fav-cell-check { grid-area: check; align-self: start; padding-top: 2px; }
-  .fav-judge { grid-area: judge; align-self: center; }
-  .fav-name-col { grid-area: name; }
-  .fav-price-col { grid-area: price; }
-  .fav-row-actions { grid-area: actions; justify-self: end; align-self: center; }
+  .fav-judge { grid-area: judge; align-self: end; font-size: 13px; }
+  .fav-name-col { grid-area: name; align-self: start; }
+  .fav-price-col { grid-area: price; align-self: start; padding-top: 1px; }
+  .fav-row-actions { grid-area: actions; justify-self: end; align-self: center; margin-top: 2px; }
   .fav-row .fav-hide-mobile { display: none; }
   .rank-price { display: none; }
   .rank-num { font-size: 14px; }
