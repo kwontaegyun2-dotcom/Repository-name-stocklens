@@ -879,7 +879,11 @@ function gaugeCard(title, g, opts = {}) {
     return `<div class="gauge-card"><div class="gauge-top"><span class="gauge-title">${title}</span></div><p class="gauge-na">데이터 없음</p></div>`;
   }
   const valTxt = opts.fmt ? opts.fmt(g.value) : `${fmt(g.value, opts.digits ?? 2)}${opts.unit || ""}`;
-  const color = GAUGE_ZONE_COLORS[g.zone] ?? "#8a93a6";
+  // reverseColor: "낮을수록 위험/높을수록 안전"인 지표(금리차 등)는 트랙 색을 그대로 쓰면
+  // 안전한 쪽(오른쪽)이 빨간색이 돼 직관과 반대로 읽힌다는 지적 — 색만 반전해 위험이
+  // 항상 빨강 쪽에 오게 한다(마커 위치는 그대로 실제 값 축을 따른다).
+  const zoneIdx = opts.reverseColor ? 4 - g.zone : g.zone;
+  const color = GAUGE_ZONE_COLORS[zoneIdx] ?? "#8a93a6";
   const labels = g.labels || [];
   return `<div class="gauge-card">
     <div class="gauge-top">
@@ -887,7 +891,7 @@ function gaugeCard(title, g, opts = {}) {
       <span class="gauge-cur" style="background:${color}26;color:${color}">${g.label}</span>
     </div>
     <div class="gauge-value">${valTxt}</div>
-    <div class="gauge-track"><div class="gauge-marker" style="left:${g.score}%"></div></div>
+    <div class="gauge-track${opts.reverseColor ? " reverse" : ""}"><div class="gauge-marker" style="left:${g.score}%"></div></div>
     <div class="gauge-ends"><span>${labels[0] || ""}</span><span>${labels[4] || ""}</span></div>
     ${opts.sub ? `<small class="hint" style="display:block;margin-top:6px">${opts.sub}</small>` : ""}
   </div>`;
@@ -902,17 +906,37 @@ function tempLabel(v) {
   return "매우 안정(차분)";
 }
 
+// 한국/미국 온도를 각자 카드로 그린다 — 예전엔 하나로 섞어 "이게 한국 온도냐 미국
+// 온도냐" 혼란이 있었다(사용자 지적). 서브점수는 app/market.py가 이미 정수로 반올림해
+// 보내므로, 여기 화면 숫자를 그대로 더해 평균 내면 항상 종합점수와 일치한다.
+function renderTempCard(id, title, subs) {
+  const overall = subs.overall;
+  const label = tempLabel(overall);
+  const items = subs.items.map(([l, v]) =>
+    `<div class="temp-sub-item"><label>${l}</label><div class="temp-sub-val">${v != null ? v : "-"}</div></div>`).join("");
+  $(id).innerHTML = `
+    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg> ${title}</h2>
+    <div class="temp-hero">
+      <div class="temp-num-wrap">
+        <div class="temp-num">${overall != null ? overall : "-"}</div>
+        <div class="temp-num-label">${label}</div>
+      </div>
+      <div class="temp-track"><div class="temp-marker" style="left:${overall ?? 50}%"></div></div>
+      <div class="temp-ends"><span>차분(저평가·안정)</span><span>과열(고평가·위험)</span></div>
+    </div>
+    <div class="temp-subgrid">${items}</div>`;
+}
+
 function renderTempHero(composite) {
-  const overall = composite.overall;
-  $("temp-overall").textContent = overall != null ? Math.round(overall) : "-";
-  $("temp-overall-label").textContent = tempLabel(overall);
-  $("temp-marker").style.left = `${overall ?? 50}%`;
-  const subs = [
-    ["① 밸류에이션", composite.valuation], ["② 투자심리", composite.sentiment],
-    ["③ 시장체력", composite.strength], ["④ 경기신용", composite.credit],
-  ];
-  $("temp-subgrid").innerHTML = subs.map(([label, v]) =>
-    `<div class="temp-sub-item"><label>${label}</label><div class="temp-sub-val">${v != null ? Math.round(v) : "-"}</div></div>`).join("");
+  const kr = composite.kr || {}, us = composite.us || {};
+  renderTempCard("market-temp-kr", "한국시장 온도", {
+    overall: kr.overall,
+    items: [["코스피 PER 밸류", kr.valuation], ["등락비율(체력)", kr.strength]],
+  });
+  renderTempCard("market-temp-us", "미국시장 온도", {
+    overall: us.overall,
+    items: [["밸류에이션", us.valuation], ["투자심리(VIX)", us.sentiment], ["신용(금리차)", us.credit]],
+  });
 }
 
 async function showMarketBriefing() {
@@ -943,7 +967,13 @@ async function loadMarketBriefing() {
         valRaw = d.valuation_raw || {}, breadth = d.breadth || {}, composite = d.composite || {};
 
   $("market-commentary-text").textContent = d.commentary || "-";
-  $("market-commentary-meta").textContent = d.commentary_source === "ai" ? "Claude AI 분석" : "자동 요약(규칙 기반)";
+  const cUpd = d.commentary_updated_at ? new Date(d.commentary_updated_at * 1000) : null;
+  const cTime = cUpd ? `${cUpd.getHours()}시 ${String(cUpd.getMinutes()).padStart(2, "0")}분 기준` : "";
+  // 한줄평은 최대 30분 캐시(AI 비용 보호)라 자산시장 카드의 실시간 시세(5분 갱신)와
+  // 스냅샷 시점이 다를 수 있다 — "원/달러 값이 카드마다 다르다"는 혼란을 막기 위해
+  // 한줄평 자체의 기준시각을 따로 밝힌다.
+  $("market-commentary-meta").textContent =
+    `${d.commentary_source === "ai" ? "Claude AI 분석" : "자동 요약(규칙 기반)"}${cTime ? " · " + cTime + " 시세 기준" : ""}`;
 
   renderTempHero(composite);
 
@@ -955,34 +985,32 @@ async function loadMarketBriefing() {
     gaugeCard("Shiller CAPE(美 10년 실질PER)", val.cape, { digits: 2 }),
     gaugeCard("S&P 500 PER", val.sp500_per, { unit: "배", digits: 2 }),
     gaugeCard("S&P 500 P/B", val.pb, { unit: "배", digits: 2 }),
-    gaugeCard("코스피 평균 PER", kospiPer, { unit: "배", digits: 2,
-      sub: valRaw.kospi_per_count ? `StockLens 추적 ${valRaw.kospi_per_count}종목 시가총액가중 평균 · 공식 KOSPI 전체 통계 아님` : "" }),
+    gaugeCard("StockLens 추적종목 PER(KOSPI)", kospiPer, { unit: "배", digits: 2,
+      sub: valRaw.kospi_per_count ? `추적 ${valRaw.kospi_per_count}종목 합산시총÷합산순이익 · 공식 KOSPI 전체 통계 아님` : "" }),
   ].join("");
 
-  // ② 투자심리
+  // ② 투자심리 — VIX만 쓴다. 등락비율은 ③ 시장체력에서만 보여준다(같은 숫자를
+  // 두 섹션에 중복 표시하면 "같은 신호가 두 번 반영됐다"는 오해를 만든다는 지적).
   $("market-sentiment-gauges").innerHTML = [
-    gaugeCard("VIX (변동성지수)", sent.vix_gauge, { digits: 2 }),
-    gaugeCard("코스피 등락비율", (breadth.kospi || {}).gauge, { unit: "%", digits: 1,
-      sub: breadth.kospi ? `상승 ${breadth.kospi.rise} · 하락 ${breadth.kospi.fall} · 보합 ${breadth.kospi.steady}` : "" }),
-    gaugeCard("코스닥 등락비율", (breadth.kosdaq || {}).gauge, { unit: "%", digits: 1,
-      sub: breadth.kosdaq ? `상승 ${breadth.kosdaq.rise} · 하락 ${breadth.kosdaq.fall} · 보합 ${breadth.kosdaq.steady}` : "" }),
+    gaugeCard("VIX (변동성지수)", sent.vix_gauge, { digits: 2,
+      sub: "CNN 공포탐욕지수는 봇 차단으로 제공 불가 — VIX로 대체" }),
   ].join("");
 
-  // ③ 시장 체력 (상승/하락 종목수 그대로)
+  // ③ 시장 체력 (상승/하락 종목수 그대로) — ②와 중복되지 않는 유일한 등락비율 표시 지점
   const breadthTile = (label, b) => {
     if (!b) return `<div class="pro-item"><label>${label}</label><div class="pro-val">-</div></div>`;
     return `<div class="pro-item"><label>${label}</label>
       <div class="pro-val"><span class="up">▲${b.rise}</span> <span class="down">▼${b.fall}</span></div>
-      <small>보합 ${b.steady} · 상한가 ${b.upper} · 하한가 ${b.lower}</small></div>`;
+      <small>보합 ${b.steady} · 상한가 ${b.upper} · 하한가 ${b.lower} · 등락비율 ${b.advance_pct ?? "-"}%</small></div>`;
   };
-  $("market-breadth-grid").innerHTML = `<div class="pro-grid" style="margin-bottom:0">
-    ${breadthTile("코스피", breadth.kospi)}${breadthTile("코스닥", breadth.kosdaq)}</div>`;
+  $("market-breadth-grid").innerHTML = breadthTile("코스피", breadth.kospi) + breadthTile("코스닥", breadth.kosdaq);
 
-  // ④ 경기 · 신용 위험
+  // ④ 경기 · 신용 위험 — reverseColor: "정상(우상향)"이 위험 신호처럼 빨갛게 보이던
+  // 문제를 막기 위해 위험(역전) 쪽이 항상 빨강이 되도록 색만 반전한다.
   $("market-credit-gauges").innerHTML = [
-    gaugeCard("美 10Y-2Y 금리차", bonds.spread_10y2y_gauge, { unit: "%p", digits: 2,
+    gaugeCard("美 10Y-2Y 금리차", bonds.spread_10y2y_gauge, { unit: "%p", digits: 2, reverseColor: true,
       sub: `10Y ${fmt(bonds.us10y, 2)}% · 2Y ${fmt(bonds.us2y, 2)}%` }),
-    gaugeCard("美 10Y-3M 금리차", bonds.spread_10y3m_gauge, { unit: "%p", digits: 2,
+    gaugeCard("美 10Y-3M 금리차", bonds.spread_10y3m_gauge, { unit: "%p", digits: 2, reverseColor: true,
       sub: `10Y ${fmt(bonds.us10y, 2)}% · 3M ${fmt(bonds.us3m, 2)}%` }),
   ].join("");
 
@@ -1003,8 +1031,6 @@ async function loadMarketBriefing() {
     ? `마지막 갱신: ${upd.getHours()}시 ${String(upd.getMinutes()).padStart(2, "0")}분 · 미국채·VIX·은·구리·BTC는 30분, PER·CAPE·PBR·버핏지수는 최대 6시간 단위로 갱신됩니다.`
     : "";
 }
-
-$("market-back").onclick = () => goHome();
 
 // 프리셋 — "PER 몇 배가 싼 건지 아는 사람은 이미 스크리너가 필요 없는 사람"이라는
 // 지적(UI/UX 검증보고서 6-6). 값을 눈에 보이는 입력칸에 채우고 바로 검색한다.

@@ -498,10 +498,11 @@ button { cursor: pointer; font-family: inherit; }
 .tab-hide { display: none; }
 .card:hover { border-color: rgba(139,92,246,.28); box-shadow: 0 12px 42px rgba(99,102,241,.14); }
 @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
-.card h3 { font-size: var(--fs-xl); font-weight: 700; margin-bottom: 15px; }
-.card h3 .hint { color: var(--dim); font-weight: 400; font-size: var(--fs-xs); margin-left: 8px; }
+.card h2, .card h3 { font-size: var(--fs-xl); font-weight: 700; margin-bottom: 15px; }
+.card h2 .hint, .card h3 .hint { color: var(--dim); font-weight: 400; font-size: var(--fs-xs); margin-left: 8px; }
 small.hint { display: block; color: var(--dim); font-weight: 400; font-size: var(--fs-2xs); margin-top: 3px; letter-spacing: normal; text-transform: none; }
-.card h3 small.hint { display: inline; margin-top: 0; }
+.card h2 small.hint, .card h3 small.hint { display: inline; margin-top: 0; }
+.card h2 .info-dot, .card h3 .info-dot { margin-left: 6px; vertical-align: middle; }
 .hint-p { color: var(--muted); font-size: var(--fs-sm); margin-bottom: 12px; }
 .hint-p code { background: var(--surface2); padding: 1px 6px; border-radius: 5px; font-size: var(--fs-xs); }
 
@@ -922,6 +923,11 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pro-score { font-size: 30px; font-weight: 800; line-height: 1.15; }
 .pro-stage { font-size: var(--fs-xs); margin-top: 5px; line-height: 1.35; }
 .pro-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(178px, 1fr)); gap: 10px; margin-bottom: 14px; }
+/* 자산시장 8개가 auto-fit이면 화면 폭에 따라 5+3처럼 마지막 줄이 어중간하게 남는다는
+   지적 — 데스크톱은 4×2로 고정해 항상 꽉 찬 사각형 그리드가 되게 한다. */
+@media (min-width: 900px) {
+  .pro-grid-assets { grid-template-columns: repeat(4, 1fr); }
+}
 .pro-item { padding: 11px 13px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); }
 .pro-item label { display: block; font-size: var(--fs-2xs); color: var(--muted); margin-bottom: 3px; }
 .pro-item .pro-val { font-size: var(--fs-xl); font-weight: 700; margin-bottom: 2px; }
@@ -933,10 +939,12 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 #market-commentary-text { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 0; line-height: 1.5; }
 
 /* ── 마켓 브리핑 게이지 — "극단적 저평가 ← … → 극단적 고평가" 스펙트럼을 트랙 위 마커
-   위치로 표현한다(버핏지수류 시각화 요청 반영). 트랙 색은 축의 낮은 값(파랑)→높은 값
-   (빨강) 고정 그라디언트 — 지표마다 "낮다/높다"가 좋고나쁨을 뜻하는 방향이 달라서
-   (VIX는 낮을수록 과열 신호) 색 자체에 "좋다/나쁘다" 의미를 담지 않고, 현재 구간
-   라벨(.gauge-cur)이 그 해석을 텍스트로 명확히 알려준다. */
+   위치로 표현한다(버핏지수류 시각화 요청 반영). 트랙 색은 기본적으로 축의 낮은 값(파랑)
+   →높은 값(빨강) 고정 그라디언트다 — 지표마다 "낮다/높다"가 좋고나쁨을 뜻하는 방향이
+   달라서(VIX는 낮을수록 과열 신호) 색 자체에 "좋다/나쁘다" 의미를 담지 않고, 현재 구간
+   라벨(.gauge-cur)이 그 해석을 텍스트로 알려주는 게 원칙이다. 다만 "낮을수록 위험"인
+   지표(금리차 등, .reverse)는 이 원칙을 예외로 두고 색을 반전한다 — 안전한 쪽이
+   빨간색으로 보이는 게 오독 위험이 라벨 텍스트로 상쇄되는 정도를 넘는다는 지적 반영. */
 .gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 6px; }
 .gauge-card { padding: 14px 16px; background: var(--surface2); border-radius: 12px; border: 1px solid var(--border); }
 .gauge-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
@@ -945,13 +953,25 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .gauge-value { font-size: var(--fs-xl); font-weight: 800; margin-bottom: 8px; }
 .gauge-track { position: relative; height: 8px; border-radius: 5px; margin-bottom: 5px;
   background: linear-gradient(90deg, #3b82f6 0%, #22c55e 30%, #eab308 55%, #f97316 75%, #ef4444 100%); }
+.gauge-track.reverse { background: linear-gradient(90deg, #ef4444 0%, #f97316 25%, #eab308 50%, #22c55e 75%, #3b82f6 100%); }
 .gauge-marker { position: absolute; top: -4px; width: 3px; height: 16px; border-radius: 2px;
   background: var(--text); box-shadow: 0 0 0 2px var(--surface2); transform: translateX(-50%); }
 .gauge-ends { display: flex; justify-content: space-between; font-size: var(--fs-2xs); color: var(--muted); }
 .gauge-na { color: var(--muted); font-size: var(--fs-sm); }
+/* 밸류에이션 5개가 auto-fit(minmax 220px)이면 대개 4열까지만 차서 오른쪽에 빈 칸이
+   하나 남는다는 지적 — 넓은 화면에서는 5열로 고정해 한 줄에 꽉 채운다. */
+@media (min-width: 1180px) {
+  #market-valuation-gauges { grid-template-columns: repeat(5, 1fr); }
+}
 
-/* 종합 시장온도 히어로 — 개별 게이지보다 큰 트랙+숫자로 눈에 먼저 들어오게 한다. */
-#market-temp-card { background: var(--grad-soft); border: 1px solid var(--border-glow); border-radius: 18px; }
+/* 종합 시장온도 히어로 — 개별 게이지보다 큰 트랙+숫자로 눈에 먼저 들어오게 한다.
+   한국/미국 온도 카드 2장을 나란히 두는 컨테이너(.temp-dual-grid) + 각 카드 공통 스타일
+   (.temp-card, 예전엔 #market-temp-card 단일 카드였다가 한국/미국 분리로 클래스화). */
+.temp-dual-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
+@media (max-width: 720px) {
+  .temp-dual-grid { grid-template-columns: 1fr; gap: 14px; }
+}
+.temp-card { background: var(--grad-soft); border: 1px solid var(--border-glow); border-radius: 18px; margin-bottom: 0; }
 .temp-hero { margin: 6px 0 10px; }
 .temp-num-wrap { text-align: center; margin-bottom: 10px; }
 .temp-num { font-size: 52px; font-weight: 900; line-height: 1; }

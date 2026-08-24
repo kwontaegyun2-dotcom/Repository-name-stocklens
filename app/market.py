@@ -17,6 +17,7 @@ API 하나에 전면 의존하는 것과 같은 성격의 선택. 값을 못 구
     긁을 수 있는 소스를 못 찾음(전부 403/404 또는 로그인 필요) — 스킵.
     대신 시장체력은 **코스피·코스닥 등락종목수**(네이버, 이미 확보 가능)로 대체.
 """
+import math
 import re
 import threading
 import time
@@ -175,18 +176,24 @@ def _buffett_indicator():
 
 
 def _kospi_avg_per():
-    """코스피 평균 PER — 공식 통계(KRX)는 세션 인증이 필요해 못 긁는다(실측 확인, 403류).
-    대신 이 서비스가 이미 백그라운드로 채점해둔 국내 유니버스(app/ranking.py, 시가총액
-    상위 위주 182종목)의 **시가총액가중 평균 PER**로 대체한다 — 전 종목 통계는 아니지만
-    추가 네트워크 호출 없이 얻을 수 있는 합리적 근사치. 화면에 "전체 KOSPI 공식치가
-    아님"을 명시한다."""
+    """StockLens 추적 PER — 공식 KOSPI 평균 PER(KRX)은 세션 인증이 필요해 못 긁는다
+    (실측 확인, 403류). 대신 이 서비스가 이미 백그라운드로 채점해둔 국내 유니버스
+    (app/ranking.py, 시가총액 상위 위주 182종목)로 근사치를 낸다.
+
+    ⚠️ 개별 종목 PER을 시가총액으로 가중평균하는 방식(예전 구현)은 저이익·고PER
+    종목 한둘이 평균을 크게 왜곡한다(실측 50배대까지 튐). 거래소가 실제 쓰는 방식과
+    같은 "합산 시가총액 ÷ 합산 순이익"으로 바꾼다 — 종목별 순이익은 시가총액/PER로
+    역산(PER=주가/EPS, 시가총액/PER=발행주식수×EPS=순이익)한다. 그래도 전종목 공식
+    통계는 아니므로 화면에 "StockLens 추적종목 기준"임을 명시한다."""
     items = ranking.get("KR")["items"]
     valid = [it for it in items if it.get("per") and it["per"] > 0 and it.get("market_cap")]
     if not valid:
         return None
     total_cap = sum(it["market_cap"] for it in valid)
-    weighted = sum(it["per"] * it["market_cap"] for it in valid) / total_cap
-    return {"value": round(weighted, 2), "count": len(valid)}
+    total_earnings = sum(it["market_cap"] / it["per"] for it in valid)
+    if total_earnings <= 0:
+        return None
+    return {"value": round(total_cap / total_earnings, 2), "count": len(valid)}
 
 
 def _major_item(majors: list, code: str):
@@ -348,9 +355,13 @@ def _rule_commentary(snap: dict) -> str:
     buffett = _slow.get("buffett")
     if buffett:
         notes.append(f"버핏지수 {buffett['value']:.0f}%({buffett['label']})")
-    temp = (snap.get("composite") or {}).get("overall")
-    if temp is not None:
-        notes.append(f"StockLens 시장온도 {temp:.0f}점")
+    composite = snap.get("composite") or {}
+    kr_temp = (composite.get("kr") or {}).get("overall")
+    us_temp = (composite.get("us") or {}).get("overall")
+    if kr_temp is not None:
+        notes.append(f"한국시장 온도 {kr_temp}점")
+    if us_temp is not None:
+        notes.append(f"미국시장 온도 {us_temp}점")
 
     tail = " · ".join(notes)
     return lead + (f". {tail}." if tail else ".")
@@ -371,23 +382,54 @@ def _refresh_commentary(snap: dict, ai_allowed: bool):
         _commentary["updated_at"] = time.time()
 
 
+def _round_half_up(v):
+    """일반적으로 기대하는 반올림(0.5는 항상 올림) — 파이썬 내장 round()는 은행가
+    반올림(2.5→2)이라 "화면 숫자 평균과 안 맞는다"는 혼란을 하나 더 만들 수 있다."""
+    return None if v is None else math.floor(v + 0.5)
+
+
 def _composite(valuation: dict, sentiment: dict, breadth: dict, bonds: dict):
+    """StockLens 시장온도 — 한국/미국을 하나로 섞지 않고 분리한다.
+    예전엔 밸류에이션(대부분 미국) · 심리(VIX, 미국) · 체력(코스피·코스닥, 한국) ·
+    신용(미국 금리차)을 통째로 평균해 "이게 한국시장 온도인지 글로벌 온도인지
+    불명확하다"는 지적을 받았다. 또 서브점수를 소수로 들고 있다가 화면 표시 시점에만
+    반올림하다 보니(예: 92.6→93) "화면에 보이는 서브점수 평균과 종합점수가 안 맞는다"는
+    지적도 받았다 — 그래서 여기서부터 정수로 반올림해, 화면에 보이는 숫자 그대로
+    평균해도 항상 종합점수와 일치하게 만든다.
+
+    한국 온도는 코스피 PER(밸류에이션)과 코스피·코스닥 등락비율(체력) 2개뿐이라
+    데이터가 얕다 — 국내 수급·신용잔고·거래대금 지표를 못 구해서다(모듈 docstring
+    참고). 미국 온도는 밸류에이션 4종·VIX·금리차 신용까지 상대적으로 두텁다."""
     def avg(vals):
         vals = [v for v in vals if v is not None]
-        return round(sum(vals) / len(vals), 1) if vals else None
+        return _round_half_up(sum(vals) / len(vals)) if vals else None
 
-    val_score = avg([g["score"] for g in valuation.values() if g])
+    def breadth_score(key):
+        # .get("gauge", {}) 의 함정: "gauge" 키가 존재하는데 값이 None이면(등락비율
+        # 계산 실패 시 실제로 벌어짐) 기본값 {}가 아니라 그 None이 그대로 반환돼
+        # 다음 .get("score")에서 죽는다 — 반드시 or {}로 한 번 더 걸러야 한다.
+        b = breadth.get(key) or {}
+        g = b.get("gauge") or {}
+        return _round_half_up(g.get("score"))
+
+    kr_valuation = _round_half_up((valuation.get("kospi_per") or {}).get("score"))
+    kr_strength = avg([breadth_score("kospi"), breadth_score("kosdaq")])
+    kr_overall = avg([kr_valuation, kr_strength])
+
+    us_valuation = avg([_round_half_up(g["score"]) for k, g in valuation.items() if k != "kospi_per" and g])
     vix_g = sentiment.get("vix_gauge")
-    sentiment_score = (100 - vix_g["score"]) if vix_g else None   # VIX 낮을수록 "과열/낙관"
-    strength_score = avg([
-        (breadth.get("kospi") or {}).get("gauge", {}).get("score") if breadth.get("kospi") else None,
-        (breadth.get("kosdaq") or {}).get("gauge", {}).get("score") if breadth.get("kosdaq") else None,
-    ])
+    us_sentiment = _round_half_up(100 - vix_g["score"]) if vix_g else None   # VIX 낮을수록 "과열/낙관"
     g1, g2 = bonds.get("spread_10y2y_gauge"), bonds.get("spread_10y3m_gauge")
-    credit_score = avg([(100 - g1["score"]) if g1 else None, (100 - g2["score"]) if g2 else None])
-    overall = avg([val_score, sentiment_score, strength_score, credit_score])
-    return {"valuation": val_score, "sentiment": sentiment_score,
-            "strength": strength_score, "credit": credit_score, "overall": overall}
+    us_credit = avg([
+        _round_half_up(100 - g1["score"]) if g1 else None,
+        _round_half_up(100 - g2["score"]) if g2 else None,
+    ])
+    us_overall = avg([us_valuation, us_sentiment, us_credit])
+
+    return {
+        "kr": {"valuation": kr_valuation, "strength": kr_strength, "overall": kr_overall},
+        "us": {"valuation": us_valuation, "sentiment": us_sentiment, "credit": us_credit, "overall": us_overall},
+    }
 
 
 def _compute(ai_allowed: bool):
@@ -464,4 +506,5 @@ def get():
     out["updated_at"] = _state["updated_at"]
     out["commentary"] = commentary.get("text")
     out["commentary_source"] = commentary.get("source")
+    out["commentary_updated_at"] = commentary.get("updated_at") or 0
     return out

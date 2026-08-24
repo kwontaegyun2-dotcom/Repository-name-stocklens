@@ -134,8 +134,9 @@ VIX: {sent.get("vix")}
 美 10Y-2Y 금리차: {bonds.get("spread_10y2y")}%p
 美 10Y-3M 금리차: {bonds.get("spread_10y3m")}%p
 
-## StockLens 종합 시장온도(0~100, 높을수록 과열)
-{composite.get("overall")}점 (밸류에이션 {composite.get("valuation")} · 심리 {composite.get("sentiment")} · 체력 {composite.get("strength")} · 신용 {composite.get("credit")})
+## StockLens 시장온도(0~100, 높을수록 과열, 한국/미국 분리 산출)
+한국 {(composite.get("kr") or {}).get("overall")}점 (밸류에이션 {(composite.get("kr") or {}).get("valuation")} · 체력 {(composite.get("kr") or {}).get("strength")})
+미국 {(composite.get("us") or {}).get("overall")}점 (밸류에이션 {(composite.get("us") or {}).get("valuation")} · 심리 {(composite.get("us") or {}).get("sentiment")} · 신용 {(composite.get("us") or {}).get("credit")})
 
 문장만 출력하고 다른 설명은 붙이지 마세요."""
 
