@@ -917,6 +917,10 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pro-item .pro-val { font-size: var(--fs-xl); font-weight: 700; margin-bottom: 2px; }
 .pro-item small { font-size: var(--fs-2xs); color: var(--muted); line-height: 1.35; display: block; }
 .pro-item .spark { vertical-align: middle; margin-left: 6px; }
+/* 마켓 브리핑 한줄평 — today-pick-card와 같은 "AI 강조" 톤(그라디언트+글로우 테두리)을
+   재사용해 홈의 오늘의 PICK과 시각적으로 같은 급의 정보임을 알린다. */
+#market-commentary-card { background: var(--grad-soft); border: 1px solid var(--border-glow); border-radius: 18px; }
+#market-commentary-text { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 0; line-height: 1.5; }
 .confluence-box { margin-bottom: 14px; padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border-glow); }
 .confluence-title { font-size: var(--fs-sm); font-weight: 700; margin-bottom: 10px; }
 .confluence-title small.hint { display: block; font-weight: 400; margin-top: 3px; }

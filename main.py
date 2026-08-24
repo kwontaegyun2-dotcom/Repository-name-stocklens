@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, portfolio_alert, themes, anomaly, event_alert, screener, backtest
+from app import naver, kis, analysis, ai, ranking, chart_pro, valuation, auth, push, watch, portfolio, portfolio_alert, themes, anomaly, event_alert, screener, backtest, market
 
 BASE = Path(__file__).resolve().parent
 app = FastAPI(title="StockLens")
@@ -30,6 +30,7 @@ def _startup():
     portfolio.init(_DATA_DIR)
     portfolio_alert.init(_DATA_DIR, api_analyze)
     event_alert.init(_DATA_DIR, api_analyze)
+    market.start_background(AI_ALLOWED)
 
 # 공개 배포 모드: 개인 KIS 키 저장 금지, AI 리포트 남용 방지
 PUBLIC = os.environ.get("STOCKLENS_PUBLIC") == "1"
@@ -720,8 +721,15 @@ def stock_page(code: str):
 @app.get("/watchlist")
 @app.get("/screener")
 @app.get("/portfolio")
+@app.get("/market")
 def spa_page():
     return FileResponse(BASE / "static" / "index.html")
+
+
+# ---------------------------------------------------------------- 마켓 브리핑
+@app.get("/api/market")
+def api_market():
+    return market.get()
 
 
 # robots·sitemap·favicon — 세 개 모두 404였다(4차 진단리포트 8장, 4회 연속 지적).

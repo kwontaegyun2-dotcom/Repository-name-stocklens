@@ -77,3 +77,46 @@ PER {m.get('per')}배 / 선행PER {m.get('cns_per')}배 / PBR {m.get('pbr')}배 
         message = stream.get_final_message()
 
     return next((b.text for b in message.content if b.type == "text"), "")
+
+
+def market_commentary(snap: dict, valuation: dict) -> str:
+    """마켓 브리핑 AI 한줄평 — 30분 캐시로 재사용되므로(app/market.py) 가벼운 모델·
+    짧은 답변으로 비용을 낮춘다. AI_ALLOWED가 꺼져 있으면(공개배포 기본값) 호출부가
+    이 함수 대신 규칙기반 문구를 쓴다 — CLAUDE.md 5번 규칙(공개모드 AI비용 차단) 준수."""
+    import anthropic
+
+    client = anthropic.Anthropic()
+    idx, fx, cmd, bonds, sent = (snap.get("indices", {}), snap.get("fx", {}),
+                                  snap.get("commodities", {}), snap.get("bonds", {}),
+                                  snap.get("sentiment", {}))
+
+    def _row(label, it):
+        if not it:
+            return f"{label}: 데이터 없음"
+        return f"{label}: {it.get('price')} ({it.get('rate'):+.2f}%)" if it.get("rate") is not None else f"{label}: {it.get('price')}"
+
+    buffett = valuation.get("buffett")
+    prompt = f"""아래는 오늘 수집한 시장 데이터입니다. 이 숫자만 근거로 오늘 시장 분위기를
+한국어 1~2문장(120자 이내)으로 요약하세요. 과장 없이 담백하게, 숫자를 인용하며 쓰세요.
+데이터가 없는 항목은 언급하지 마세요.
+
+{_row("코스피", idx.get("kospi"))}
+{_row("코스닥", idx.get("kosdaq"))}
+{_row("S&P500", idx.get("sp500"))}
+{_row("나스닥", idx.get("nasdaq"))}
+원/달러: {fx.get("usdkrw")}
+WTI: {cmd.get("wti")}
+국제 금: {cmd.get("gold_intl")}
+미국채10년: {bonds.get("us10y")}%
+VIX: {sent.get("vix")}
+S&P500 PER: {valuation.get("sp500_per")}배
+버핏지수: {f"{buffett['value']:.0f}%({buffett['label']})" if buffett else "데이터 없음"}
+
+문장만 출력하고 다른 설명은 붙이지 마세요."""
+
+    message = client.messages.create(
+        model="claude-haiku-4-5",
+        max_tokens=200,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return next((b.text for b in message.content if b.type == "text"), "").strip()

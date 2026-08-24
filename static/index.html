@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=92">
+<link rel="stylesheet" href="/static/style.css?v=93">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -57,6 +57,7 @@
     <g id="i-scale" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M7 21h10M5 7h5M14 7h5M5 7L2.5 12.5a2.5 2.5 0 005 0L5 7zM19 7l-2.5 5.5a2.5 2.5 0 005 0L19 7z"/></g>
     <g id="i-layers" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5M3 8l9 5 9-5" opacity=".45"/></g>
     <g id="i-wave" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M2.5 9c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0M2.5 15c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0"/></g>
+    <g id="i-globe" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></g>
     <g id="i-ruler" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14.5 2.5l7 7L9.5 21.5l-7-7z"/><path d="M12 5l2 2M9.5 7.5l2 2M7 10l2 2M4.5 12.5l2 2"/></g>
     <g id="i-sparkle" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
   </defs>
@@ -69,6 +70,7 @@
   <nav class="main-nav" id="main-nav" aria-label="주요 메뉴">
     <button data-view="home" class="active"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-home"/></svg> 홈</button>
     <button data-view="stock"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg> 종목분석</button>
+    <button data-view="market"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-globe"/></svg> 마켓 브리핑</button>
     <button data-view="watchlist"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-star"/></svg> 관심종목</button>
     <button data-view="screener"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"/></svg> 스크리너</button>
     <button data-view="portfolio"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-briefcase"/></svg> 포트폴리오</button>
@@ -783,11 +785,55 @@
   </section>
 </main>
 
+<!-- 마켓 브리핑 — 국내외 지수·환율·원자재·채권·심리·밸류에이션 지표 + AI 한줄평.
+     데이터 출처: 네이버(지수·환율·원자재), FRED 공식(미국채·VIX), multpl·currentmarketvaluation
+     (S&P PER·버핏지수) — app/market.py가 백그라운드로 모아 캐싱한 값을 그대로 표시한다. -->
+<main id="market-view" class="report hidden">
+  <button id="market-back" class="back-btn">← 돌아가기</button>
+
+  <section class="card" id="market-commentary-card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg> 오늘의 시장 한줄평 <small class="hint" id="market-commentary-meta"></small></h3>
+    <p id="market-commentary-text" class="hint-p">불러오는 중…</p>
+  </section>
+
+  <section class="card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trophy"/></svg> 국내 지수</h3>
+    <div class="pro-grid" id="market-kr-grid"></div>
+  </section>
+
+  <section class="card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-globe"/></svg> 해외 지수</h3>
+    <div class="pro-grid" id="market-world-grid"></div>
+  </section>
+
+  <section class="card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-money"/></svg> 환율</h3>
+    <div class="pro-grid" id="market-fx-grid"></div>
+  </section>
+
+  <section class="card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gem"/></svg> 원자재</h3>
+    <div class="pro-grid" id="market-cmdt-grid"></div>
+  </section>
+
+  <section class="card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> 채권 · 심리지표</h3>
+    <div class="pro-grid" id="market-bond-grid"></div>
+  </section>
+
+  <section class="card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ruler"/></svg> 밸류에이션</h3>
+    <div class="pro-grid" id="market-valuation-grid"></div>
+  </section>
+
+  <p class="hint-p" id="market-updated"></p>
+</main>
+
 <footer class="site-footer">
   <p class="footer-disclaimer">StockLens가 제공하는 점수·등급·목표주가·매수전략 등 모든 분석 결과는 투자 판단을 돕기 위한 참고용 정보이며, 투자 자문이나 매수·매도 권유가 아닙니다. 과거의 수익률이나 분석 결과는 미래 수익을 보장하지 않으며, 투자 판단과 그에 따른 손익의 책임은 이용자 본인에게 있습니다.</p>
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=101"></script>
+<script src="/static/app.js?v=102"></script>
 </body>
 </html>

@@ -2,6 +2,7 @@
 const $ = (id) => document.getElementById(id);
 let currentCode = null;
 let priceTimer = null;
+let marketPollTimer = null;
 let chart = null;
 let watchedCodes = new Set();
 let watchMap = {};   // code -> 서버 관심종목 행(added_*·memo·tags·alert_* 등, /api/watch 응답)
@@ -605,9 +606,10 @@ function setActiveNav(view) {
    하나 추가할 때(이번 /watchlist) 그 목록을 전부 찾아 고쳐야 해서 빠뜨리기 쉽다
    — 한 곳에 모은다. */
 const ALL_VIEWS = ["landing", "report", "compare-view", "admin-view",
-                   "portfolio-view", "screener-view", "watchlist-view", "loading"];
+                   "portfolio-view", "screener-view", "watchlist-view", "market-view", "loading"];
 function hideAllViews() {
   clearInterval(priceTimer);
+  clearInterval(marketPollTimer);
   ALL_VIEWS.forEach((id) => { const e = $(id); if (e) e.classList.add("hidden"); });
 }
 
@@ -640,6 +642,7 @@ document.querySelectorAll("#main-nav button").forEach((b) => {
       return;
     }
     if (view === "screener") { navigate("/screener"); return; }
+    if (view === "market") { navigate("/market"); return; }
     if (view === "stock") {
       if (currentCode) {
         clearInterval(priceTimer);
@@ -853,9 +856,99 @@ function resetScreener() {
   $("scr-results").innerHTML = `<p class="hint-p">조건을 설정하고 "조건으로 검색"을 눌러주세요.</p>`;
 }
 
-$("scr-back").onclick = goHome;
+$("scr-back").onclick = () => goHome();
 $("scr-run").onclick = runScreener;
 $("scr-reset").onclick = resetScreener;
+
+/* ---------------- 마켓 브리핑 ----------------
+   app/market.py가 백그라운드로 5분(지수·환율·원자재·채권·VIX)/6시간(S&P PER·버핏지수)
+   주기로 모아 캐싱해둔 값을 그대로 표시한다 — 이 뷰 자체는 무거운 계산이 없다. */
+function mktRow(label, price, rate, opts = {}) {
+  const unit = opts.unit || "";
+  const priceTxt = price == null ? "-" : `${opts.digits != null ? fmt(price, opts.digits) : fmt(price)}${unit}`;
+  const rateHtml = rate == null ? "" : `<span class="${updownClass(rate)}">${sign(rate, 2)}%</span>`;
+  const sub = [rateHtml, opts.sub].filter(Boolean).join(" · ");
+  return `<div class="pro-item"><label>${label}</label><div class="pro-val">${priceTxt}</div><small>${sub}</small></div>`;
+}
+
+async function showMarketBriefing() {
+  hideAllViews();
+  $("market-view").classList.remove("hidden");
+  setActiveNav("market");
+  window.scrollTo({ top: 0 });
+  document.title = "마켓 브리핑 — StockLens";
+  await loadMarketBriefing();
+  clearInterval(marketPollTimer);
+  marketPollTimer = setInterval(loadMarketBriefing, 60000);
+}
+
+async function loadMarketBriefing() {
+  let d;
+  try {
+    d = await api("/api/market");
+  } catch {
+    $("market-commentary-text").textContent = "시세 정보를 불러오지 못했습니다.";
+    return;
+  }
+  if (!d.available) {
+    $("market-commentary-text").textContent = "서버가 아직 시세를 집계하는 중입니다 — 잠시 후 다시 확인해주세요.";
+    return;
+  }
+  const idx = d.indices || {}, fx = d.fx || {}, cmd = d.commodities || {},
+        bonds = d.bonds || {}, sent = d.sentiment || {}, val = d.valuation || {};
+
+  $("market-commentary-text").textContent = d.commentary || "-";
+  $("market-commentary-meta").textContent = d.commentary_source === "ai" ? "Claude AI 분석" : "자동 요약(규칙 기반)";
+
+  $("market-kr-grid").innerHTML = [
+    idx.kospi && mktRow("코스피", idx.kospi.price, idx.kospi.rate, { digits: 2 }),
+    idx.kosdaq && mktRow("코스닥", idx.kosdaq.price, idx.kosdaq.rate, { digits: 2 }),
+  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+
+  $("market-world-grid").innerHTML = [
+    idx.sp500 && mktRow("S&P 500", idx.sp500.price, idx.sp500.rate, { digits: 2 }),
+    idx.dow && mktRow("다우존스", idx.dow.price, idx.dow.rate, { digits: 2 }),
+    idx.nasdaq && mktRow("나스닥종합", idx.nasdaq.price, idx.nasdaq.rate, { digits: 2 }),
+    idx.nikkei && mktRow("니케이 225", idx.nikkei.price, idx.nikkei.rate, { digits: 2 }),
+    idx.shanghai && mktRow("상해종합", idx.shanghai.price, idx.shanghai.rate, { digits: 2 }),
+  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+
+  $("market-fx-grid").innerHTML = [
+    fx.usdkrw != null && mktRow("원/달러", fx.usdkrw, null, { unit: "원", digits: 1 }),
+    fx.jpykrw100 != null && mktRow("원/100엔", fx.jpykrw100, null, { unit: "원", digits: 2 }),
+    fx.eurkrw != null && mktRow("원/유로", fx.eurkrw, null, { unit: "원", digits: 1 }),
+    fx.cnykrw != null && mktRow("원/위안", fx.cnykrw, null, { unit: "원", digits: 2 }),
+    fx.dxy != null && mktRow("달러인덱스", fx.dxy, null, { digits: 2 }),
+  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+
+  $("market-cmdt-grid").innerHTML = [
+    cmd.wti != null && mktRow("WTI 원유", cmd.wti, null, { unit: "$", digits: 2 }),
+    cmd.gold_intl != null && mktRow("국제 금 (온스)", cmd.gold_intl, null, { unit: "$", digits: 1 }),
+    cmd.gold_domestic != null && mktRow("국내 금 (g)", cmd.gold_domestic, null, { unit: "원", digits: 0 }),
+    cmd.silver != null && mktRow("은 (온스)", cmd.silver, cmd.silver_rate, { unit: "$", digits: 2 }),
+  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+
+  $("market-bond-grid").innerHTML = [
+    bonds.us10y != null && mktRow("미국채 10년물", bonds.us10y, null,
+      { unit: "%", digits: 2, sub: bonds.as_of ? `${bonds.as_of} 기준` : "" }),
+    bonds.us30y != null && mktRow("미국채 30년물", bonds.us30y, null, { unit: "%", digits: 2 }),
+    sent.vix != null && mktRow("VIX (변동성지수)", sent.vix, null,
+      { digits: 2, sub: sent.vix >= 30 ? "⚠️ 공포 구간" : sent.vix >= 20 ? "경계 구간" : "안정 구간" }),
+  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+
+  $("market-valuation-grid").innerHTML = [
+    val.sp500_per != null && mktRow("S&P 500 PER", val.sp500_per, null, { unit: "배", digits: 2 }),
+    val.buffett && mktRow("버핏지수", val.buffett.value, null,
+      { unit: "%", digits: 0, sub: `${val.buffett.label}${val.buffett.as_of ? " · " + val.buffett.as_of + " 기준" : ""}` }),
+  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+
+  const upd = d.updated_at ? new Date(d.updated_at * 1000) : null;
+  $("market-updated").textContent = upd
+    ? `마지막 갱신: ${upd.getHours()}시 ${String(upd.getMinutes()).padStart(2, "0")}분 · 미국채·VIX·PER·버핏지수는 원본 소스 갱신 주기에 따라 며칠 지연될 수 있습니다.`
+    : "";
+}
+
+$("market-back").onclick = () => goHome();
 
 // 프리셋 — "PER 몇 배가 싼 건지 아는 사람은 이미 스크리너가 필요 없는 사람"이라는
 // 지적(UI/UX 검증보고서 6-6). 값을 눈에 보이는 입력칸에 채우고 바로 검색한다.
@@ -3397,7 +3490,7 @@ async function showAdmin() {
   }
 }
 $("admin-link").onclick = showAdmin;
-$("admin-back").onclick = goHome;
+$("admin-back").onclick = () => goHome();
 
 /* ---------------- 내 포트폴리오 ---------------- */
 let pfSelected = null;
@@ -3786,7 +3879,7 @@ $("pf-add-btn").onclick = async () => {
     $("pf-add-msg").textContent = "오류: " + e.message;
   }
 };
-$("pf-back").onclick = goHome;
+$("pf-back").onclick = () => goHome();
 
 /* ---------------- KIS modal ---------------- */
 // 공개 배포에서는 KIS 키 저장이 백엔드에서 403 차단되므로 버튼 자체를 숨긴다(설정 화면까지
@@ -3830,8 +3923,8 @@ $("kis-save").onclick = async () => {
 };
 
 /* ---------------- navigation + init ---------------- */
-$("logo-home").onclick = goHome;
-$("back-btn").onclick = goHome;
+$("logo-home").onclick = () => goHome();
+$("back-btn").onclick = () => goHome();
 $("fav-btn").onclick = async () => {
   if (!currentCode) return;
   if (!currentUser) { openAuthModal("login"); return; }
@@ -3877,7 +3970,7 @@ document.querySelectorAll("#rank-market button").forEach((b) => {
 $("compare-btn").onclick = () => { if (lastAnalysis) addCompare(lastAnalysis); };
 $("cmp-go").onclick = showCompare;
 $("cmp-clear").onclick = () => { compareList = []; renderCompareTray(); if (!$("compare-view").classList.contains("hidden")) goHome(); };
-$("cmp-back").onclick = goHome;
+$("cmp-back").onclick = () => goHome();
 
 // 차트 봉 주기(일/주/월) + 구간 슬라이더
 $("chart-tf").querySelectorAll("button").forEach((b) => {
@@ -3936,6 +4029,7 @@ const ROUTES = [
   { re: /^\/watchlist\/?$/, auth: true,  run: () => showWatchlist() },
   { re: /^\/screener\/?$/,                run: () => showScreener() },
   { re: /^\/portfolio\/?$/, auth: true,  run: () => showPortfolio() },
+  { re: /^\/market\/?$/,                  run: () => showMarketBriefing() },
   { re: /^\/stock\/([^/]+)\/?$/,          run: (m) => analyze(decodeURIComponent(m[1]), true) },
 ];
 

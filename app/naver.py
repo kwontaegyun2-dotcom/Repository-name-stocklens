@@ -140,6 +140,47 @@ def usd_krw_rate():
     return rate
 
 
+def home_majors():
+    """국내+해외 주요지수 요약(코스피·코스닥·다우·나스닥·상해·니케이 등) — 마켓 브리핑용."""
+    return _get(f"{M}/home/majors", ttl=60)
+
+
+def world_index(reuters_code: str):
+    """해외지수 상세 — S&P500(.INX)·다우(.DJI)·나스닥종합(.IXIC)·니케이(.N225) 등.
+    실측: 국내 지수처럼 m.stock.naver.com이 아니라 api.stock.naver.com/index/{code}/basic
+    경로에서만 응답한다(다른 경로는 전부 404/409)."""
+    return _get(f"https://api.stock.naver.com/index/{reuters_code}/basic", ttl=60)
+
+
+# finance.naver.com/marketindex/ 페이지의 <h3 class="h_lst"><span class="blind">제목</span></h3>
+# 뒤에 이어지는 <span class="value">값</span>을 순서대로 매칭 — 이 페이지의 12개 항목은
+# 항상 이 순서(달러→엔→유로→위안→달러/엔→유로/달러→파운드/달러→달러인덱스→WTI→휘발유→
+# 국제금→국내금)로 고정되어 있어(실측 확인) 제목 텍스트 대신 순번으로 매핑한다.
+_MKT_ROW_RE = re.compile(r'<h3 class="h_lst"><span class="blind">[^<]*</span></h3>.*?'
+                          r'<span class="value">([\d,]+\.?\d*)</span>', re.S)
+_MKT_KEYS = ["usdkrw", "jpykrw100", "eurkrw", "cnykrw", "usdjpy", "eurusd", "gbpusd",
+             "dxy", "wti", "gasoline", "gold_intl", "gold_domestic"]
+
+
+def market_index_page():
+    """환율·유가·금 시세 12종 — 전용 API가 없어 finance.naver.com/marketindex/를 파싱한다
+    (usd_krw_rate()와 같은 방식, 한 번의 요청으로 12개를 모두 얻도록 확장)."""
+    now = time.time()
+    hit = _cache.get("mktidx:page")
+    if hit and now - hit[0] < 300:
+        return hit[1]
+    try:
+        r = requests.get("https://finance.naver.com/marketindex/", headers=HEADERS, timeout=8)
+        r.raise_for_status()
+        vals = _MKT_ROW_RE.findall(r.text)
+        out = {k: float(v.replace(",", "")) for k, v in zip(_MKT_KEYS, vals)} if vals else {}
+    except Exception:
+        out = {}
+    if out:
+        _cache["mktidx:page"] = (now, out)
+    return out
+
+
 _ITEM_RE = re.compile(r'<item data="([^"]+)"')
 
 
