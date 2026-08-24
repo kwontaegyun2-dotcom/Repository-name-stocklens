@@ -11,7 +11,6 @@
 환율 조회가 실패하면(네트워크 문제 등) 그 미국 종목만 이번 계산에서 제외하고
 사유를 명시한다(다음 새로고침 때 재시도되므로 일시적 문제일 뿐).
 """
-import re
 import sqlite3
 import statistics
 import time
@@ -430,7 +429,7 @@ def _risk_penalty(items, vol, mdd):
         p = min(18.0, (hhi_excess ** 1.6) * 45)
         if p >= 0.5:
             penalty += p
-            detail.append(f"집중도(HHI {hhi:.2f}) -{p:.0f}점")
+            detail.append(f"집중도(HHI·허핀달지수, 1에 가까울수록 소수 종목 쏠림 {hhi:.2f}) -{p:.0f}점")
 
     vol_p = min(15.0, (vol - 25) * 0.5) if (vol is not None and vol > 25) else 0.0
     dd_p = min(15.0, (abs(mdd) - 20) * 0.5) if (mdd is not None and mdd < -20) else 0.0
@@ -462,18 +461,24 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         try:
             return row, analyze_fn(row["code"]), None
         except Exception as e:
-            msg = str(e) or e.__class__.__name__
-            # 내부 API 주소를 사용자에게 그대로 노출하지 않는다(3차 진단리포트 5장:
-            # "오류 문구에 내부 API 주소가 그대로 노출됩니다").
-            msg = re.sub(r"https?://\S+", "", msg).strip(" :")
-            return row, None, msg or "조회 실패"
+            raw = str(e) or e.__class__.__name__
+            # 종합진단리포트(2026-08-24) 4-14 — URL만 지워도 "404: 종목을 찾을 수 없습니다:
+            # 409 Client Error: Conflict for url" 같은 원본 예외 문구(HTTP 상태코드·requests
+            # 라이브러리 문구)가 그대로 남아 개발자용 에러가 사용자 화면에 노출됐다.
+            # ETF·ETN처럼 애초에 분석을 지원하지 않는 자산인지를 먼저 판별해 그에 맞는
+            # 안내문으로 완전히 대체하고, 그 외 오류도 원본 예외 텍스트를 노출하지 않는다.
+            if "404" in raw or "찾을 수 없" in raw:
+                msg = "미지원 종목(ETF·ETN 등으로 추정) — 현재 이 종목 유형은 분석을 지원하지 않아 평가금액 계산에서 제외됩니다."
+            else:
+                msg = "일시적인 조회 오류 — 다음 새로고침 때 다시 시도됩니다."
+            return row, None, msg
 
     with ThreadPoolExecutor(max_workers=min(8, len(holding_rows))) as ex:
         futs = [ex.submit(_fetch, r) for r in holding_rows]
         for fut in as_completed(futs):
             row, d, err = fut.result()
             if err or not d:
-                excluded.append({"code": row["code"], "name": row["name"], "reason": f"분석 실패: {err}" if err else "분석 실패"})
+                excluded.append({"code": row["code"], "name": row["name"], "reason": err or "분석 실패"})
                 continue
             if not d.get("price"):
                 excluded.append({"code": row["code"], "name": row["name"], "reason": "시세 조회 실패"})

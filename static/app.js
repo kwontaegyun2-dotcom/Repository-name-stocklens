@@ -1115,9 +1115,11 @@ function opportunityReasons(r) {
   const growthUnpriced = r.op_growth_fwd != null && r.op_growth_fwd >= 20
     && r.per_ratio != null && r.per_ratio <= 1.0;
   // op_growth_fwd는 저기반(적자→흑자) 회복 시 수백%까지 왜곡될 수 있어 표시는 50%로 캡(anomaly.py와 동일 관례).
+  // 캡에 걸린 값을 그냥 "+50%"라고만 쓰면 서로 다른 종목이 같은 숫자·같은 문구로 겹쳐
+  // 보여 조작된 값처럼 읽힌다(진단리포트 4-8) — 캡에 걸렸을 땐 "이상"을 붙여 구분한다.
+  const gTxt = (v) => `${Math.round(Math.min(v, 50))}%${v > 50 ? " 이상" : ""}`;
   if (growthUnpriced) {
-    const g = Math.min(r.op_growth_fwd, 50);
-    reasons.push({ txt: `실적전망 +${Math.round(g)}%인데 ${perLabel}엔 아직 미반영`, w: 100 + g });
+    reasons.push({ txt: `실적전망 +${gTxt(r.op_growth_fwd)}인데 ${perLabel}엔 아직 미반영`, w: 100 + Math.min(r.op_growth_fwd, 50) });
   }
   if (r.foreign_dir === "buy") reasons.push({ txt: "외국인 5일 연속 순매수(수급 유입)", w: 90 });
   if (r.per_ratio != null && r.per_ratio <= 0.85) {
@@ -1125,8 +1127,7 @@ function opportunityReasons(r) {
   }
   if (r.rsi != null && r.rsi <= 40) reasons.push({ txt: `RSI ${r.rsi.toFixed(0)} 과매도권`, w: 40 - r.rsi + 15 });
   if (!growthUnpriced && r.op_growth_fwd != null && r.op_growth_fwd >= 20) {
-    const g = Math.min(r.op_growth_fwd, 50);
-    reasons.push({ txt: `실적전망 +${Math.round(g)}%`, w: g * 0.3 });
+    reasons.push({ txt: `실적전망 +${gTxt(r.op_growth_fwd)}`, w: Math.min(r.op_growth_fwd, 50) * 0.3 });
   }
   // 목표주가 상승여력은 가장 낮은 우선순위 — 다른 신호가 없을 때만 보조로 노출하고,
   // "목표주가 기준"임을 명시해 다른 신호(수급·저평가 등)와 근거 성격이 다름을 드러낸다.
@@ -1175,7 +1176,13 @@ async function renderTodayPick(items) {
   if (!items || !items.length) { board.classList.add("hidden"); return; }
   board.classList.remove("hidden");
   const top = pickOpportunities(items);
-  const best = top[dailyPickIndex(top.length)];
+  // 진단리포트 4-12 — top(opportunityScore 순)은 30분마다 rsi·upside 등이 갱신되며
+  // 살짝씩 흔들려서, 후보 구성이 그대로여도 "몇 번째 자리"가 바뀌어 같은 날 새로고침
+  // 두 번에 픽이 바뀌는 원인이 됐다(예: 솔브레인→에스엠). 날짜 인덱스를 적용하기
+  // 전에 code로 재정렬해 순서를 점수와 무관하게 고정한다 — 후보 "구성" 자체가 바뀌지
+  // 않는 한(오늘 하루 안엔 드묾) 같은 날엔 항상 같은 종목을 가리킨다.
+  const stablePool = [...top].sort((a, b) => a.code.localeCompare(b.code));
+  const best = stablePool[dailyPickIndex(stablePool.length)];
   const bv = best.ai_verdict || {};
   const bestUp = best.upside != null ? `${sign(best.upside, 1)}%` : "-";
   $("today-hero").innerHTML = `
@@ -1606,8 +1613,15 @@ function renderBuyPlan(fb, targetPrice, stopLoss, price) {
       ${price != null ? status : ""}
     </div>`;
   }).join("");
+  // 종합진단리포트(2026-08-24) 4-6 — 3단계 전부 현재가보다 위에 있으면(주가가 이미 크게
+  // 빠진 뒤) "보수적(안전마진 20%)"이라는 이름의 가격조차 현재가보다 비싸 안전마진이라는
+  // 말이 무의미해진다. 이 경우 "N% 구간 도달"이라는 부분 도달 문구 대신, 분할 자체가
+  // 의미 없는 상태임을 명시하고 일괄 진입 가능 구간임을 알린다.
   const noteEl = $("buy-plan-reached-note");
-  if (reachedIdx.length) {
+  if (reachedIdx.length === stages.length) {
+    noteEl.classList.remove("hidden");
+    noteEl.textContent = "🎯 현재가가 가장 보수적인 안전마진 기준가보다도 낮습니다 — 3단계 분할 없이 일괄 진입을 고려할 수 있는 구간입니다.";
+  } else if (reachedIdx.length) {
     noteEl.classList.remove("hidden");
     noteEl.textContent = `🎯 현재가 기준 ${cumPct}% 구간에 이미 도달했습니다 — 해당 비중은 지금 바로 집행할 수 있습니다.`;
   } else {
@@ -1672,6 +1686,19 @@ function render(d) {
   updateWatchBtn();
   $("watch-msg").classList.add("hidden");
   $("watch-msg").textContent = "";
+
+  // 진단리포트 5-8 — 상세 페이지 어디에도 "이 종목이 뭔지" 요약이 없어 방문자가 바로
+  // 이탈한다는 지적. 네이버 API가 사업개요·매출구성 텍스트를 제공하지 않아 그 두 항목은
+  // 낼 수 없지만, 이미 확보된 시가총액·52주 범위만으로도 최소한의 "규모 감"은 준다.
+  {
+    const mc = d.metrics && d.metrics.market_cap;
+    const t = d.technical || {};
+    const parts = [];
+    if (mc) parts.push(`시가총액 ${fmt(mc / 10000, 1)}${curCur === "USD" ? "조 달러" : "조원"}`);
+    if (t.high_52w && t.low_52w) parts.push(`52주 ${pw(t.low_52w, curCur)}~${pw(t.high_52w, curCur)}`);
+    $("stock-overview").textContent = parts.join(" · ");
+    $("stock-overview").classList.toggle("hidden", !parts.length);
+  }
 
   /* score */
   drawGauge(d.total.total_score);
@@ -2652,16 +2679,19 @@ function renderValuation(v) {
          <span class="bt-per">PER ${m.per}배 (${pw(m.avg_price)})</span>
          <span class="bt-arrow">→ 1년 후</span>
          <span class="bt-ret ${updownClass(m.return_1y)}">${sign(m.return_1y, 1)}%</span></div>`).join("");
+    // 진단리포트 4-11 — 표본 1개짜리 "평균 수익률 -0.2%, 상승확률 0%"는 통계로서
+    // 의미가 없는데도 통계처럼 보여 신뢰를 깎는다. 표본 3개 미만이면 평균·승률 요약은
+    // 아예 숨기고, 개별 시점 사실(연도·PER·수익률)만 참고용으로 보여준다.
+    const enoughSamples = bt.matches.length >= 3;
     $("backtest-body").innerHTML = `
       <p class="hint-p">현재 PER ${bt.current_per}배와 비슷했던 과거 ${bt.matches.length}개 시점 기준
         (완결된 연도만 사용, 진행 중인 해는 제외)</p>
       <div class="bt-list">${rows}</div>
-      <div class="bt-summary">
+      ${enoughSamples ? `<div class="bt-summary">
         <div class="bt-sum-item"><label>평균 1년 후 수익률</label>
           <b class="${updownClass(bt.avg_return_1y)}">${sign(bt.avg_return_1y, 1)}%</b></div>
         <div class="bt-sum-item"><label>상승 확률</label><b>${bt.win_rate}%</b></div>
-      </div>
-      ${bt.matches.length < 2 ? '<p class="hint-p">⚠️ 최근 5년 데이터 안에서 비교 가능한 시점이 1개뿐이라 참고용입니다.</p>' : ""}`;
+      </div>` : `<p class="hint-p">⚠️ 비교 가능한 시점이 ${bt.matches.length}개뿐이라 평균·확률 통계는 의미가 없어 표시하지 않습니다. 위 개별 사례만 참고하세요.</p>`}`;
   } else if (bt) {
     $("backtest-box").classList.remove("hidden");
     $("backtest-body").innerHTML = `<p class="hint-p">${
@@ -2766,7 +2796,7 @@ function renderChartPro(p) {
   if (p.avwap) {
     const rows = Object.entries(p.avwap.lines).map(([label, v]) =>
       `${label} <b class="${v.above ? "up" : "down"}">${v.above ? "위" : "아래"}</b>`).join(" · ");
-    cells.push(["앵커드 VWAP(AVWAP)", `${p.avwap.above_count}/${p.avwap.total} 위`, rows]);
+    cells.push([`<span title="특정 시점(실적발표일 등) 이후 거래량 가중 평균 매수단가. 현재가가 이 선 위면 그 시점 이후 진입자 대부분이 이익 구간이라는 뜻입니다.">앵커드 VWAP(AVWAP)</span>`, `${p.avwap.above_count}/${p.avwap.total} 위`, rows]);
   }
   if (p.liquidity_sweeps) {
     const ls = p.liquidity_sweeps;
@@ -2782,7 +2812,7 @@ function renderChartPro(p) {
     const vpVal = vp.reliability === "low" ? `${fmt(vp.poc)} <span class="down">⚠️ 신뢰도 낮음</span>` : fmt(vp.poc);
     // 4차 진단리포트 4-2 — 룩백을 20/60/120일 중 신뢰도가 확보되는 최단 창으로 자동
     // 선택하므로, 어느 창을 쓴 결과인지 병기해야 "왜 이 가치영역인지"가 명확하다.
-    cells.push(["볼륨 프로파일 POC", vpVal, `${vp.lookback_days}일 기준 · 가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position}`]);
+    cells.push([`<span title="POC(Point of Control)는 최근 기간 중 거래가 가장 많이 몰린 가격 — 시장이 합의한 '적정가'로 봅니다. 가치영역(VAL~VAH)은 거래량의 70%가 몰린 가격대입니다.">볼륨 프로파일 POC</span>`, vpVal, `${vp.lookback_days}일 기준 · 가치영역 ${fmt(vp.val)}~${fmt(vp.vah)} · ${vp.position}`]);
   }
   if (p.smart_money) {
     // ⚠️ 예전 "오더플로우 근사"(CLV×거래량)는 캔들 몸통·꼬리를 다시 쓴 것뿐이라 새 정보가
@@ -3484,6 +3514,26 @@ function renderRebalance(p) {
   const items = p.available ? (p.items || []).filter((it) => it.target_weight != null) : [];
   $("pf-rebalance-card").classList.toggle("hidden", !items.length);
   if (!items.length) return;
+  // 진단리포트(2026-08-24) 4-15 — 보유종목이 1~2개면 재배분할 다른 종목이 없어 target_weight가
+  // 그 종목에 몰릴 수밖에 없는데(예: 2종목 중 셀트리온 55.7%), 위에서 "집중도가 높습니다"라고
+  // 경고해 놓고 바로 아래서 특정 종목에 더 몰아 담으라는 숫자(권장 막대바)를 함께 보여주면
+  // 자기모순으로 읽힌다. rebalance_note가 이미 "재배분 제안 아님"이라고 글로 밝히는 것과
+  // 별개로, 이 경우엔 모순의 원인인 권장비중 숫자·막대를 아예 보여주지 않고 분산 권고만 낸다.
+  if (items.length <= 2) {
+    $("pf-rebalance-list").innerHTML = `
+      <p class="pf-rebal-note" style="margin-bottom:10px">보유 종목이 ${items.length}개뿐이라 AI는 종목 간 비중 재배분 대신
+        <b>분산을 위한 종목 추가</b>를 권장합니다. 집중도 경고는 위 리스크 진단을 참고하세요.</p>
+      ${items.map((it) => `
+        <div class="pf-rebal-item">
+          <div class="pf-rebal-name">${it.name}</div>
+          <div class="pf-rebal-bar-row">
+            <span class="pf-rebal-bar-label">현재</span>
+            <div class="pf-rebal-track"><div class="pf-rebal-fill cur" style="width:${it.weight}%"></div></div>
+            <span class="pf-rebal-pct">${it.weight}%</span>
+          </div>
+        </div>`).join("")}`;
+    return;
+  }
   $("pf-rebalance-list").innerHTML = items.map((it) => `
     <div class="pf-rebal-item">
       <div class="pf-rebal-name">${it.name}</div>

@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """StockLens — 국내 주식 종합 분석 대시보드 서버."""
+import json
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -655,8 +656,14 @@ def index():
 # 자동으로 분석·렌더링하도록 한다(static/app.js의 applyRoute 처리 참고).
 _INDEX_HTML = (BASE / "static" / "index.html").read_text(encoding="utf-8")
 _INDEX_TITLE = '<title>StockLens — 주식 종합 분석</title>'
-_INDEX_DESC = ('<meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 '
-               '한 번에 채점해 \'지금 사도 되는지\'를 8단계로 알려주는 AI 종합 분석 서비스.">')
+# 홈용 title~JSON-LD 블록 전체를 종목 페이지 전용 og_tags로 통째로 바꾸기 위한 마커.
+# ⚠️ 이 블록만 따로 안 바꾸고 _INDEX_TITLE만 바꾸면, 아래의 홈용 canonical·og:url·
+# JSON-LD(WebSite)가 그대로 남아 종목 페이지에 canonical 태그가 두 개(홈+종목) 찍힌다.
+_INDEX_META_START = _INDEX_TITLE
+_INDEX_META_END_MARKER = '<link rel="stylesheet"'
+_idx = _INDEX_HTML.index(_INDEX_META_START)
+_end = _INDEX_HTML.index(_INDEX_META_END_MARKER, _idx)
+_INDEX_META_BLOCK = _INDEX_HTML[_idx:_end]
 
 
 def _og_meta(code: str):
@@ -686,16 +693,23 @@ def stock_page(code: str):
             else f"{name} — StockLens에서 AI 종합 분석 결과를 확인하세요.")
     title = f"{name} — StockLens"
     url = f"{SITE_ORIGIN}/stock/{code}"
+    img = f"{SITE_ORIGIN}/static/icons/icon-512.png"
+    ld_json = {
+        "@context": "https://schema.org", "@type": "WebPage",
+        "name": title, "description": desc, "url": url,
+    }
     og_tags = (
         f'<title>{title}</title>\n'
+        f'<link rel="canonical" href="{url}">\n'
         f'<meta property="og:title" content="{title}">\n'
         f'<meta property="og:description" content="{desc}">\n'
         f'<meta property="og:type" content="website">\n'
         f'<meta property="og:url" content="{url}">\n'
+        f'<meta property="og:image" content="{img}">\n'
         f'<meta name="twitter:card" content="summary">\n'
+        f'<script type="application/ld+json">{json.dumps(ld_json, ensure_ascii=False)}</script>\n'
     )
-    page = _INDEX_HTML.replace(_INDEX_TITLE, og_tags).replace(
-        _INDEX_DESC, f'<meta name="description" content="{desc}">')
+    page = _INDEX_HTML.replace(_INDEX_META_BLOCK, og_tags)
     return Response(content=page, media_type="text/html")
 
 
@@ -742,6 +756,25 @@ def sitemap():
 @app.get("/favicon.ico")
 def favicon():
     return FileResponse(BASE / "static" / "favicon.svg", media_type="image/svg+xml")
+
+
+# manifest.json 404 → 모바일에서 "홈 화면에 추가"가 동작하지 않던 문제(종합진단리포트 7장).
+@app.get("/manifest.json")
+def manifest():
+    body = {
+        "name": "StockLens — 주식 종합 분석",
+        "short_name": "StockLens",
+        "description": "국내·미국 주식을 AI가 재무·기술적 추세·수급까지 종합 분석하는 서비스",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#0b0f17",
+        "theme_color": "#0b0f17",
+        "icons": [
+            {"src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable"},
+            {"src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable"},
+        ],
+    }
+    return JSONResponse(content=body)
 
 
 # 이용약관·개인정보처리방침 (UI/UX 검증보고서 6-4, 2026-08-21) — ⚠️ 초안이다. 실제

@@ -14,7 +14,11 @@ GROWTH_DISPLAY_CAP = 50.0   # PEG·실적반영도와 동일 — 저기반 회�
 
 
 def _fmt_growth(g):
-    return min(g, GROWTH_DISPLAY_CAP)
+    # 진단리포트(2026-08-24) 4-8 — 상한(50%)에 걸린 값을 그대로 "+50%"라고 찍으면 서로
+    # 다른 종목(신세계·씨젠·NC 등)이 우연히 같은 숫자로 보여, 사용자가 실제 추정치가
+    # 아니라 조작된 값으로 오해한다. 상한에 걸렸을 땐 "50% 이상"이라고 명시한다.
+    capped = min(g, GROWTH_DISPLAY_CAP)
+    return f"{capped:+.0f}% 이상" if g > GROWTH_DISPLAY_CAP else f"{capped:+.0f}%"
 
 
 def _classify(item):
@@ -28,7 +32,7 @@ def _classify(item):
     bull, bear = [], []
 
     if growth is not None and growth > 15:
-        bull.append(f"컨센서스 영업이익 전망 {_fmt_growth(growth):+.0f}%")
+        bull.append(f"컨센서스 영업이익 전망 {_fmt_growth(growth)}")
     if rate is not None and rate < -1.0:
         bull.append(f"오늘 주가 {rate:+.1f}%")
     if per_ratio is not None and per_ratio < 0.85:

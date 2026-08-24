@@ -37,6 +37,16 @@ def _year_avg_price(candles, year):
     return sum(vals) / len(vals) if vals else None
 
 
+def _median(vals):
+    if not vals:
+        return None
+    s = sorted(vals)
+    n = len(s)
+    mid = n // 2
+    m = s[mid] if n % 2 else (s[mid - 1] + s[mid]) / 2
+    return round(m, 2)
+
+
 def per_history(fin_rows, candles):
     """연도별 평균 PER / 실현 선행 PER 계산.
 
@@ -94,13 +104,17 @@ def per_history(fin_rows, candles):
             "fper": fper,
         })
 
-    # 과거 평균: 실적연도만(컨센서스 연도 제외), PER>0 인 것만
-    hist_per = [o["per"] for o in out if o["per"] and not o["consensus"]]
-    hist_fper = [o["fper"] for o in out if o["fper"] and not o["consensus"]]
+    # 과거 평균: 실적연도만(컨센서스 연도 제외), PER>0 인 것만.
+    # 진단리포트(2026-08-24) 4-9 — EPS가 흑자여도 이익이 거의 0에 가까운 해가 섞이면
+    # PER이 수십~수백 배로 튀어 단순평균을 왜곡한다("과거 평균보다 97% 낮음" 같은
+    # 무의미한 수치의 원인). peer_comparison()과 같은 기준(200배 초과 제외)을 적용하고,
+    # 평균 대신 이상치에 덜 민감한 **중앙값**을 쓴다.
+    hist_per = [o["per"] for o in out if o["per"] and 0 < o["per"] <= 200 and not o["consensus"]]
+    hist_fper = [o["fper"] for o in out if o["fper"] and 0 < o["fper"] <= 200 and not o["consensus"]]
     return {
         "years": out,
-        "avg_per": round(sum(hist_per) / len(hist_per), 2) if hist_per else None,
-        "avg_fper": round(sum(hist_fper) / len(hist_fper), 2) if hist_fper else None,
+        "avg_per": _median(hist_per),
+        "avg_fper": _median(hist_fper),
         "per_count": len(hist_per),
         "fper_count": len(hist_fper),
     }
@@ -120,10 +134,10 @@ def _per_history_from_per_row(per_series):
     if not out:
         return None
     out.sort(key=lambda r: r["year"])
-    hist = [o["per"] for o in out if not o["consensus"]]
+    hist = [o["per"] for o in out if not o["consensus"] and 0 < o["per"] <= 200]
     return {
         "years": out,
-        "avg_per": round(sum(hist) / len(hist), 2) if hist else None,
+        "avg_per": _median(hist),
         "avg_fper": None,
         "per_count": len(hist),
         "fper_count": 0,
@@ -170,7 +184,7 @@ def pbr_history(fin_rows, candles):
     hist = [o["pbr"] for o in out if o["pbr"] and not o["consensus"]]
     return {
         "years": out,
-        "avg_pbr": round(sum(hist) / len(hist), 2) if hist else None,
+        "avg_pbr": _median(hist),
         "pbr_count": len(hist),
     }
 
@@ -192,7 +206,7 @@ def _ratio_history_from_row(series, key):
     hist = [o[key] for o in out if not o["consensus"]]
     return {
         "years": out,
-        f"avg_{key}": round(sum(hist) / len(hist), 2) if hist else None,
+        f"avg_{key}": _median(hist),
         f"{key}_count": len(hist),
         "from_per_row": True,
     }

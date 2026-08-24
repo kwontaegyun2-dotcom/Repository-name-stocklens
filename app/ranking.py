@@ -352,6 +352,46 @@ def _publish(st, out):
         st["updated_at"] = time.time()
 
 
+PRICE_REFRESH_SEC = 60  # 등락률만 자주 갱신 — 전체 재계산(30분)보다 훨씬 자주
+
+
+def _refresh_prices(market):
+    # 전체 분석(_score)은 30분 주기라 장 시작 직후처럼 직전 계산이 개장 전 스냅샷이면
+    # 최대 30분간 등락률이 0%로 굳어 보인다(진단 리포트 3-5). 가격·등락률만은 가벼운
+    # 단일 호출(naver.basic, ttl=2초)이라 자주 돌려도 부담이 없으므로 별도 루프로
+    # 훨씬 촘촘하게 갱신해 점수·등급은 그대로 두고 표시값만 최신으로 맞춘다.
+    st = _state[market]
+    with _lock:
+        items = list(st["items"])
+    if not items:
+        return
+    by_code = {}
+
+    def fetch(code):
+        b = _safe(lambda: naver.basic(code), None)
+        return code, b
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for code, b in ex.map(fetch, [it["code"] for it in items]):
+            if b:
+                by_code[code] = b
+    with _lock:
+        changed = False
+        for it in st["items"]:
+            b = by_code.get(it["code"])
+            if not b:
+                continue
+            price = analysis.to_num(b.get("closePrice"))
+            rate = analysis.to_num(b.get("fluctuationsRatio"))
+            if price is not None:
+                it["price"] = price
+            if rate is not None:
+                it["rate"] = rate
+                changed = True
+        if changed:
+            st["updated_at"] = time.time()
+
+
 def _compute(market):
     st = _state[market]
     with _lock:
@@ -397,6 +437,14 @@ def _loop(market, initial_delay=0):
         time.sleep(REFRESH_SEC)
 
 
+def _price_loop(market, initial_delay=0):
+    if initial_delay:
+        time.sleep(initial_delay)
+    while True:
+        _safe(lambda: _refresh_prices(market), None)
+        time.sleep(PRICE_REFRESH_SEC)
+
+
 def start_background():
     # 국내는 즉시, 미국은 90초 지연 후 자동 시작 — 둘 다 서버 기동 시 스스로 도는 구조로
     # 바꿔서, 사용자가 미국 탭을 처음 열 때부터 집계를 기다리는 일이 없게 한다(예전엔
@@ -404,6 +452,8 @@ def start_background():
     # 90초 지연은 국내 집계와 동시에 시작해 부하가 몰리는 것만 피하기 위함.
     threading.Thread(target=_loop, args=("KR",), daemon=True).start()
     threading.Thread(target=_loop, args=("US", 90), daemon=True).start()
+    threading.Thread(target=_price_loop, args=("KR", 20), daemon=True).start()
+    threading.Thread(target=_price_loop, args=("US", 110), daemon=True).start()
 
 
 def get(market: str = "KR", sector: str = None):

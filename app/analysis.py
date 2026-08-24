@@ -721,7 +721,14 @@ def fundamental_analysis(infos: dict, fin_annual: dict, market: str = "KR", fin_
     if cns_npm is not None and cns_npm > 50:
         flag_reasons.append(f"추정 순이익률 {cns_npm:.0f}%")
     if rev_growth_fwd is not None and rev_growth_fwd > 100:
-        flag_reasons.append(f"매출 전망 {rev_growth_fwd:+.0f}%")
+        # 종합진단리포트(2026-08-24) 4-3 — 삼성전자 HBM 슈퍼사이클처럼 직전 실적 자체가
+        # 이미 그 방향으로 강하게 움직이는 중이면, 컨센서스 전망이 "물리적으로 불가능한
+        # 값"이 아니라 사이클 국면을 반영한 정상 수치일 가능성이 크다. 직전 실적 성장률이
+        # 이미 30%를 넘어 같은 방향으로 뒷받침되는 경우엔 전망치를 이상치로 보지 않는다.
+        # (삼성전자 실측: 2026-08 기준 trailing 영업이익 성장률 33.2% — 이 값으로 검증함)
+        corroborated = (op_growth is not None and op_growth > 30) or (rev_growth is not None and rev_growth > 30)
+        if not corroborated:
+            flag_reasons.append(f"매출 전망 {rev_growth_fwd:+.0f}%")
     consensus_flagged = bool(flag_reasons)
     if consensus_flagged:
         cns_per, op_growth_fwd, rev_growth_fwd = None, None, None
@@ -1143,7 +1150,8 @@ def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, to
     # 성장성
     if m.get("consensus_flagged"):
         lines.append(f"⚠️ 컨센서스 실적 추정치가 이상치로 감지되어({m.get('consensus_flag_reason')}) "
-                     "밸류에이션·성장성 점수 반영에서 제외했습니다. 재무 탭의 원본 추정치는 검증 전 참고용입니다.")
+                     "밸류에이션·성장성 점수 반영에서 제외했습니다. 재무 탭의 원본 추정치는 검증 전 참고용입니다. "
+                     "(목표주가·상승여력은 증권사 목표가 컨센서스라는 별도 항목이라 이 배제와 무관하게 그대로 표시됩니다)")
     elif m["op_growth_fwd"] is not None:
         gf_disp = max(-GROWTH_DISPLAY_CAP, min(m["op_growth_fwd"], GROWTH_DISPLAY_CAP))
         note = " (저기반 효과로 상한 표시)" if abs(m["op_growth_fwd"]) > GROWTH_DISPLAY_CAP else ""

@@ -5,8 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>StockLens — 주식 종합 분석</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0b0f17">
 <meta name="description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
-<link rel="stylesheet" href="/static/style.css?v=91">
+<link rel="canonical" href="https://stocklens.161-33-201-126.nip.io/">
+<meta property="og:title" content="StockLens — 주식 종합 분석">
+<meta property="og:description" content="국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 '지금 사도 되는지'를 8단계로 알려주는 AI 종합 분석 서비스.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://stocklens.161-33-201-126.nip.io/">
+<meta name="twitter:card" content="summary">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
+</script>
+<link rel="stylesheet" href="/static/style.css?v=92">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -222,6 +234,7 @@
           <span id="live-badge" class="badge"></span>
           <span id="source-badge" class="badge src"></span>
         </div>
+        <p id="stock-overview" class="stock-overview-line"></p>
         <p id="watch-msg" class="watch-msg hidden"></p>
       </div>
     </div>
@@ -405,7 +418,7 @@
         <div id="confluence-list"></div>
       </div>
       <details class="pro-details">
-        <summary>미너비니 추세 템플릿 체크리스트 <span id="tt-count"></span></summary>
+        <summary><span title="마크 미너비니가 고안한 8가지 추세 판별 기준(이동평균선 배열·52주 신고가 근접도 등) — 충족 개수가 많을수록 상승 추세 초입일 가능성이 큽니다.">미너비니 추세 템플릿</span> 체크리스트 <span id="tt-count"></span></summary>
         <ul id="tt-list" class="tt-list"></ul>
       </details>
       <ul id="pro-signals" class="signal-list"></ul>
@@ -433,6 +446,7 @@
 
     <!-- 연도별 PER 이력 -->
     <div class="table-wrap" id="val-history"></div>
+    <p class="hint-p">※ 이 표의 PER은 <b>그 해 평균 주가</b> 기준으로 직접 계산한 값입니다. 재무 탭의 PER(네이버 공시 원본, 분기말 기준)과는 계산 기준이 달라 수치가 다를 수 있습니다.</p>
 
     <!-- 과거 유사 밸류에이션 시점 백테스트 -->
     <div class="backtest-box hidden" id="backtest-box">
@@ -463,6 +477,7 @@
     <div class="chart-controls" id="fin-period-controls"></div>
     <canvas id="finance-chart" height="220"></canvas>
     <div id="finance-table" class="table-wrap"></div>
+    <p class="hint-p">※ 이 표의 PER·PBR은 네이버가 공시 기준으로 제공하는 원본 값입니다. 투자지표 탭의 PER(그 해 평균 주가로 직접 계산)과는 계산 기준이 달라 수치가 다를 수 있습니다.</p>
     <h4 class="chart-sub-head hidden" id="finance-ratio-title">부채비율 · 배당성향 추이</h4>
     <canvas id="finance-ratio-chart" height="160" class="hidden"></canvas>
   </section>
@@ -773,6 +788,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=100"></script>
+<script src="/static/app.js?v=101"></script>
 </body>
 </html>
