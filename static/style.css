@@ -921,6 +921,40 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
    재사용해 홈의 오늘의 PICK과 시각적으로 같은 급의 정보임을 알린다. */
 #market-commentary-card { background: var(--grad-soft); border: 1px solid var(--border-glow); border-radius: 18px; }
 #market-commentary-text { font-size: var(--fs-lg); font-weight: 600; color: var(--text); margin-bottom: 0; line-height: 1.5; }
+
+/* ── 마켓 브리핑 게이지 — "극단적 저평가 ← … → 극단적 고평가" 스펙트럼을 트랙 위 마커
+   위치로 표현한다(버핏지수류 시각화 요청 반영). 트랙 색은 축의 낮은 값(파랑)→높은 값
+   (빨강) 고정 그라디언트 — 지표마다 "낮다/높다"가 좋고나쁨을 뜻하는 방향이 달라서
+   (VIX는 낮을수록 과열 신호) 색 자체에 "좋다/나쁘다" 의미를 담지 않고, 현재 구간
+   라벨(.gauge-cur)이 그 해석을 텍스트로 명확히 알려준다. */
+.gauge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 6px; }
+.gauge-card { padding: 14px 16px; background: var(--surface2); border-radius: 12px; border: 1px solid var(--border); }
+.gauge-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 6px; }
+.gauge-title { font-size: var(--fs-sm); font-weight: 700; color: var(--muted); }
+.gauge-cur { font-size: var(--fs-xs); font-weight: 800; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+.gauge-value { font-size: var(--fs-xl); font-weight: 800; margin-bottom: 8px; }
+.gauge-track { position: relative; height: 8px; border-radius: 5px; margin-bottom: 5px;
+  background: linear-gradient(90deg, #3b82f6 0%, #22c55e 30%, #eab308 55%, #f97316 75%, #ef4444 100%); }
+.gauge-marker { position: absolute; top: -4px; width: 3px; height: 16px; border-radius: 2px;
+  background: var(--text); box-shadow: 0 0 0 2px var(--surface2); transform: translateX(-50%); }
+.gauge-ends { display: flex; justify-content: space-between; font-size: var(--fs-2xs); color: var(--muted); }
+.gauge-na { color: var(--muted); font-size: var(--fs-sm); }
+
+/* 종합 시장온도 히어로 — 개별 게이지보다 큰 트랙+숫자로 눈에 먼저 들어오게 한다. */
+#market-temp-card { background: var(--grad-soft); border: 1px solid var(--border-glow); border-radius: 18px; }
+.temp-hero { margin: 6px 0 10px; }
+.temp-num-wrap { text-align: center; margin-bottom: 10px; }
+.temp-num { font-size: 52px; font-weight: 900; line-height: 1; }
+.temp-num-label { font-size: var(--fs-md); font-weight: 700; color: var(--muted); margin-top: 4px; }
+.temp-track { position: relative; height: 14px; border-radius: 8px;
+  background: linear-gradient(90deg, #3b82f6 0%, #22c55e 30%, #eab308 55%, #f97316 75%, #ef4444 100%); margin-bottom: 6px; }
+.temp-marker { position: absolute; top: -5px; width: 5px; height: 24px; border-radius: 3px;
+  background: var(--text); box-shadow: 0 0 0 3px var(--surface); transform: translateX(-50%); }
+.temp-ends { display: flex; justify-content: space-between; font-size: var(--fs-xs); color: var(--muted); margin-bottom: 14px; }
+.temp-subgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.temp-sub-item { padding: 10px 12px; background: var(--surface2); border-radius: 10px; border: 1px solid var(--border); }
+.temp-sub-item label { display: block; font-size: var(--fs-2xs); color: var(--muted); margin-bottom: 3px; }
+.temp-sub-item .temp-sub-val { font-size: var(--fs-lg); font-weight: 800; }
 .confluence-box { margin-bottom: 14px; padding: 14px 16px; border-radius: 14px; background: var(--surface); border: 1px solid var(--border-glow); }
 .confluence-title { font-size: var(--fs-sm); font-weight: 700; margin-bottom: 10px; }
 .confluence-title small.hint { display: block; font-weight: 400; margin-top: 3px; }

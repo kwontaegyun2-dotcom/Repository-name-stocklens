@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=93">
+<link rel="stylesheet" href="/static/style.css?v=94">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -58,6 +58,7 @@
     <g id="i-layers" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5 9-5z"/><path d="M3 13l9 5 9-5M3 8l9 5 9-5" opacity=".45"/></g>
     <g id="i-wave" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M2.5 9c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0M2.5 15c2.5-2.5 4.5-2.5 7 0s4.5 2.5 7 0 4.5-2.5 5 0"/></g>
     <g id="i-globe" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></g>
+    <g id="i-gauge" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15.5a8 8 0 1116 0"/><path d="M12 15.5l4-5.5"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor" stroke="none"/></g>
     <g id="i-ruler" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M14.5 2.5l7 7L9.5 21.5l-7-7z"/><path d="M12 5l2 2M9.5 7.5l2 2M7 10l2 2M4.5 12.5l2 2"/></g>
     <g id="i-sparkle" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></g>
   </defs>
@@ -785,11 +786,29 @@
   </section>
 </main>
 
-<!-- 마켓 브리핑 — 국내외 지수·환율·원자재·채권·심리·밸류에이션 지표 + AI 한줄평.
-     데이터 출처: 네이버(지수·환율·원자재), FRED 공식(미국채·VIX), multpl·currentmarketvaluation
-     (S&P PER·버핏지수) — app/market.py가 백그라운드로 모아 캐싱한 값을 그대로 표시한다. -->
+<!-- 마켓 브리핑 — 밸류에이션·투자심리·시장체력·경기신용위험·자산시장 5영역 + StockLens
+     자체 종합 "시장 온도" 0~100 + AI 한줄평.
+     데이터 출처: 네이버(국내외 지수·환율·원자재·국내 등락종목수), Yahoo Finance(미국채·VIX·
+     은·구리·BTC), multpl·currentmarketvaluation(PER·CAPE·PBR·버핏지수) — app/market.py가
+     백그라운드로 모아 캐싱한 값을 그대로 표시한다. 게이지 구간은 공식 임계값이 아니라
+     일반적으로 통용되는 참고 기준(각 카드 하단 안내문 참고). -->
 <main id="market-view" class="report hidden">
   <button id="market-back" class="back-btn">← 돌아가기</button>
+
+  <!-- StockLens 종합 시장온도 -->
+  <section class="card" id="market-temp-card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gauge"/></svg> StockLens 시장 온도
+      <small class="hint">밸류에이션·심리·시장체력·경기신용 4개 지표를 평균한 자체 참고 지수(공식 통계 아님)</small></h3>
+    <div class="temp-hero">
+      <div class="temp-num-wrap">
+        <div class="temp-num" id="temp-overall">-</div>
+        <div class="temp-num-label" id="temp-overall-label">-</div>
+      </div>
+      <div class="temp-track"><div class="temp-marker" id="temp-marker"></div></div>
+      <div class="temp-ends"><span>차분(저평가·안정)</span><span>과열(고평가·위험)</span></div>
+    </div>
+    <div class="temp-subgrid" id="temp-subgrid"></div>
+  </section>
 
   <section class="card" id="market-commentary-card">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-sparkle"/></svg> 오늘의 시장 한줄평 <small class="hint" id="market-commentary-meta"></small></h3>
@@ -797,33 +816,33 @@
   </section>
 
   <section class="card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trophy"/></svg> 국내 지수</h3>
-    <div class="pro-grid" id="market-kr-grid"></div>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ruler"/></svg> ① 시장 밸류에이션
+      <small class="hint">버핏지수·CAPE·PER·PBR — 낮을수록 저평가, 높을수록 고평가</small></h3>
+    <div class="gauge-grid" id="market-valuation-gauges"></div>
   </section>
 
   <section class="card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-globe"/></svg> 해외 지수</h3>
-    <div class="pro-grid" id="market-world-grid"></div>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg> ② 투자심리
+      <small class="hint">CNN 공포탐욕지수는 접근 차단으로 제공 불가 — VIX·국내 등락비율로 대체</small></h3>
+    <div class="gauge-grid" id="market-sentiment-gauges"></div>
   </section>
 
   <section class="card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-money"/></svg> 환율</h3>
-    <div class="pro-grid" id="market-fx-grid"></div>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trend"/></svg> ③ 시장 체력
+      <small class="hint">코스피·코스닥 상승/하락 종목수 — 미국 200일선 상회비율 등은 데이터 소스가 없어 제공 불가</small></h3>
+    <div class="gauge-grid" id="market-breadth-grid"></div>
   </section>
 
   <section class="card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gem"/></svg> 원자재</h3>
-    <div class="pro-grid" id="market-cmdt-grid"></div>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> ④ 경기 · 신용 위험
+      <small class="hint">장단기 금리차 — 마이너스(역전)면 경기침체 신호로 해석됨. 하이일드 스프레드는 소스가 없어 제공 불가</small></h3>
+    <div class="gauge-grid" id="market-credit-gauges"></div>
   </section>
 
   <section class="card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> 채권 · 심리지표</h3>
-    <div class="pro-grid" id="market-bond-grid"></div>
-  </section>
-
-  <section class="card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ruler"/></svg> 밸류에이션</h3>
-    <div class="pro-grid" id="market-valuation-grid"></div>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gem"/></svg> ⑤ 자산시장
+      <small class="hint">전일대비 등락률 포함</small></h3>
+    <div class="pro-grid" id="market-assets-grid"></div>
   </section>
 
   <p class="hint-p" id="market-updated"></p>
@@ -834,6 +853,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=102"></script>
+<script src="/static/app.js?v=103"></script>
 </body>
 </html>

@@ -861,14 +861,58 @@ $("scr-run").onclick = runScreener;
 $("scr-reset").onclick = resetScreener;
 
 /* ---------------- 마켓 브리핑 ----------------
-   app/market.py가 백그라운드로 5분(지수·환율·원자재·채권·VIX)/6시간(S&P PER·버핏지수)
-   주기로 모아 캐싱해둔 값을 그대로 표시한다 — 이 뷰 자체는 무거운 계산이 없다. */
+   app/market.py가 백그라운드로 5분(지수·환율·원자재·국내 등락)/30분(미국채·VIX·은·구리·BTC)/
+   6시간(PER·CAPE·PBR·버핏지수) 주기로 모아 캐싱해둔 값을 그대로 표시한다 — 이 뷰 자체는
+   무거운 계산이 없다. 게이지 구간(_gauge)은 공식 임계값이 아니라 참고용 기준이다. */
 function mktRow(label, price, rate, opts = {}) {
   const unit = opts.unit || "";
   const priceTxt = price == null ? "-" : `${opts.digits != null ? fmt(price, opts.digits) : fmt(price)}${unit}`;
   const rateHtml = rate == null ? "" : `<span class="${updownClass(rate)}">${sign(rate, 2)}%</span>`;
   const sub = [rateHtml, opts.sub].filter(Boolean).join(" · ");
   return `<div class="pro-item"><label>${label}</label><div class="pro-val">${priceTxt}</div><small>${sub}</small></div>`;
+}
+
+const GAUGE_ZONE_COLORS = ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#ef4444"];
+
+function gaugeCard(title, g, opts = {}) {
+  if (!g || g.value == null || g.score == null) {
+    return `<div class="gauge-card"><div class="gauge-top"><span class="gauge-title">${title}</span></div><p class="gauge-na">데이터 없음</p></div>`;
+  }
+  const valTxt = opts.fmt ? opts.fmt(g.value) : `${fmt(g.value, opts.digits ?? 2)}${opts.unit || ""}`;
+  const color = GAUGE_ZONE_COLORS[g.zone] ?? "#8a93a6";
+  const labels = g.labels || [];
+  return `<div class="gauge-card">
+    <div class="gauge-top">
+      <span class="gauge-title">${title}</span>
+      <span class="gauge-cur" style="background:${color}26;color:${color}">${g.label}</span>
+    </div>
+    <div class="gauge-value">${valTxt}</div>
+    <div class="gauge-track"><div class="gauge-marker" style="left:${g.score}%"></div></div>
+    <div class="gauge-ends"><span>${labels[0] || ""}</span><span>${labels[4] || ""}</span></div>
+    ${opts.sub ? `<small class="hint" style="display:block;margin-top:6px">${opts.sub}</small>` : ""}
+  </div>`;
+}
+
+function tempLabel(v) {
+  if (v == null) return "데이터 부족";
+  if (v >= 80) return "매우 과열";
+  if (v >= 60) return "과열 경계";
+  if (v >= 40) return "중립";
+  if (v >= 20) return "저평가 · 안정";
+  return "매우 안정(차분)";
+}
+
+function renderTempHero(composite) {
+  const overall = composite.overall;
+  $("temp-overall").textContent = overall != null ? Math.round(overall) : "-";
+  $("temp-overall-label").textContent = tempLabel(overall);
+  $("temp-marker").style.left = `${overall ?? 50}%`;
+  const subs = [
+    ["① 밸류에이션", composite.valuation], ["② 투자심리", composite.sentiment],
+    ["③ 시장체력", composite.strength], ["④ 경기신용", composite.credit],
+  ];
+  $("temp-subgrid").innerHTML = subs.map(([label, v]) =>
+    `<div class="temp-sub-item"><label>${label}</label><div class="temp-sub-val">${v != null ? Math.round(v) : "-"}</div></div>`).join("");
 }
 
 async function showMarketBriefing() {
@@ -894,57 +938,69 @@ async function loadMarketBriefing() {
     $("market-commentary-text").textContent = "서버가 아직 시세를 집계하는 중입니다 — 잠시 후 다시 확인해주세요.";
     return;
   }
-  const idx = d.indices || {}, fx = d.fx || {}, cmd = d.commodities || {},
-        bonds = d.bonds || {}, sent = d.sentiment || {}, val = d.valuation || {};
+  const idx = d.indices || {}, fx = d.fx || {}, cmd = d.commodities || {}, crypto = d.crypto || {},
+        bonds = d.bonds || {}, sent = d.sentiment || {}, val = d.valuation || {},
+        valRaw = d.valuation_raw || {}, breadth = d.breadth || {}, composite = d.composite || {};
 
   $("market-commentary-text").textContent = d.commentary || "-";
   $("market-commentary-meta").textContent = d.commentary_source === "ai" ? "Claude AI 분석" : "자동 요약(규칙 기반)";
 
-  $("market-kr-grid").innerHTML = [
-    idx.kospi && mktRow("코스피", idx.kospi.price, idx.kospi.rate, { digits: 2 }),
-    idx.kosdaq && mktRow("코스닥", idx.kosdaq.price, idx.kosdaq.rate, { digits: 2 }),
-  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+  renderTempHero(composite);
 
-  $("market-world-grid").innerHTML = [
-    idx.sp500 && mktRow("S&P 500", idx.sp500.price, idx.sp500.rate, { digits: 2 }),
-    idx.dow && mktRow("다우존스", idx.dow.price, idx.dow.rate, { digits: 2 }),
-    idx.nasdaq && mktRow("나스닥종합", idx.nasdaq.price, idx.nasdaq.rate, { digits: 2 }),
-    idx.nikkei && mktRow("니케이 225", idx.nikkei.price, idx.nikkei.rate, { digits: 2 }),
-    idx.shanghai && mktRow("상해종합", idx.shanghai.price, idx.shanghai.rate, { digits: 2 }),
-  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+  // ① 시장 밸류에이션
+  const kospiPer = val.kospi_per;
+  $("market-valuation-gauges").innerHTML = [
+    gaugeCard("버핏지수(美 시총/GDP)", val.buffett, { unit: "%", digits: 0,
+      sub: valRaw.buffett_as_of ? `${valRaw.buffett_as_of} 기준(분기 발표)` : "" }),
+    gaugeCard("Shiller CAPE(美 10년 실질PER)", val.cape, { digits: 2 }),
+    gaugeCard("S&P 500 PER", val.sp500_per, { unit: "배", digits: 2 }),
+    gaugeCard("S&P 500 P/B", val.pb, { unit: "배", digits: 2 }),
+    gaugeCard("코스피 평균 PER", kospiPer, { unit: "배", digits: 2,
+      sub: valRaw.kospi_per_count ? `StockLens 추적 ${valRaw.kospi_per_count}종목 시가총액가중 평균 · 공식 KOSPI 전체 통계 아님` : "" }),
+  ].join("");
 
-  $("market-fx-grid").innerHTML = [
-    fx.usdkrw != null && mktRow("원/달러", fx.usdkrw, null, { unit: "원", digits: 1 }),
-    fx.jpykrw100 != null && mktRow("원/100엔", fx.jpykrw100, null, { unit: "원", digits: 2 }),
-    fx.eurkrw != null && mktRow("원/유로", fx.eurkrw, null, { unit: "원", digits: 1 }),
-    fx.cnykrw != null && mktRow("원/위안", fx.cnykrw, null, { unit: "원", digits: 2 }),
-    fx.dxy != null && mktRow("달러인덱스", fx.dxy, null, { digits: 2 }),
-  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+  // ② 투자심리
+  $("market-sentiment-gauges").innerHTML = [
+    gaugeCard("VIX (변동성지수)", sent.vix_gauge, { digits: 2 }),
+    gaugeCard("코스피 등락비율", (breadth.kospi || {}).gauge, { unit: "%", digits: 1,
+      sub: breadth.kospi ? `상승 ${breadth.kospi.rise} · 하락 ${breadth.kospi.fall} · 보합 ${breadth.kospi.steady}` : "" }),
+    gaugeCard("코스닥 등락비율", (breadth.kosdaq || {}).gauge, { unit: "%", digits: 1,
+      sub: breadth.kosdaq ? `상승 ${breadth.kosdaq.rise} · 하락 ${breadth.kosdaq.fall} · 보합 ${breadth.kosdaq.steady}` : "" }),
+  ].join("");
 
-  $("market-cmdt-grid").innerHTML = [
-    cmd.wti != null && mktRow("WTI 원유", cmd.wti, null, { unit: "$", digits: 2 }),
-    cmd.gold_intl != null && mktRow("국제 금 (온스)", cmd.gold_intl, null, { unit: "$", digits: 1 }),
-    cmd.gold_domestic != null && mktRow("국내 금 (g)", cmd.gold_domestic, null, { unit: "원", digits: 0 }),
-    cmd.silver != null && mktRow("은 (온스)", cmd.silver, cmd.silver_rate, { unit: "$", digits: 2 }),
-  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+  // ③ 시장 체력 (상승/하락 종목수 그대로)
+  const breadthTile = (label, b) => {
+    if (!b) return `<div class="pro-item"><label>${label}</label><div class="pro-val">-</div></div>`;
+    return `<div class="pro-item"><label>${label}</label>
+      <div class="pro-val"><span class="up">▲${b.rise}</span> <span class="down">▼${b.fall}</span></div>
+      <small>보합 ${b.steady} · 상한가 ${b.upper} · 하한가 ${b.lower}</small></div>`;
+  };
+  $("market-breadth-grid").innerHTML = `<div class="pro-grid" style="margin-bottom:0">
+    ${breadthTile("코스피", breadth.kospi)}${breadthTile("코스닥", breadth.kosdaq)}</div>`;
 
-  $("market-bond-grid").innerHTML = [
-    bonds.us10y != null && mktRow("미국채 10년물", bonds.us10y, null,
-      { unit: "%", digits: 2, sub: bonds.as_of ? `${bonds.as_of} 기준` : "" }),
-    bonds.us30y != null && mktRow("미국채 30년물", bonds.us30y, null, { unit: "%", digits: 2 }),
-    sent.vix != null && mktRow("VIX (변동성지수)", sent.vix, null,
-      { digits: 2, sub: sent.vix >= 30 ? "⚠️ 공포 구간" : sent.vix >= 20 ? "경계 구간" : "안정 구간" }),
-  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+  // ④ 경기 · 신용 위험
+  $("market-credit-gauges").innerHTML = [
+    gaugeCard("美 10Y-2Y 금리차", bonds.spread_10y2y_gauge, { unit: "%p", digits: 2,
+      sub: `10Y ${fmt(bonds.us10y, 2)}% · 2Y ${fmt(bonds.us2y, 2)}%` }),
+    gaugeCard("美 10Y-3M 금리차", bonds.spread_10y3m_gauge, { unit: "%p", digits: 2,
+      sub: `10Y ${fmt(bonds.us10y, 2)}% · 3M ${fmt(bonds.us3m, 2)}%` }),
+  ].join("");
 
-  $("market-valuation-grid").innerHTML = [
-    val.sp500_per != null && mktRow("S&P 500 PER", val.sp500_per, null, { unit: "배", digits: 2 }),
-    val.buffett && mktRow("버핏지수", val.buffett.value, null,
-      { unit: "%", digits: 0, sub: `${val.buffett.label}${val.buffett.as_of ? " · " + val.buffett.as_of + " 기준" : ""}` }),
-  ].filter(Boolean).join("") || `<p class="hint-p">데이터 없음</p>`;
+  // ⑤ 자산시장
+  $("market-assets-grid").innerHTML = [
+    mktRow("원/달러", (fx.usdkrw || {}).value, (fx.usdkrw || {}).rate, { unit: "원", digits: 1 }),
+    mktRow("달러인덱스(DXY)", (fx.dxy || {}).value, (fx.dxy || {}).rate, { digits: 2 }),
+    mktRow("국제 금 (온스, $)", (cmd.gold_intl || {}).value, (cmd.gold_intl || {}).rate, { unit: "$", digits: 1 }),
+    mktRow("국내 금 (g, 원)", (cmd.gold_domestic || {}).value, (cmd.gold_domestic || {}).rate, { unit: "원", digits: 0 }),
+    mktRow("은 (온스, $)", (cmd.silver || {}).value, (cmd.silver || {}).rate, { unit: "$", digits: 2 }),
+    mktRow("WTI 원유", (cmd.wti || {}).value, (cmd.wti || {}).rate, { unit: "$", digits: 2 }),
+    mktRow("구리 (파운드, $)", (cmd.copper || {}).value, (cmd.copper || {}).rate, { unit: "$", digits: 3 }),
+    mktRow("비트코인", (crypto.btc || {}).value, (crypto.btc || {}).rate, { unit: "$", digits: 0 }),
+  ].join("");
 
   const upd = d.updated_at ? new Date(d.updated_at * 1000) : null;
   $("market-updated").textContent = upd
-    ? `마지막 갱신: ${upd.getHours()}시 ${String(upd.getMinutes()).padStart(2, "0")}분 · 미국채·VIX·PER·버핏지수는 원본 소스 갱신 주기에 따라 며칠 지연될 수 있습니다.`
+    ? `마지막 갱신: ${upd.getHours()}시 ${String(upd.getMinutes()).padStart(2, "0")}분 · 미국채·VIX·은·구리·BTC는 30분, PER·CAPE·PBR·버핏지수는 최대 6시간 단위로 갱신됩니다.`
     : "";
 }
 

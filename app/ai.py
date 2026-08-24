@@ -86,31 +86,56 @@ def market_commentary(snap: dict, valuation: dict) -> str:
     import anthropic
 
     client = anthropic.Anthropic()
-    idx, fx, cmd, bonds, sent = (snap.get("indices", {}), snap.get("fx", {}),
-                                  snap.get("commodities", {}), snap.get("bonds", {}),
-                                  snap.get("sentiment", {}))
+    idx, fx, cmd, bonds, sent, breadth, composite, val = (
+        snap.get("indices", {}), snap.get("fx", {}), snap.get("commodities", {}),
+        snap.get("bonds", {}), snap.get("sentiment", {}), snap.get("breadth", {}),
+        snap.get("composite", {}), snap.get("valuation", {}))
 
     def _row(label, it):
         if not it:
             return f"{label}: 데이터 없음"
         return f"{label}: {it.get('price')} ({it.get('rate'):+.2f}%)" if it.get("rate") is not None else f"{label}: {it.get('price')}"
 
+    def _fx(label, it):
+        if not it or it.get("value") is None:
+            return f"{label}: 데이터 없음"
+        return f"{label}: {it['value']} ({it['rate']:+.2f}%)" if it.get("rate") is not None else f"{label}: {it['value']}"
+
+    def _gauge_row(label, g):
+        if not g or g.get("value") is None:
+            return f"{label}: 데이터 없음"
+        return f"{label}: {g['value']} ({g['label']})"
+
     buffett = valuation.get("buffett")
+    kospi_b, kosdaq_b = breadth.get("kospi"), breadth.get("kosdaq")
     prompt = f"""아래는 오늘 수집한 시장 데이터입니다. 이 숫자만 근거로 오늘 시장 분위기를
 한국어 1~2문장(120자 이내)으로 요약하세요. 과장 없이 담백하게, 숫자를 인용하며 쓰세요.
 데이터가 없는 항목은 언급하지 마세요.
 
+## 지수
 {_row("코스피", idx.get("kospi"))}
 {_row("코스닥", idx.get("kosdaq"))}
 {_row("S&P500", idx.get("sp500"))}
 {_row("나스닥", idx.get("nasdaq"))}
-원/달러: {fx.get("usdkrw")}
-WTI: {cmd.get("wti")}
-국제 금: {cmd.get("gold_intl")}
-미국채10년: {bonds.get("us10y")}%
-VIX: {sent.get("vix")}
-S&P500 PER: {valuation.get("sp500_per")}배
+
+## 자산·환율
+{_fx("원/달러", fx.get("usdkrw"))}
+{_fx("WTI", cmd.get("wti"))}
+{_fx("국제 금", cmd.get("gold_intl"))}
+
+## 밸류에이션
+{_gauge_row("S&P500 PER", val.get("sp500_per"))}
+{_gauge_row("Shiller CAPE", val.get("cape"))}
 버핏지수: {f"{buffett['value']:.0f}%({buffett['label']})" if buffett else "데이터 없음"}
+
+## 심리·체력·신용
+VIX: {sent.get("vix")}
+코스피 상승/하락 종목수: {f"{kospi_b['rise']}/{kospi_b['fall']}" if kospi_b else "데이터 없음"}
+美 10Y-2Y 금리차: {bonds.get("spread_10y2y")}%p
+美 10Y-3M 금리차: {bonds.get("spread_10y3m")}%p
+
+## StockLens 종합 시장온도(0~100, 높을수록 과열)
+{composite.get("overall")}점 (밸류에이션 {composite.get("valuation")} · 심리 {composite.get("sentiment")} · 체력 {composite.get("strength")} · 신용 {composite.get("credit")})
 
 문장만 출력하고 다른 설명은 붙이지 마세요."""
 

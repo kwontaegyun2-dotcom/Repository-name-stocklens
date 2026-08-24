@@ -153,31 +153,61 @@ def world_index(reuters_code: str):
 
 
 # finance.naver.com/marketindex/ 페이지의 <h3 class="h_lst"><span class="blind">제목</span></h3>
-# 뒤에 이어지는 <span class="value">값</span>을 순서대로 매칭 — 이 페이지의 12개 항목은
-# 항상 이 순서(달러→엔→유로→위안→달러/엔→유로/달러→파운드/달러→달러인덱스→WTI→휘발유→
-# 국제금→국내금)로 고정되어 있어(실측 확인) 제목 텍스트 대신 순번으로 매핑한다.
-_MKT_ROW_RE = re.compile(r'<h3 class="h_lst"><span class="blind">[^<]*</span></h3>.*?'
-                          r'<span class="value">([\d,]+\.?\d*)</span>', re.S)
+# 뒤에 이어지는 <div class="head_info point_up|point_dn|point_same">…<span class="value">값
+# </span>…<span class="change">전일대비 절대값</span> 을 순서대로 매칭 — 이 페이지의 12개
+# 항목은 항상 이 순서(달러→엔→유로→위안→달러/엔→유로/달러→파운드/달러→달러인덱스→WTI→
+# 휘발유→국제금→국내금)로 고정되어 있어(실측 확인) 제목 텍스트 대신 순번으로 매핑한다.
+# 방향(point_up/point_dn)까지 있어야 "전일대비"가 +인지 -인지 알 수 있다(change 자체는
+# 항상 양수로만 옴).
+_MKT_ROW_RE = re.compile(
+    r'<div class="head_info (point_up|point_dn|point_same)">\s*'
+    r'<span class="value">([\d,]+\.?\d*)</span>.*?'
+    r'<span class="change">\s*([\d,]+\.?\d*)</span>', re.S)
 _MKT_KEYS = ["usdkrw", "jpykrw100", "eurkrw", "cnykrw", "usdjpy", "eurusd", "gbpusd",
              "dxy", "wti", "gasoline", "gold_intl", "gold_domestic"]
 
 
 def market_index_page():
-    """환율·유가·금 시세 12종 — 전용 API가 없어 finance.naver.com/marketindex/를 파싱한다
-    (usd_krw_rate()와 같은 방식, 한 번의 요청으로 12개를 모두 얻도록 확장)."""
+    """환율·유가·금 시세 12종(값+전일대비 등락) — 전용 API가 없어
+    finance.naver.com/marketindex/를 파싱한다(usd_krw_rate()와 같은 방식, 한 번의
+    요청으로 12개를 모두 얻도록 확장). 각 항목은 {value, change, rate}."""
     now = time.time()
     hit = _cache.get("mktidx:page")
     if hit and now - hit[0] < 300:
         return hit[1]
+    out = {}
     try:
         r = requests.get("https://finance.naver.com/marketindex/", headers=HEADERS, timeout=8)
         r.raise_for_status()
-        vals = _MKT_ROW_RE.findall(r.text)
-        out = {k: float(v.replace(",", "")) for k, v in zip(_MKT_KEYS, vals)} if vals else {}
+        rows = _MKT_ROW_RE.findall(r.text)
+        for key, (direction, value_s, change_s) in zip(_MKT_KEYS, rows):
+            value = float(value_s.replace(",", ""))
+            change = float(change_s.replace(",", ""))
+            if direction == "point_dn":
+                change = -change
+            prev = value - change
+            rate = round(change / prev * 100, 2) if prev else None
+            out[key] = {"value": value, "change": round(change, 4), "rate": rate}
     except Exception:
         out = {}
     if out:
         _cache["mktidx:page"] = (now, out)
+    return out
+
+
+def index_breadth():
+    """코스피·코스닥 상승/하락/보합·상한가/하한가 종목수(시장 체력 지표용).
+    m.stock.naver.com/api/index/majors가 국내 지수 상세를 한 번에 준다(KOSPI·KOSDAQ 등)."""
+    data = _get(f"{M}/index/majors", ttl=60)
+    out = {}
+    for it in data or []:
+        code = it.get("itemCode")
+        if code in ("KOSPI", "KOSDAQ"):
+            out[code] = {
+                "rise": it.get("riseCount"), "fall": it.get("fallCount"),
+                "steady": it.get("steadyCount"), "upper": it.get("upperCount"),
+                "lower": it.get("lowerCount"),
+            }
     return out
 
 

@@ -1,14 +1,22 @@
 # -*- coding: utf-8 -*-
-"""마켓 브리핑 — 국내외 지수·환율·원자재·채권·심리·밸류에이션 지표를 한 화면에.
+"""마켓 브리핑 — 밸류에이션·투자심리·시장체력·경기신용위험·자산시장 5영역 + StockLens
+자체 종합 "시장 온도" 0~100.
 
-전부 외부 무료 소스(네이버 비공식 API, FRED 공식 CSV, 공개 페이지)를 조합한다 —
-이 프로젝트가 이미 네이버 비공식 API 하나에 전면 의존하는 것과 같은 성격의 선택.
-값을 못 구하면 그 항목만 None으로 비우고 절대 지어내지 않는다(CLAUDE.md 원칙과 동일).
+전부 외부 무료 소스(네이버 비공식 API, Yahoo Finance 비공식 차트 API, multpl·
+currentmarketvaluation의 공개 페이지)를 조합한다 — 이 프로젝트가 이미 네이버 비공식
+API 하나에 전면 의존하는 것과 같은 성격의 선택. 값을 못 구하면 그 항목만 None으로
+비우고 절대 지어내지 않는다(CLAUDE.md 원칙과 동일).
 
-⚠️ CNN 공포탐욕지수(production.dataviz.cnn.io)는 봇 차단(418 "I'm a teapot")이 걸려
-있어 우회하지 않고 포기했다 — 대신 공식·표준 지표인 VIX(CBOE 변동성지수, FRED 제공)를
-심리 지표로 쓴다. 은(실버)은 네이버에 아예 없어(실측 확인) Yahoo Finance 차트 API로
-보충한다."""
+⚠️ 아래는 이번에 확인/포기한 것들 — 다음에 또 시도하기 전에 먼저 볼 것:
+  - CNN 공포탐욕지수: production.dataviz.cnn.io가 봇 차단(418 "I'm a teapot") — 우회
+    안 하고 포기, 대신 VIX(CBOE 변동성지수)를 심리 지표로 씀.
+  - FRED(fred.stlouisfed.org): 로컬에선 되는데 **오라클 배포 서버에서 연결 자체가
+    막혀 있음**(status=000) — 미국채·VIX 전부 Yahoo Finance(^TNX·^TYX·^IRX·^VIX)로 통일.
+  - Put/Call 비율(CBOE), AAII 개인투자자 심리조사, ICE BofA 하이일드 스프레드,
+    S&P500 Forward P/E, 200일선 상회 비율, NYSE 신고가/신저가: 무료로 안정적으로
+    긁을 수 있는 소스를 못 찾음(전부 403/404 또는 로그인 필요) — 스킵.
+    대신 시장체력은 **코스피·코스닥 등락종목수**(네이버, 이미 확보 가능)로 대체.
+"""
 import re
 import threading
 import time
@@ -16,23 +24,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 import requests
 
-from app import ai, naver
+from app import ai, naver, ranking
 from app.analysis import to_num
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
-REFRESH_SEC = 300            # 지수·환율·원자재(네이버) — 5분, 실시간성이 중요한 값들
-# ⚠️ FRED(미국채·VIX)·Yahoo(은)는 원본 자체가 하루 1회 정도만 갱신되는데, 5분마다 계속
-# 두드리면(하루 수천 건) 불필요할뿐더러 실측 중 FRED가 일시적으로 연결을 끊는 것도
-# 겪었다(레이트리밋 추정) — 이 값들만 30분 주기로 따로 캐시한다.
-MACRO_REFRESH_SEC = 30 * 60
-SLOW_REFRESH_SEC = 6 * 3600  # S&P PER·버핏지수 — 원본 자체가 하루~분기 단위로만 바뀜
+REFRESH_SEC = 300              # 지수·환율·원자재·국내 등락(네이버) — 5분
+MACRO_REFRESH_SEC = 30 * 60    # 미국채·VIX·은·구리·BTC(Yahoo) — 원본이 자주 안 바뀜
+SLOW_REFRESH_SEC = 6 * 3600    # PER·CAPE·PBR·버핏지수(multpl 등) — 하루~분기 단위로만 바뀜
 COMMENTARY_REFRESH_SEC = 1800  # AI/룰기반 한줄평 — 30분
 
 _lock = threading.Lock()
 _state = {"data": None, "updated_at": 0}
-_macro = {"bonds": None, "sentiment": None, "silver": None, "updated_at": 0}
-_slow = {"sp500_per": None, "buffett": None, "updated_at": 0}
+_macro = {"bonds": None, "sentiment": None, "commodities2": None, "crypto": None, "updated_at": 0}
+_slow = {"sp500_per": None, "cape": None, "pb": None, "buffett": None, "updated_at": 0}
 _commentary = {"text": None, "source": None, "updated_at": 0}
 
 
@@ -43,11 +48,84 @@ def _safe(fn, default=None):
         return default
 
 
+# ---------------------------------------------------------------- 게이지(0~100) 산출
+# 전부 "일반적으로 통용되는 참고 구간"이며 공식 통계 기관이 발표하는 임계값이 아니다
+# (그런 공식 임계값 자체가 존재하지 않는 지표들 — VIX·CAPE 등은 학계·업계에서도 대략적인
+# 눈대중 구간만 통용된다). 화면에도 "참고용 구간"이라고 명시한다.
+def _zone_score(value, bounds):
+    """bounds=[b0,b1,b2,b3] 오름차순 4개 경계 → (zone 0~4, score 0~100 연속값).
+    b0=score0, b1=25, b2=50, b3=75, b3+한칸폭=100으로 선형보간, 양끝은 클램프."""
+    if value is None:
+        return None, None
+    b0, b1, b2, b3 = bounds
+    if value < b0:
+        zone = 0
+    elif value < b1:
+        zone = 1
+    elif value < b2:
+        zone = 2
+    elif value < b3:
+        zone = 3
+    else:
+        zone = 4
+    span = (b3 - b2) or 1
+    pts = [(b0, 0), (b1, 25), (b2, 50), (b3, 75), (b3 + span, 100)]
+    if value <= pts[0][0]:
+        score = 0.0
+    elif value >= pts[-1][0]:
+        score = 100.0
+    else:
+        score = 50.0
+        for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+            if x0 <= value <= x1:
+                score = y0 + (value - x0) / (x1 - x0) * (y1 - y0)
+                break
+    return zone, round(score, 1)
+
+
+# (경계 4개, 오름차순 5단계 라벨) — 값이 커질수록 오른쪽 라벨.
+_VALUATION_LABELS = ["매우 저평가", "저평가", "중립", "고평가", "매우 고평가"]
+_BOUNDS = {
+    "cape": ([15, 20, 28, 35], _VALUATION_LABELS),
+    "pb": ([2.0, 3.0, 4.0, 5.5], _VALUATION_LABELS),
+    "sp_per": ([12, 16, 22, 28], _VALUATION_LABELS),
+    "kospi_per": ([7, 10, 14, 18], _VALUATION_LABELS),
+    "vix": ([12, 20, 30, 40], ["극단적 낙관(과열 신호)", "안정", "중립", "불안", "공포"]),
+    "advance_pct": ([30, 45, 55, 70], ["매우 약세", "약세", "중립", "강세", "매우 강세(과열)"]),
+    "spread": ([-1.0, 0.0, 1.0, 2.0], ["심한 역전(경기침체 경고)", "역전", "중립", "정상", "가파른 정상"]),
+}
+
+
+def _gauge(kind: str, value):
+    if value is None:
+        return None
+    bounds, labels = _BOUNDS[kind]
+    zone, score = _zone_score(value, bounds)
+    return {"value": value, "zone": zone, "score": score, "label": labels[zone],
+            "bounds": bounds, "labels": labels}
+
+
+_BUFFETT_ZONE = {
+    "strongly overvalued": 4, "overvalued": 3, "modestly overvalued": 3, "fair valued": 2,
+    "modestly undervalued": 1, "undervalued": 1, "strongly undervalued": 0,
+}
+_BUFFETT_SCORE = {
+    "strongly overvalued": 96, "overvalued": 80, "modestly overvalued": 65, "fair valued": 50,
+    "modestly undervalued": 35, "undervalued": 20, "strongly undervalued": 4,
+}
+
+
+def _buffett_gauge(buffett: dict):
+    if not buffett:
+        return None
+    key = buffett.get("label_en", "")
+    zone = _BUFFETT_ZONE.get(key, 2)
+    score = _BUFFETT_SCORE.get(key, 50)
+    return {"value": buffett["value"], "zone": zone, "score": score, "label": buffett["label"],
+            "labels": _VALUATION_LABELS}
+
+
 # ---------------------------------------------------------------- 외부 소스별 조회
-# ⚠️ 처음엔 미국채 10·30년물·VIX를 FRED 공식 CSV(API 키 불필요, fredgraph.csv)로
-# 받았는데, 로컬에서는 됐지만 **오라클 배포 서버에서는 fred.stlouisfed.org 자체가
-# 연결 안 됨**을 실측으로 확인했다(status=000, 다른 소스는 정상 — 이 서버 IP 대역이
-# 막힌 것으로 추정). Yahoo Finance는 로컬·오라클 둘 다 정상이라 전부 이쪽으로 통일.
 def _yahoo_quote(symbol: str):
     r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}",
                       params={"interval": "1d", "range": "5d"}, headers=HEADERS, timeout=15)
@@ -59,13 +137,13 @@ def _yahoo_quote(symbol: str):
     return {"price": price, "rate": rate}
 
 
-_SP500_PER_RE = re.compile(r'Current S&P 500 PE Ratio is ([\d.]+)')
+_MULTPL_RE = re.compile(r'Current [^"]*? is ([\d.]+)')
 
 
-def _sp500_per():
-    r = requests.get("https://www.multpl.com/s-p-500-pe-ratio", headers=HEADERS, timeout=15)
+def _multpl(slug: str):
+    r = requests.get(f"https://www.multpl.com/{slug}", headers=HEADERS, timeout=15)
     r.raise_for_status()
-    m = _SP500_PER_RE.search(r.text)
+    m = _MULTPL_RE.search(r.text)
     return float(m.group(1)) if m else None
 
 
@@ -89,12 +167,26 @@ def _buffett_indicator():
     if not m:
         return None
     d = _BUFFETT_DATE_RE.search(r.text)
-    label_en = m.group(2).strip()
+    label_en = m.group(2).strip().lower()
     return {
-        "value": float(m.group(1)),
-        "label": _BUFFETT_LABEL_KO.get(label_en.lower(), label_en),
-        "as_of": d.group(1) if d else None,
+        "value": float(m.group(1)), "label": _BUFFETT_LABEL_KO.get(label_en, label_en),
+        "label_en": label_en, "as_of": d.group(1) if d else None,
     }
+
+
+def _kospi_avg_per():
+    """코스피 평균 PER — 공식 통계(KRX)는 세션 인증이 필요해 못 긁는다(실측 확인, 403류).
+    대신 이 서비스가 이미 백그라운드로 채점해둔 국내 유니버스(app/ranking.py, 시가총액
+    상위 위주 182종목)의 **시가총액가중 평균 PER**로 대체한다 — 전 종목 통계는 아니지만
+    추가 네트워크 호출 없이 얻을 수 있는 합리적 근사치. 화면에 "전체 KOSPI 공식치가
+    아님"을 명시한다."""
+    items = ranking.get("KR")["items"]
+    valid = [it for it in items if it.get("per") and it["per"] > 0 and it.get("market_cap")]
+    if not valid:
+        return None
+    total_cap = sum(it["market_cap"] for it in valid)
+    weighted = sum(it["per"] * it["market_cap"] for it in valid) / total_cap
+    return {"value": round(weighted, 2), "count": len(valid)}
 
 
 def _major_item(majors: list, code: str):
@@ -112,12 +204,29 @@ def _world_index_item(code: str, label: str):
     return {"name": label, "price": to_num(d.get("closePrice")), "rate": to_num(d.get("fluctuationsRatio"))}
 
 
+def _breadth_item(raw: dict):
+    if not raw or raw.get("rise") is None:
+        return None
+    rise, fall, steady = raw.get("rise") or 0, raw.get("fall") or 0, raw.get("steady") or 0
+    total = rise + fall + steady
+    pct = round(rise / total * 100, 1) if total else None
+    out = dict(raw)
+    out["advance_pct"] = pct
+    out["gauge"] = _gauge("advance_pct", pct)
+    return out
+
+
 # ---------------------------------------------------------------- 스냅샷 조립
 def _build_naver():
-    """네이버 기반 값만 — 지수·환율·원자재(은 제외). 5분마다 불려도 부담 없다."""
+    """네이버 기반 값만 — 지수·환율·원자재(은·구리 제외)·국내 등락종목수. 5분마다 불려도 부담 없다."""
     majors = (_safe(lambda: naver.home_majors(), {}) or {}).get("homeMajors", [])
     mkt = _safe(lambda: naver.market_index_page(), {}) or {}
+    breadth = _safe(lambda: naver.index_breadth(), {}) or {}
     sp500 = _safe(lambda: _world_index_item(".INX", "S&P 500"))
+
+    def fx(key):
+        v = mkt.get(key)
+        return v or {"value": None, "change": None, "rate": None}
 
     return {
         "indices": {
@@ -130,47 +239,66 @@ def _build_naver():
             "shanghai": _major_item(majors, ".SSEC"),
         },
         "fx": {
-            "usdkrw": mkt.get("usdkrw"), "jpykrw100": mkt.get("jpykrw100"),
-            "eurkrw": mkt.get("eurkrw"), "cnykrw": mkt.get("cnykrw"),
-            "usdjpy": mkt.get("usdjpy"), "dxy": mkt.get("dxy"),
+            "usdkrw": fx("usdkrw"), "jpykrw100": fx("jpykrw100"), "eurkrw": fx("eurkrw"),
+            "cnykrw": fx("cnykrw"), "usdjpy": fx("usdjpy"), "dxy": fx("dxy"),
         },
         "commodities": {
-            "wti": mkt.get("wti"), "gasoline": mkt.get("gasoline"),
-            "gold_intl": mkt.get("gold_intl"), "gold_domestic": mkt.get("gold_domestic"),
+            "wti": fx("wti"), "gasoline": fx("gasoline"),
+            "gold_intl": fx("gold_intl"), "gold_domestic": fx("gold_domestic"),
+        },
+        "breadth": {
+            "kospi": _breadth_item(breadth.get("KOSPI")),
+            "kosdaq": _breadth_item(breadth.get("KOSDAQ")),
         },
     }
 
 
 def _refresh_macro():
-    """미국채10·30년(^TNX·^TYX)·VIX(^VIX)·은(SI=F) — 전부 Yahoo, 30분 주기 전용 캐시."""
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        f_us10y = ex.submit(_safe, lambda: _yahoo_quote("^TNX"))
-        f_us30y = ex.submit(_safe, lambda: _yahoo_quote("^TYX"))
-        f_vix = ex.submit(_safe, lambda: _yahoo_quote("^VIX"))
-        f_silver = ex.submit(_safe, lambda: _yahoo_quote("SI=F"))
-        us10y, us30y, vix, silver = f_us10y.result(), f_us30y.result(), f_vix.result(), f_silver.result()
+    """미국채10·30·2년·3개월(^TNX·^TYX·2YY=F·^IRX)·VIX(^VIX)·은(SI=F)·구리(HG=F)·
+    BTC(BTC-USD) — 전부 Yahoo, 30분 주기 전용 캐시."""
+    symbols = {
+        "us10y": "^TNX", "us30y": "^TYX", "us2y": "2YY=F", "us3m": "^IRX",
+        "vix": "^VIX", "silver": "SI=F", "copper": "HG=F", "btc": "BTC-USD",
+    }
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {k: ex.submit(_safe, lambda s=v: _yahoo_quote(s)) for k, v in symbols.items()}
+        got = {k: f.result() for k, f in futs.items()}
 
     now_str = time.strftime("%Y-%m-%d")
     with _lock:
-        if us10y or us30y:
-            _macro["bonds"] = {
-                "us10y": us10y.get("price") if us10y else (_macro["bonds"] or {}).get("us10y"),
-                "us30y": us30y.get("price") if us30y else (_macro["bonds"] or {}).get("us30y"),
-                "as_of": now_str,
-            }
-        if vix:
-            _macro["sentiment"] = {"vix": vix.get("price"), "vix_date": now_str}
-        if silver:
-            _macro["silver"] = silver
+        us10y = got["us10y"].get("price") if got["us10y"] else (_macro["bonds"] or {}).get("us10y")
+        us30y = got["us30y"].get("price") if got["us30y"] else (_macro["bonds"] or {}).get("us30y")
+        us2y = got["us2y"].get("price") if got["us2y"] else (_macro["bonds"] or {}).get("us2y")
+        us3m = got["us3m"].get("price") if got["us3m"] else (_macro["bonds"] or {}).get("us3m")
+        spread_10y2y = round(us10y - us2y, 2) if (us10y is not None and us2y is not None) else None
+        spread_10y3m = round(us10y - us3m, 2) if (us10y is not None and us3m is not None) else None
+        _macro["bonds"] = {
+            "us10y": us10y, "us30y": us30y, "us2y": us2y, "us3m": us3m,
+            "spread_10y2y": spread_10y2y, "spread_10y3m": spread_10y3m,
+            "spread_10y2y_gauge": _gauge("spread", spread_10y2y),
+            "spread_10y3m_gauge": _gauge("spread", spread_10y3m),
+            "as_of": now_str,
+        }
+        if got["vix"]:
+            vix_val = got["vix"].get("price")
+            _macro["sentiment"] = {"vix": vix_val, "vix_date": now_str, "vix_gauge": _gauge("vix", vix_val)}
+        _macro["commodities2"] = {"silver": got["silver"], "copper": got["copper"]}
+        _macro["crypto"] = {"btc": got["btc"]}
         _macro["updated_at"] = time.time()
 
 
 def _refresh_slow():
-    per = _safe(_sp500_per)
+    per = _safe(lambda: _multpl("s-p-500-pe-ratio"))
+    cape = _safe(lambda: _multpl("shiller-pe"))
+    pb = _safe(lambda: _multpl("s-p-500-price-to-book"))
     buffett = _safe(_buffett_indicator)
     with _lock:
         if per is not None:
             _slow["sp500_per"] = per
+        if cape is not None:
+            _slow["cape"] = cape
+        if pb is not None:
+            _slow["pb"] = pb
         if buffett is not None:
             _slow["buffett"] = buffett
         _slow["updated_at"] = time.time()
@@ -179,7 +307,7 @@ def _refresh_slow():
 def _rule_commentary(snap: dict) -> str:
     """실제 AI 호출 없이(공개 배포 비용 보호, CLAUDE.md 5번 규칙) 수집한 숫자로만
     조립하는 한줄평 — AI_ALLOWED가 꺼진 배포본(현재 오라클 기본값)에서도 항상 뭔가는
-    보여주기 위한 폴백. AI가 켜지면 market_commentary_ai()가 대신 이 자리를 채운다."""
+    보여주기 위한 폴백. AI가 켜지면 ai.market_commentary()가 대신 이 자리를 채운다."""
     idx = snap["indices"]
     parts = []
     kospi, kosdaq, sp500 = idx.get("kospi"), idx.get("kosdaq"), idx.get("sp500")
@@ -214,12 +342,15 @@ def _rule_commentary(snap: dict) -> str:
             notes.append(f"VIX {vix:.1f}로 변동성이 다소 높은 편")
         else:
             notes.append(f"VIX {vix:.1f}로 변동성은 안정적인 수준")
-    usdkrw = snap["fx"].get("usdkrw")
+    usdkrw = (snap["fx"].get("usdkrw") or {}).get("value")
     if usdkrw is not None:
         notes.append(f"원/달러 {usdkrw:,.1f}원")
     buffett = _slow.get("buffett")
     if buffett:
         notes.append(f"버핏지수 {buffett['value']:.0f}%({buffett['label']})")
+    temp = (snap.get("composite") or {}).get("overall")
+    if temp is not None:
+        notes.append(f"StockLens 시장온도 {temp:.0f}점")
 
     tail = " · ".join(notes)
     return lead + (f". {tail}." if tail else ".")
@@ -240,6 +371,25 @@ def _refresh_commentary(snap: dict, ai_allowed: bool):
         _commentary["updated_at"] = time.time()
 
 
+def _composite(valuation: dict, sentiment: dict, breadth: dict, bonds: dict):
+    def avg(vals):
+        vals = [v for v in vals if v is not None]
+        return round(sum(vals) / len(vals), 1) if vals else None
+
+    val_score = avg([g["score"] for g in valuation.values() if g])
+    vix_g = sentiment.get("vix_gauge")
+    sentiment_score = (100 - vix_g["score"]) if vix_g else None   # VIX 낮을수록 "과열/낙관"
+    strength_score = avg([
+        (breadth.get("kospi") or {}).get("gauge", {}).get("score") if breadth.get("kospi") else None,
+        (breadth.get("kosdaq") or {}).get("gauge", {}).get("score") if breadth.get("kosdaq") else None,
+    ])
+    g1, g2 = bonds.get("spread_10y2y_gauge"), bonds.get("spread_10y3m_gauge")
+    credit_score = avg([(100 - g1["score"]) if g1 else None, (100 - g2["score"]) if g2 else None])
+    overall = avg([val_score, sentiment_score, strength_score, credit_score])
+    return {"valuation": val_score, "sentiment": sentiment_score,
+            "strength": strength_score, "credit": credit_score, "overall": overall}
+
+
 def _compute(ai_allowed: bool):
     fast = _safe(_build_naver)
     if not fast:
@@ -253,13 +403,38 @@ def _compute(ai_allowed: bool):
     if need_slow:
         _refresh_slow()
 
+    # ranking.py 캐시를 재사용할 뿐 네트워크 호출이 없어(코스피 평균 PER) 6시간 slow
+    # 캐시에 넣을 이유가 없다 — 매 사이클(5분)마다 그냥 새로 계산한다. ranking의 첫 전체
+    # 계산이 아직 안 끝났으면(서버 막 기동 직후) None이 나오고, 몇 분 뒤 자동으로 채워진다.
+    kospi_per = _safe(_kospi_avg_per)
+
     with _lock:
-        fast["bonds"] = _macro["bonds"] or {"us10y": None, "us30y": None, "as_of": None}
-        fast["sentiment"] = _macro["sentiment"] or {"vix": None, "vix_date": None}
-        silver = _macro["silver"]
-        fast["commodities"]["silver"] = silver.get("price") if silver else None
-        fast["commodities"]["silver_rate"] = silver.get("rate") if silver else None
-        fast["valuation"] = {"sp500_per": _slow.get("sp500_per"), "buffett": _slow.get("buffett")}
+        fast["bonds"] = _macro["bonds"] or {}
+        fast["sentiment"] = _macro["sentiment"] or {"vix": None, "vix_date": None, "vix_gauge": None}
+        cmd2 = _macro["commodities2"] or {}
+        silver, copper = cmd2.get("silver"), cmd2.get("copper")
+        fast["commodities"]["silver"] = {"value": silver.get("price") if silver else None,
+                                          "rate": silver.get("rate") if silver else None}
+        fast["commodities"]["copper"] = {"value": copper.get("price") if copper else None,
+                                          "rate": copper.get("rate") if copper else None}
+        btc = (_macro["crypto"] or {}).get("btc")
+        fast["crypto"] = {"btc": {"value": btc.get("price") if btc else None,
+                                   "rate": btc.get("rate") if btc else None}}
+
+        buffett = _slow.get("buffett")
+        fast["valuation"] = {
+            "buffett": _buffett_gauge(buffett) if buffett else None,
+            "cape": _gauge("cape", _slow.get("cape")),
+            "pb": _gauge("pb", _slow.get("pb")),
+            "sp500_per": _gauge("sp_per", _slow.get("sp500_per")),
+            "kospi_per": _gauge("kospi_per", (kospi_per or {}).get("value")),
+        }
+        fast["valuation_raw"] = {
+            "buffett_as_of": buffett.get("as_of") if buffett else None,
+            "kospi_per_count": (kospi_per or {}).get("count"),
+        }
+        fast["composite"] = _composite(fast["valuation"], fast["sentiment"], fast["breadth"], fast["bonds"])
+
         _state["data"] = fast
         _state["updated_at"] = time.time()
 
