@@ -838,8 +838,18 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
      같이 들어가게 한다(라벨까지 다 보이면 폭이 넘쳐 항상 자기 혼자 한 줄을 차지했었음). */
   .kis-label { display: none; }
   #kis-btn { padding: 8px 10px; }
-  .main-nav { order: 3; width: 100%; }
-  .main-nav button { flex: 1; padding: 9px 6px; font-size: var(--fs-xs); }
+  /* 마켓 브리핑 탭 추가로 모바일 메뉴가 5→6개가 되면서, flex:1(버튼이 100% 폭을 균등
+     분할)로는 더 이상 안 맞았다 — white-space:nowrap(기본 규칙, 181행) 때문에 각 버튼의
+     최소 폭이 "줄바꿈 없는 전체 텍스트 폭"으로 고정돼 flex-shrink가 그 밑으로 못 줄이고,
+     합계가 화면 폭을 넘겨 html의 overflow-x:hidden 안전장치를 뚫고도(133행 주석 참고)
+     터치 관성으로 좌우로 살짝 튕기는 "화면이 움직이는" 느낌을 만들었다. 균등분할 대신
+     .detail-tabs(494행)와 같은 가로 스크롤 탭바로 바꿔 넘치는 폭을 nav 안에 가둔다. */
+  .main-nav {
+    order: 3; width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .main-nav::-webkit-scrollbar { display: none; }
+  .main-nav button { flex: 0 0 auto; padding: 9px 12px; font-size: var(--fs-xs); }
   .search-wrap { order: 2; flex: 1 1 auto; }
   .card { padding: 18px 16px; }
   .rank-board, .today-board { padding: 18px 16px; }
