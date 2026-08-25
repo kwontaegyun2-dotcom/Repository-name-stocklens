@@ -152,19 +152,37 @@ def world_index(reuters_code: str):
     return _get(f"https://api.stock.naver.com/index/{reuters_code}/basic", ttl=60)
 
 
-# finance.naver.com/marketindex/ 페이지의 <h3 class="h_lst"><span class="blind">제목</span></h3>
-# 뒤에 이어지는 <div class="head_info point_up|point_dn|point_same">…<span class="value">값
-# </span>…<span class="change">전일대비 절대값</span> 을 순서대로 매칭 — 이 페이지의 12개
-# 항목은 항상 이 순서(달러→엔→유로→위안→달러/엔→유로/달러→파운드/달러→달러인덱스→WTI→
-# 휘발유→국제금→국내금)로 고정되어 있어(실측 확인) 제목 텍스트 대신 순번으로 매핑한다.
-# 방향(point_up/point_dn)까지 있어야 "전일대비"가 +인지 -인지 알 수 있다(change 자체는
-# 항상 양수로만 옴).
-_MKT_ROW_RE = re.compile(
-    r'<div class="head_info (point_up|point_dn|point_same)">\s*'
+# finance.naver.com/marketindex/ 페이지의 각 항목은 <a ... class="head usd" ...><h3 class=
+# "h_lst"><span class="blind">미국 USD</span></h3> … <div class="head_info point_up|point_dn|
+# point_same">…<span class="value">값</span>…<span class="change">전일대비 절대값</span> 구조다.
+#
+# ⚠️ 실측(2026-08-25)에서 라이브(오라클)가 원/달러 자리에 엔화 값을 담는 등 항목이 밀린 채
+# 서비스되고 있었다 — 두 가지 원인이 겹친 것이었다.
+#   1) 예전엔 항목 순서가 항상 고정이라 보고 순번(zip)으로만 매핑했는데, 페이지에 뜨는
+#      항목 수가 어떤 이유로든 기대보다 하나 적어지는 순간 그 뒤로 전체가 밀린다.
+#      → class="head <이름>"(marketindexCd와 1:1로 고정된 식별자)으로 매핑하도록 변경.
+#   2) 그런데 클래스로 찾아도, "class=\"head X\" ... 다음에 나오는 head_info 블록"을
+#      정규식 하나로 통째로 매칭(.*?로 다음 항목까지 건너뛸 수 있음)하면, X 자신의
+#      head_info가 기대한 형태(point_up/point_dn/point_same)가 아닐 때 정규식이 X를
+#      건너뛰고 그다음 항목(X+1)의 head_info를 X의 값으로 잘못 붙잡는다. 실측으로 확인한
+#      트리거: 오늘 등락이 정확히 0.00일 때 원/달러 항목만 class="head_info head_info"라는
+#      (point_up/dn/same이 아닌) 특이 케이스를 쓴다 — 다른 항목의 "보합"은 point_same을
+#      정상적으로 쓰는데 원/달러만 이렇게 나온 사례를 실측함(Naver 쪽 템플릿 특이사항으로
+#      추정, 원인까지는 알 수 없음). → head_info 뒤에 오는 방향 토큰에 head_info 자체도
+#      허용해 이 케이스를 "보합(변화 없음)"으로 처리하고, 그래도 못 찾으면(진짜 형식이
+#      다른 경우) 그 항목만 조용히 비우지 다른 항목 값을 훔쳐오지 않도록 앵커(class="head
+#      X")를 기준으로 페이지를 항목별로 먼저 잘라(split) 각 조각 안에서만 값을 찾는다 —
+#      한 항목이 통째로 깨져도 그 항목만 빠질 뿐 옆 항목을 오염시키지 않는다.
+_MKT_ANCHOR_RE = re.compile(r'class="head (\w+)"')
+_MKT_VALUE_RE = re.compile(
+    r'<div class="head_info (point_up|point_dn|point_same|head_info)">\s*'
     r'<span class="value">([\d,]+\.?\d*)</span>.*?'
     r'<span class="change">\s*([\d,]+\.?\d*)</span>', re.S)
-_MKT_KEYS = ["usdkrw", "jpykrw100", "eurkrw", "cnykrw", "usdjpy", "eurusd", "gbpusd",
-             "dxy", "wti", "gasoline", "gold_intl", "gold_domestic"]
+_MKT_CLASS_KEYS = {
+    "usd": "usdkrw", "jpy": "jpykrw100", "eur": "eurkrw", "cny": "cnykrw",
+    "jpy_usd": "usdjpy", "usd_eur": "eurusd", "usd_gbp": "gbpusd", "usd_idx": "dxy",
+    "wti": "wti", "gasoline": "gasoline", "gold_inter": "gold_intl", "gold_domestic": "gold_domestic",
+}
 
 
 def market_index_page():
@@ -179,8 +197,17 @@ def market_index_page():
     try:
         r = requests.get("https://finance.naver.com/marketindex/", headers=HEADERS, timeout=8)
         r.raise_for_status()
-        rows = _MKT_ROW_RE.findall(r.text)
-        for key, (direction, value_s, change_s) in zip(_MKT_KEYS, rows):
+        parts = _MKT_ANCHOR_RE.split(r.text)
+        # split 결과는 [머리말, 클래스1, 조각1, 클래스2, 조각2, ...] 형태다.
+        for i in range(1, len(parts), 2):
+            key = _MKT_CLASS_KEYS.get(parts[i])
+            if not key:
+                continue
+            chunk = parts[i + 1] if i + 1 < len(parts) else ""
+            m = _MKT_VALUE_RE.search(chunk)
+            if not m:
+                continue
+            direction, value_s, change_s = m.groups()
             value = float(value_s.replace(",", ""))
             change = float(change_s.replace(",", ""))
             if direction == "point_dn":

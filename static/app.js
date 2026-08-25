@@ -874,6 +874,15 @@ function mktRow(label, price, rate, opts = {}) {
 
 const GAUGE_ZONE_COLORS = ["#3b82f6", "#22c55e", "#eab308", "#f97316", "#ef4444"];
 
+// 눈금 값 표기 — bounds는 지표마다 정수(7·10·14·18)와 소수(-1.0·0.0·1.0·2.0)가 섞여
+// 있어 opts.digits(현재값 표시용, 보통 2)를 그대로 쓰면 "7.00배"처럼 지저분해진다.
+// 정수면 소수점 없이, 아니면 1자리까지만 보여준다.
+function fmtTick(v, opts) {
+  if (opts.fmt) return opts.fmt(v);
+  const isInt = Math.abs(v - Math.round(v)) < 1e-9;
+  return `${fmt(v, isInt ? 0 : 1)}${opts.unit || ""}`;
+}
+
 function gaugeCard(title, g, opts = {}) {
   if (!g || g.value == null || g.score == null) {
     return `<div class="gauge-card"><div class="gauge-top"><span class="gauge-title">${title}</span></div><p class="gauge-na">데이터 없음</p></div>`;
@@ -885,6 +894,14 @@ function gaugeCard(title, g, opts = {}) {
   const zoneIdx = opts.reverseColor ? 4 - g.zone : g.zone;
   const color = GAUGE_ZONE_COLORS[zoneIdx] ?? "#8a93a6";
   const labels = g.labels || [];
+  // 눈금자 — 구간 경계값 4개를 트랙 아래 정확한 위치(0/25/50/75%, app/market.py의
+  // _zone_score와 동일한 축)에 숫자로 찍는다. "그냥 저평가~고평가 텍스트보다 버핏지수
+  // 몇 %가 경계인지 숫자로 보고 싶다"는 요청 반영. 버핏지수처럼 자체 임계값이 없는
+  // 지표(bounds 없음)는 예전처럼 양 끝 텍스트 라벨로 대체한다.
+  const ruler = g.bounds
+    ? `<div class="gauge-ticks">${g.bounds.map((b, i) =>
+        `<span class="gauge-tick" style="left:${i * 25}%">${fmtTick(b, opts)}</span>`).join("")}</div>`
+    : `<div class="gauge-ends"><span>${labels[0] || ""}</span><span>${labels[4] || ""}</span></div>`;
   return `<div class="gauge-card">
     <div class="gauge-top">
       <span class="gauge-title">${title}</span>
@@ -892,7 +909,7 @@ function gaugeCard(title, g, opts = {}) {
     </div>
     <div class="gauge-value">${valTxt}</div>
     <div class="gauge-track${opts.reverseColor ? " reverse" : ""}"><div class="gauge-marker" style="left:${g.score}%"></div></div>
-    <div class="gauge-ends"><span>${labels[0] || ""}</span><span>${labels[4] || ""}</span></div>
+    ${ruler}
     ${opts.sub ? `<small class="hint" style="display:block;margin-top:6px">${opts.sub}</small>` : ""}
   </div>`;
 }

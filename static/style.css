@@ -957,6 +957,10 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .gauge-marker { position: absolute; top: -4px; width: 3px; height: 16px; border-radius: 2px;
   background: var(--text); box-shadow: 0 0 0 2px var(--surface2); transform: translateX(-50%); }
 .gauge-ends { display: flex; justify-content: space-between; font-size: var(--fs-2xs); color: var(--muted); }
+/* 눈금자 — 구간 경계값 4개(0/25/50/75%, 트랙 마커와 동일한 축)를 숫자로 찍는다.
+   "저평가~고평가 텍스트 대신 실제 경계 숫자를 보고 싶다"는 요청 반영. */
+.gauge-ticks { position: relative; height: 14px; font-size: var(--fs-2xs); color: var(--muted); font-variant-numeric: tabular-nums; }
+.gauge-tick { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
 .gauge-na { color: var(--muted); font-size: var(--fs-sm); }
 /* 밸류에이션 5개가 auto-fit(minmax 220px)이면 대개 4열까지만 차서 오른쪽에 빈 칸이
    하나 남는다는 지적 — 넓은 화면에서는 5열로 고정해 한 줄에 꽉 채운다. */
