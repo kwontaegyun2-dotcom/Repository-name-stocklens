@@ -1202,9 +1202,13 @@ async function loadRanking(sector = "전체") {
       renderRanking(d);
     }
     // 백엔드가 아직 채점 중이면(부분 결과 포함) 계속 폴링해서 자동으로 채워나간다.
+    // ⚠️ 재배포 직후처럼 서버가 이미 가장 바쁠 때 하필 이 폴링도 가장 잦아진다(여러 탭이
+    // 열려 있으면 더더욱) — 5초는 너무 촘촘해 채점 자체를 더 늦추는 악순환을 만들 수
+    // 있어 10초로 늦췄다(실측: 오라클 인스턴스가 2코어/1GB로 작아 이런 부하가 그대로
+    // 체감 지연으로 이어짐).
     clearTimeout(rankPollTimer);
     if (d.computing) {
-      rankPollTimer = setTimeout(() => loadRanking(currentSector), 5000);
+      rankPollTimer = setTimeout(() => loadRanking(currentSector), 10000);
     }
   } catch {
     $("rank-list").innerHTML = `<div class="rank-loading"><span>랭킹을 불러오지 못했습니다.</span></div>`;
