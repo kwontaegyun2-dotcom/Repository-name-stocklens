@@ -274,13 +274,17 @@ def _refresh_macro():
     now_str = time.strftime("%Y-%m-%d")
     with _lock:
         us10y = got["us10y"].get("price") if got["us10y"] else (_macro["bonds"] or {}).get("us10y")
+        # ⑤ 자산시장 카드에 10년물을 그대로 노출하려면 다른 자산처럼 전일대비 등락률이
+        # 있어야 한다 — 예전엔 아래 price(수익률 자체)만 남기고 rate(수익률의 일간
+        # 변화율)는 버렸다.
+        us10y_rate = got["us10y"].get("rate") if got["us10y"] else (_macro["bonds"] or {}).get("us10y_rate")
         us30y = got["us30y"].get("price") if got["us30y"] else (_macro["bonds"] or {}).get("us30y")
         us2y = got["us2y"].get("price") if got["us2y"] else (_macro["bonds"] or {}).get("us2y")
         us3m = got["us3m"].get("price") if got["us3m"] else (_macro["bonds"] or {}).get("us3m")
         spread_10y2y = round(us10y - us2y, 2) if (us10y is not None and us2y is not None) else None
         spread_10y3m = round(us10y - us3m, 2) if (us10y is not None and us3m is not None) else None
         _macro["bonds"] = {
-            "us10y": us10y, "us30y": us30y, "us2y": us2y, "us3m": us3m,
+            "us10y": us10y, "us10y_rate": us10y_rate, "us30y": us30y, "us2y": us2y, "us3m": us3m,
             "spread_10y2y": spread_10y2y, "spread_10y3m": spread_10y3m,
             "spread_10y2y_gauge": _gauge("spread", spread_10y2y),
             "spread_10y3m_gauge": _gauge("spread", spread_10y3m),

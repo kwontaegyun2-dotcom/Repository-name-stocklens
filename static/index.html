@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=99">
+<link rel="stylesheet" href="/static/style.css?v=100">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -793,6 +793,14 @@
      백그라운드로 모아 캐싱한 값을 그대로 표시한다. 게이지 구간은 공식 임계값이 아니라
      일반적으로 통용되는 참고 기준(각 카드 하단 안내문 참고). -->
 <main id="market-view" class="report hidden">
+  <!-- 자산시장을 맨 위로(사용자 요청) — 다른 4영역보다 먼저 눈에 들어와야 한다는 판단.
+       섹션 번호는 화면 순서 그대로 ①~⑤로 다시 매겼다. -->
+  <section class="card">
+    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gem"/></svg> ① 자산시장
+      <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">전일대비 등락률 포함. 자산마다 비교 기준 시점이 다릅니다(비트코인은 24시간 전, 금·원유 등은 전일 종가/정산가 기준).</span></span></h2>
+    <div class="pro-grid pro-grid-assets" id="market-assets-grid"></div>
+  </section>
+
   <!-- StockLens 시장온도 — 한국/미국을 하나로 섞으면 "이게 어느 시장 온도냐"는 혼란이
        생겨(사용자 지적) 분리했다. 각 카드의 서브점수 평균이 곧 종합점수가 되도록
        app/market.py에서 정수 반올림 후 평균하므로, 화면 숫자를 직접 더해도 항상 맞는다. -->
@@ -807,33 +815,27 @@
   </section>
 
   <section class="card">
-    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ruler"/></svg> ① 시장 밸류에이션
+    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ruler"/></svg> ② 시장 밸류에이션
       <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">버핏지수·CAPE·PER·PBR — 낮을수록 저평가, 높을수록 고평가. 구간 경계는 공식 임계값이 아니라 일반적으로 통용되는 참고 기준입니다.</span></span></h2>
     <div class="gauge-grid" id="market-valuation-gauges"></div>
   </section>
 
   <section class="card">
-    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg> ② 투자심리
+    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"/></svg> ③ 투자심리
       <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">VIX(변동성지수) 기반입니다. CNN 공포탐욕지수는 봇 차단으로 가져올 수 없어 VIX로 대체했습니다.</span></span></h2>
     <div class="gauge-grid" id="market-sentiment-gauges"></div>
   </section>
 
   <section class="card">
-    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trend"/></svg> ③ 시장 체력
+    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trend"/></svg> ④ 시장 체력
       <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">코스피·코스닥 상승/하락/상한가/하한가 종목수 기준입니다. 미국 200일선 상회비율·신고가/신저가 등은 무료로 안정적인 소스를 못 찾아 제공하지 않습니다.</span></span></h2>
     <div class="pro-grid" id="market-breadth-grid"></div>
   </section>
 
   <section class="card">
-    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> ④ 경기 · 신용 위험
+    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-doc"/></svg> ⑤ 경기 · 신용 위험
       <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">현재는 美 장단기 금리차만 제공합니다(마이너스=역전=경기침체 경고). 하이일드 스프레드 등은 소스가 없어 제공하지 않습니다 — 사실상 "미국 금리곡선" 섹션에 가깝습니다.</span></span></h2>
     <div class="gauge-grid" id="market-credit-gauges"></div>
-  </section>
-
-  <section class="card">
-    <h2><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gem"/></svg> ⑤ 자산시장
-      <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">전일대비 등락률 포함. 자산마다 비교 기준 시점이 다릅니다(비트코인은 24시간 전, 금·원유 등은 전일 종가/정산가 기준).</span></span></h2>
-    <div class="pro-grid pro-grid-assets" id="market-assets-grid"></div>
   </section>
 
   <p class="hint-p" id="market-updated"></p>
@@ -844,6 +846,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=108"></script>
+<script src="/static/app.js?v=109"></script>
 </body>
 </html>

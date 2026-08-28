@@ -1039,12 +1039,13 @@ async function loadMarketBriefing() {
       sub: `10Y ${fmt(bonds.us10y, 2)}% · 3M ${fmt(bonds.us3m, 2)}%` }),
   ].join("");
 
-  // ⑤ 자산시장
+  // ① 자산시장 — 국내 금(원/g)은 국제 금과 사실상 같은 정보(환율만 곱한 값)라 제외하고
+  // 美 10년물 금리를 추가했다(사용자 요청).
   $("market-assets-grid").innerHTML = [
     mktRow("원/달러", (fx.usdkrw || {}).value, (fx.usdkrw || {}).rate, { unit: "원", digits: 1 }),
     mktRow("달러인덱스(DXY)", (fx.dxy || {}).value, (fx.dxy || {}).rate, { digits: 2 }),
     mktRow("국제 금 (온스, $)", (cmd.gold_intl || {}).value, (cmd.gold_intl || {}).rate, { unit: "$", digits: 1 }),
-    mktRow("국내 금 (g, 원)", (cmd.gold_domestic || {}).value, (cmd.gold_domestic || {}).rate, { unit: "원", digits: 0 }),
+    mktRow("美 10년물 금리", bonds.us10y, bonds.us10y_rate, { unit: "%", digits: 2 }),
     mktRow("은 (온스, $)", (cmd.silver || {}).value, (cmd.silver || {}).rate, { unit: "$", digits: 2 }),
     mktRow("WTI 원유", (cmd.wti || {}).value, (cmd.wti || {}).rate, { unit: "$", digits: 2 }),
     mktRow("구리 (파운드, $)", (cmd.copper || {}).value, (cmd.copper || {}).rate, { unit: "$", digits: 3 }),
