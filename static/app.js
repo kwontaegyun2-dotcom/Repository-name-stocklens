@@ -746,6 +746,9 @@ async function loadBacktest() {
           <div class="bt-period-locked-msg">🔒 아직 데이터 부족<br><small>추적 ${d.days_collected}/${p.days}일째</small></div>
         </div>`;
       }
+      // 종목명이 안 보인다는 지적 — 예전엔 등급별 평균 수익률만 보여주고 정작 "그래서
+      // S등급이 어떤 종목들인데"가 안 보였다. app/backtest.py가 이제 등급당 수익률
+      // 상위 최대 10종목을 함께 내려주므로 칩 목록으로 붙인다.
       const rows = p.buckets.filter((b) => b.count > 0).map((b) => `
         <div class="bt-row">
           <span class="bt-grade">${b.grade}</span>
@@ -753,6 +756,11 @@ async function loadBacktest() {
           <span class="bt-ret ${b.avg_return >= 0 ? "up" : "down"}">${sign(b.avg_return, 1)}%</span>
           <span class="bt-win">승률 ${b.win_rate}%</span>
           ${b.excess_vs_bench != null ? `<span class="bt-excess ${b.excess_vs_bench >= 0 ? "up" : "down"}">지수대비 ${sign(b.excess_vs_bench, 1)}%p</span>` : ""}
+        </div>
+        <div class="bt-stocks">
+          ${(b.stocks || []).map((s) =>
+            `<span class="bt-stock ${s.return >= 0 ? "up" : "down"}">${s.name} ${sign(s.return, 1)}%</span>`).join("")}
+          ${b.more_count > 0 ? `<span class="bt-stock-more">+${b.more_count}종목 더</span>` : ""}
         </div>`).join("");
       return `<div class="bt-period">
         <div class="bt-period-label">${p.label} <small>(${p.base_date} 기준 ${p.sample_size}종목)</small></div>

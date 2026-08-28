@@ -136,7 +136,10 @@ def dashboard():
             ret = (cur["price"] - rec["price"]) / rec["price"] * 100
             for name, min_score in _BUCKETS:
                 if rec["score"] >= min_score:
-                    buckets[name].append(ret)
+                    # ⚠️ 예전엔 여기서 수익률(ret)만 남기고 종목명·코드를 버렸다 — "S등급이
+                    # 실제로 어떤 종목들인지, 얼마나 올랐는지 보고 싶다"는 요청으로
+                    # rec 자체를 들고 있다가 아래서 종목명 리스트로 노출한다.
+                    buckets[name].append({"code": rec["code"], "name": rec["name"], "return": round(ret, 2)})
                     break
             if rec["market"] not in bench_returns and rec.get("bench") and latest_bench.get(rec["market"]):
                 bench_returns[rec["market"]] = (latest_bench[rec["market"]] - rec["bench"]) / rec["bench"] * 100
@@ -146,15 +149,22 @@ def dashboard():
         for name, _ in _BUCKETS:
             vals = buckets[name]
             if vals:
-                avg = sum(vals) / len(vals)
+                rets = [v["return"] for v in vals]
+                avg = sum(rets) / len(rets)
+                stocks_sorted = sorted(vals, key=lambda v: v["return"], reverse=True)
                 bucket_stats.append({
                     "grade": name, "count": len(vals),
                     "avg_return": round(avg, 2),
-                    "win_rate": round(sum(1 for v in vals if v > 0) / len(vals) * 100, 1),
+                    "win_rate": round(sum(1 for v in rets if v > 0) / len(rets) * 100, 1),
                     "excess_vs_bench": round(avg - bench_avg, 2) if bench_avg is not None else None,
+                    # 수익률 높은 순 최대 10개만 노출(B·C등급은 최대 수백 종목이라 전부
+                    # 보여주면 화면이 감당 안 된다) — 나머지는 more_count로 개수만 알려준다.
+                    "stocks": stocks_sorted[:10],
+                    "more_count": max(0, len(stocks_sorted) - 10),
                 })
             else:
-                bucket_stats.append({"grade": name, "count": 0, "avg_return": None, "win_rate": None, "excess_vs_bench": None})
+                bucket_stats.append({"grade": name, "count": 0, "avg_return": None, "win_rate": None,
+                                      "excess_vs_bench": None, "stocks": [], "more_count": 0})
         periods_out.append({
             "label": label, "days": days, "available": True, "base_date": base_date,
             "sample_size": len(base_recs), "bench_return": bench_avg, "buckets": bucket_stats,

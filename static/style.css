@@ -1185,6 +1185,13 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .bt-ret.down, .bt-excess.down { color: var(--down); font-weight: 700; }
 .bt-win { color: var(--muted); }
 .bt-excess { grid-column: 1 / -1; font-size: var(--fs-xs); color: var(--muted); }
+/* 등급 요약(수익률·승률)만 있고 정작 어떤 종목인지 안 보인다는 지적 — 등급 행 바로
+   아래 수익률 상위 종목을 칩으로 붙인다(app/backtest.py가 등급당 최대 10개 제공). */
+.bt-stocks { display: flex; flex-wrap: wrap; gap: 5px; padding: 2px 0 8px; }
+.bt-stock { font-size: var(--fs-2xs); padding: 2px 8px; border-radius: 20px; background: var(--surface2); border: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+.bt-stock.up { color: var(--up); }
+.bt-stock.down { color: var(--down); }
+.bt-stock-more { font-size: var(--fs-2xs); padding: 2px 8px; color: var(--dim); }
 
 /* ---------- footer ---------- */
 .site-footer { text-align: center; padding: 28px 16px 20px; color: var(--dim); font-size: var(--fs-xs); font-weight: 500; }
