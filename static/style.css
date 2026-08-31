@@ -601,6 +601,24 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
   .hl-why-split { grid-template-columns: 1fr; }
 }
 
+/* 4줄 요약 (진단리포트 2026-08-31 UX 2번) */
+.quad-summary { display: flex; flex-direction: column; gap: 10px; margin: 16px 0; padding: 16px 18px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 14px; }
+.qs-row { display: flex; align-items: baseline; gap: 12px; }
+.qs-label { flex: 0 0 84px; font-size: var(--fs-xs); color: var(--muted); font-weight: 600; }
+.qs-verdict { font-size: var(--fs-lg); font-weight: 700; }
+.qs-next { font-size: var(--fs-sm); }
+.qs-list { list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-sm); }
+@media (max-width: 640px) {
+  .qs-row { flex-direction: column; gap: 4px; }
+  .qs-label { flex: none; }
+}
+
+.hl-advanced summary { cursor: pointer; font-size: var(--fs-sm); color: var(--muted); font-weight: 600;
+  padding: 10px 2px; user-select: none; }
+.hl-advanced summary::-webkit-details-marker { display: none; }
+.hl-advanced[open] summary { margin-bottom: 8px; }
+
 /* ---------- opinion ---------- */
 .opinion-head { font-size: var(--fs-lg); font-weight: 600; margin-bottom: 12px; line-height: 1.6; }
 .opinion-points { list-style: none; margin-bottom: 18px; }

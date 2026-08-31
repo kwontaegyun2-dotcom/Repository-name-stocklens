@@ -2006,6 +2006,23 @@ function render(d) {
     $("hl-reasons-bad").innerHTML = badReasons.length
       ? badReasons.map((r) => `<li class="bad">⚠️ ${r.text}</li>`).join("")
       : `<li>뚜렷한 우려 신호는 없습니다.</li>`;
+
+    // 4줄 요약 — 위에서 이미 계산한 값(v, goodReasons, badReasons, fbBase)만 재사용.
+    // "다음 확인"은 실적발표일처럼 정확한 날짜를 낼 수 없는 데이터라(HANDOFF 기록 —
+    // 예전에 시도했다 부정확해서 뺐음) 날짜 대신 이 앱이 실제로 아는 값인 가격
+    // 트리거(적정매수가/손절가)로 대체한다 — 없는 정보를 지어내지 않는다는 원칙.
+    $("qs-verdict").innerHTML = `<span style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>`;
+    $("qs-good").innerHTML = (goodReasons.slice(0, 3).length
+      ? goodReasons.slice(0, 3).map((r) => `<li>${r.text}</li>`)
+      : ["<li>뚜렷한 매수 근거 신호가 없습니다.</li>"]).join("");
+    $("qs-bad").innerHTML = (badReasons.slice(0, 2).length
+      ? badReasons.slice(0, 2).map((r) => `<li>${r.text}</li>`)
+      : ["<li>뚜렷한 우려 신호는 없습니다.</li>"]).join("");
+    const stopLoss = (tech.available && tech.entry) ? tech.entry.stop_loss : null;
+    const nextParts = [];
+    if (fbBase) nextParts.push(`${pw(fbBase.price)} 도달 시 매수 검토`);
+    if (stopLoss) nextParts.push(`${pw(stopLoss)} 이탈 시 리스크 관리`);
+    $("qs-next").textContent = nextParts.length ? nextParts.join(" · ") : "추가로 확인할 가격 기준이 없습니다.";
   }
 
   /* opinion */

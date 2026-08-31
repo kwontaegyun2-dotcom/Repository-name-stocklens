@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=101">
+<link rel="stylesheet" href="/static/style.css?v=102">
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
@@ -280,48 +280,63 @@
       <div class="hl-grid" id="hl-grid"></div>
     </div>
 
-    <div class="hl-cats" id="hl-cats"></div>
-
-    <div class="verdict-banner" id="verdict-banner">
-      <span class="vb-icon">🧭</span>
-      <div>
-        <div class="vb-label">현재 판단 <small class="hint">종합 펀더멘털·수급 기준 — "무엇을 살까"에 대한 결론입니다</small></div>
-        <p id="opinion-head" class="opinion-head"></p>
-      </div>
+    <!-- 4줄 요약 (진단리포트 2026-08-31 UX 2번) — 정보가 너무 많아 초보자는 뭘 봐야 할지
+         모른다는 지적. 결론/핵심근거/위험/다음 확인을 딱 4줄로 압축해 최상단에 두고,
+         나머지(부문칩·상세근거 전체·가격구간표·단계별 매수전략)는 아래 "더 보기"로 접는다.
+         새 계산 없이 이미 만들던 값(ai_verdict, signals, fair_buy, stop_loss)만 재사용. -->
+    <div class="quad-summary" id="quad-summary">
+      <div class="qs-row"><span class="qs-label">결론</span><span id="qs-verdict" class="qs-verdict"></span></div>
+      <div class="qs-row"><span class="qs-label">핵심 근거</span><ul id="qs-good" class="qs-list"></ul></div>
+      <div class="qs-row"><span class="qs-label">가장 큰 위험</span><ul id="qs-bad" class="qs-list"></ul></div>
+      <div class="qs-row"><span class="qs-label">다음 확인</span><span id="qs-next" class="qs-next"></span></div>
     </div>
 
-    <div class="hl-head">
-      <span id="hl-badge" class="hl-badge"></span>
-      <h3>종합점수 <span id="hl-score"></span>점 <small class="hint">기업 자체의 우량도 — 위 판단과는 다른 지표입니다</small></h3>
-    </div>
-    <p class="hl-discount" id="hl-discount"></p>
-    <div class="hl-why-split">
-      <div class="hl-why-col hl-why-good">
-        <h4>✅ 왜 사야 하나</h4>
-        <ul id="hl-reasons-good" class="hl-reasons"></ul>
-      </div>
-      <div class="hl-why-col hl-why-bad">
-        <h4>⚠️ 왜 기다려야 하나</h4>
-        <ul id="hl-reasons-bad" class="hl-reasons"></ul>
-      </div>
-    </div>
+    <details class="hl-advanced" id="hl-advanced">
+      <summary>부문별 근거·가격 구간 자세히 보기 ▾</summary>
 
-    <div class="fair-buy-box hidden" id="fair-buy-box">
-      <div class="fb-head"><span class="fb-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-money"/></svg> 가격별 투자전략</span><span class="fb-sub" id="fb-sources"></span></div>
-      <div class="fb-grid" id="fb-grid"></div>
-      <div class="price-ladder" id="price-ladder"></div>
-      <p class="hint-p">PER·PEG·업종 평균·역사적 밸류·애널리스트 컨센서스 목표가를 종합한 추정치이며, 안전마진(20%/10%/0%)을 차등 적용했습니다.</p>
-    </div>
+      <div class="hl-cats" id="hl-cats"></div>
 
-    <div class="buy-plan-box hidden" id="buy-plan-box">
-      <div class="fb-head"><span class="fb-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-steps"/></svg> 단계별 매수 전략</span></div>
-      <div class="buy-plan-reached-note hidden" id="buy-plan-reached-note"></div>
-      <div class="buy-plan-stages" id="buy-plan-stages"></div>
-      <div class="buy-plan-footer">
-        <div><label>목표가</label><span id="buy-plan-target"></span></div>
-        <div><label>위험관리 가격 (손절)</label><span id="buy-plan-stop"></span></div>
+      <div class="verdict-banner" id="verdict-banner">
+        <span class="vb-icon">🧭</span>
+        <div>
+          <div class="vb-label">현재 판단 <small class="hint">종합 펀더멘털·수급 기준 — "무엇을 살까"에 대한 결론입니다</small></div>
+          <p id="opinion-head" class="opinion-head"></p>
+        </div>
       </div>
-    </div>
+
+      <div class="hl-head">
+        <span id="hl-badge" class="hl-badge"></span>
+        <h3>종합점수 <span id="hl-score"></span>점 <small class="hint">기업 자체의 우량도 — 위 판단과는 다른 지표입니다</small></h3>
+      </div>
+      <p class="hl-discount" id="hl-discount"></p>
+      <div class="hl-why-split">
+        <div class="hl-why-col hl-why-good">
+          <h4>✅ 왜 사야 하나</h4>
+          <ul id="hl-reasons-good" class="hl-reasons"></ul>
+        </div>
+        <div class="hl-why-col hl-why-bad">
+          <h4>⚠️ 왜 기다려야 하나</h4>
+          <ul id="hl-reasons-bad" class="hl-reasons"></ul>
+        </div>
+      </div>
+
+      <div class="fair-buy-box hidden" id="fair-buy-box">
+        <div class="fb-head"><span class="fb-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-money"/></svg> 가격별 투자전략</span><span class="fb-sub" id="fb-sources"></span></div>
+        <div class="fb-grid" id="fb-grid"></div>
+        <div class="price-ladder" id="price-ladder"></div>
+        <p class="hint-p">PER·PEG·업종 평균·역사적 밸류·애널리스트 컨센서스 목표가를 종합한 추정치이며, 안전마진(20%/10%/0%)을 차등 적용했습니다.</p>
+      </div>
+
+      <div class="buy-plan-box hidden" id="buy-plan-box">
+        <div class="fb-head"><span class="fb-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-steps"/></svg> 단계별 매수 전략</span></div>
+        <div class="buy-plan-reached-note hidden" id="buy-plan-reached-note"></div>
+        <div class="buy-plan-stages" id="buy-plan-stages"></div>
+        <div class="buy-plan-footer">
+          <div><label>목표가</label><span id="buy-plan-target"></span></div>
+          <div><label>위험관리 가격 (손절)</label><span id="buy-plan-stop"></span></div>
+        </div>
+      </div>
+    </details>
 
     <!-- 투자 고지문 (UI/UX 검증보고서 6-4, 2026-08-21) — 판단·매수전략이 단정적 표현으로
          크게 노출되는 만큼, 참고용 정보라는 안내를 판단 카드 하단에 짧게 덧붙인다. -->
@@ -846,6 +861,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=111"></script>
+<script src="/static/app.js?v=112"></script>
 </body>
 </html>
