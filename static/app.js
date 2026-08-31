@@ -1403,7 +1403,7 @@ async function renderTodayPick(items) {
       <div class="today-pick-meta">
         <span class="today-pick-price">${pw(best.price, best.currency)}</span>
         <span class="today-pick-score">종합점수 ${best.score}</span>
-        <span class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 신뢰도 ${bv.confidence ?? "-"}</span>
+        <span class="today-pick-verdict" style="color:${verdictColor(bv.tier)}">${bv.emoji || ""} ${bv.label || ""} · 신호 일치도 ${bv.signal_count ? `${bv.agree}/${bv.signal_count}` : "-"}</span>
       </div>
     </div>
     <div class="today-pick-stats">
@@ -1451,7 +1451,7 @@ async function renderTodayPick(items) {
   const posCount = cats.filter(([, s]) => s >= 62).length;
   const introText = `${best.name}${josa(best.name, "은", "는")} <b>${reasonSentence}</b>${josa(reasonSentence.split(", ").pop(), "이", "가")} 겹쳐 오늘의 AI 투자기회로 선정됐습니다. `
     + `6개 분석 부문 중 ${posCount}개에서 긍정 신호가 나왔고, AI 최종판단은 '${bv.label || "-"}'`
-    + `(판단 신뢰도 ${bv.confidence ?? "-"})입니다.`;
+    + `(신호 일치도 ${bv.signal_count ? `${bv.agree}/${bv.signal_count}` : "-"})입니다.`;
 
   // "왜 주목하는가" — 이미 계산된 6개 부문점수 + RSI를 그대로 재사용(추가 계산 없음)
   const reasonsHtml = cats.map(([name, score]) => {
@@ -1954,9 +1954,11 @@ function render(d) {
     } else {
       $("hl-discount").textContent = "";
     }
-    // "확신도"는 실제 확률처럼 오해될 수 있어 "판단 신뢰도"로 표기 — 값의 의미(analysis.final_verdict의
-    // confidence 필드)는 그대로, 라벨만 바꾼다. 클릭/포커스 시 설명 툴팁 표시.
-    const confidenceLabel = `판단 신뢰도 <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">실적·밸류·수급·기술적 지표 등 주요 분석 신호의 일치 정도를 나타냅니다.</span></span>`;
+    // 진단리포트(2026-08-31) 3번 — "판단 신뢰도 95" 같은 0~100 숫자는 "이 판단이 맞을
+    // 확률 95%"로 오해받기 쉽다(실증 적중률로 보정된 확률이 아니라 순수 신호간 합치도).
+    // analysis.final_verdict가 이미 계산해 둔 원본 정수쌍(agree/signal_count, 예: 5/6)을
+    // 그대로 보여줘 "몇 개 중 몇 개가 같은 방향인지"를 숫자 자체로 드러낸다.
+    const confidenceLabel = `신호 일치도 <span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">실적·밸류·수급·기술적 지표 등 주요 분석 신호 중 몇 개가 이 판단과 같은 방향을 가리키는지를 나타냅니다. 과거 적중률로 검증된 확률이 아닙니다.</span></span>`;
     // 목표주가는 재무 추정치와 달리 이상치 검증·기준일 표시가 빠져 있어, 후행적인 목표가가
     // 그대로 "왜 사야 하나"에 노출되는 문제가 있었다(2차 진단리포트 4-1). 기준일을 함께
     // 보여주고, 괴리가 커 반영 비중을 낮춘 경우(analysis.consensus_info) 배지로 알린다.
@@ -1971,7 +1973,7 @@ function render(d) {
       { label: targetLabel, value: t.consensus ? pw(t.consensus) : "-" },
       { label: "상승여력", value: (t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-") + upsideFlagBadge,
         cls: updownClass(t.consensus_upside) },
-      { label: confidenceLabel, value: v.confidence != null ? v.confidence : "-" },
+      { label: confidenceLabel, value: v.signal_count ? `${v.agree}/${v.signal_count}` : "-" },
     ];
     $("hl-grid").innerHTML = items.map((it) => `
       <div class="hl-item"><label>${it.label}</label><div class="${it.cls || ""}">${it.value}</div></div>`).join("");
@@ -2049,6 +2051,20 @@ function render(d) {
       ${note}
     </div>`;
   }).join("");
+
+  /* 진단리포트(2026-08-31) 4번 — AI판단·진입판단 결론 충돌 완화. 새 계산 없이
+     백엔드(main.py)가 이미 만들어 둔 combined_action(analysis.combined_action)을
+     그대로 렌더링만 한다. */
+  if (d.combined_action) {
+    const ca = d.combined_action;
+    $("combined-action").classList.remove("hidden");
+    $("combined-action").classList.toggle("ca-conflict", !!ca.conflict);
+    $("ca-headline").textContent = ca.headline;
+    $("ca-new").textContent = ca.new_entrant;
+    $("ca-hold").textContent = ca.holder;
+  } else {
+    $("combined-action").classList.add("hidden");
+  }
 
   /* targets */
   const t = d.targets;

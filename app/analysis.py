@@ -1163,7 +1163,58 @@ def final_verdict(total: dict, valuation: dict = None, cons: dict = None) -> dic
     ratio = agree / len(signals) if signals else 0.5
     confidence = round(_clamp(50 + ratio * 45, 50, 95))
 
-    return {"tier": tier, "label": label, "emoji": emoji, "confidence": confidence}
+    # 진단리포트(2026-08-31) 3번 — "신뢰도 95"만 보여주면 사용자가 "이 판단이 맞을 확률
+    # 95%"로 오해한다(실증 적중률로 보정된 확률이 아니라 순수 신호간 합치도인데도).
+    # confidence(0~100처럼 보이는 값)는 하위호환을 위해 남기되, 화면에는 이 agree/
+    # signal_count(예: 5/6)를 "신호 일치도"로 노출해 오해를 줄인다 — 같은 계산의 원본
+    # 정수쌍이라 새 로직 없이 그대로 진실을 보여주는 것뿐이다.
+    return {"tier": tier, "label": label, "emoji": emoji, "confidence": confidence,
+            "agree": agree, "signal_count": len(signals)}
+
+
+_ACTION_MATRIX = {
+    # (기업가치, 단기추세): (한줄 진단, 신규 진입자 행동, 보유자 행동) — 화면에서 각각
+    # "신규 진입자 | {new_entrant}" / "보유자 | {holder}" 행으로 나란히 보여준다.
+    ("attractive", "favorable"): ("기업가치와 단기 추세가 모두 우호적입니다.",
+                                   "적극 검토할 수 있습니다.", "비중 확대를 검토합니다."),
+    ("attractive", "neutral"): ("기업가치는 매력적이나 단기 추세는 뚜렷하지 않습니다.",
+                                 "분할 매수로 접근하며 눌림목을 기다립니다.", "비중을 유지합니다."),
+    ("attractive", "unfavorable"): ("기업가치는 매력적이지만 단기 추세가 약합니다.",
+                                     "지지선 확인 전까지 대기합니다.", "비중을 유지합니다."),
+    ("neutral", "favorable"): ("기업가치는 보통 수준이나 단기 추세는 우호적입니다.",
+                                "단기 트레이딩 관점의 소액 진입만 검토합니다.", "비중을 유지합니다."),
+    ("neutral", "neutral"): ("기업가치·단기 추세 모두 뚜렷한 신호가 없습니다.",
+                              "서두르지 않고 관망합니다.", "비중을 유지합니다."),
+    ("neutral", "unfavorable"): ("기업가치는 보통 수준이고 단기 추세는 약합니다.",
+                                  "대기합니다.", "단기 변동성에 유의하며 비중을 유지합니다."),
+    ("weak", "favorable"): ("단기 반등은 있으나 기업가치 매력도는 낮습니다.",
+                             "권하지 않습니다.", "반등 시 비중 축소를 고려합니다."),
+    ("weak", "neutral"): ("기업가치 매력도가 낮고 단기 추세도 뚜렷하지 않습니다.",
+                           "권하지 않습니다.", "비중 축소를 검토합니다."),
+    ("weak", "unfavorable"): ("기업가치 매력도도 낮고 단기 추세도 약합니다.",
+                               "권하지 않습니다.", "비중 축소 또는 손절 기준 점검을 검토합니다."),
+}
+
+
+def combined_action(ai_tier: str, tech_verdict_class: str) -> dict:
+    """진단리포트(2026-08-31) 4번 — AI 최종판단(펀더멘털·밸류·수급 기준 "무엇을 살까")과
+    진입 판단(단기 차트 기준 "언제 살까")은 서로 다른 걸 재는 지표라 값이 자주 갈리는데,
+    화면에 나란히 노출되면 "결국 지금 사라는 건지 기다리라는 건지" 충돌하는 것처럼
+    읽힌다(실측 사례: 엔비디아 "적극 매수" vs "관망"). 두 지표를 하나의 숫자로 억지로
+    합치지 않고(그러면 오히려 부정확해진다 — HANDOFF 3.11), "종목 매력도 × 진입
+    타이밍"을 신규 진입자/기존 보유자로 나눠 각자에게 다른 결론을 주는 문장으로
+    번역한다. 두 지표 자체(ai_verdict.tier, tech.verdict_class)는 그대로 유지."""
+    fund = "attractive" if ai_tier in _BULLISH_TIERS else "weak" if ai_tier in _BEARISH_TIERS else "neutral"
+    timing = ("favorable" if tech_verdict_class in ("buy", "accumulate")
+              else "unfavorable" if tech_verdict_class == "avoid" else "neutral")
+    headline, new_entrant, holder = _ACTION_MATRIX[(fund, timing)]
+    return {
+        "fundamental": fund, "timing": timing,
+        "conflict": (fund == "attractive" and timing == "unfavorable") or (fund == "weak" and timing == "favorable"),
+        "headline": headline,
+        "new_entrant": new_entrant, "holder": holder,
+        "summary": f"{headline} 신규 진입자는 {new_entrant} 보유자는 {holder}",
+    }
 
 
 # 저기반(적자→흑자 등) 회복 시 성장률이 수백%로 튀는 걸 방지하는 표시 상한.

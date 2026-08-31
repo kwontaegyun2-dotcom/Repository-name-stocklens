@@ -512,6 +512,16 @@ small.hint { display: block; color: var(--dim); font-weight: 400; font-size: var
 .vb-label { font-size: var(--fs-xs); font-weight: 800; color: var(--muted); letter-spacing: .04em; margin-bottom: 4px; }
 .verdict-banner .opinion-head { font-size: var(--fs-xl); font-weight: 700; line-height: 1.55; margin: 0; }
 
+/* ---------- combined action (진단리포트 2026-08-31 4번) ---------- */
+.combined-action { background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+  padding: 14px 18px; margin-bottom: 18px; }
+.combined-action.ca-conflict { border-color: rgba(255,176,32,.4); background: rgba(255,176,32,.05); }
+.ca-headline { font-size: var(--fs-md); font-weight: 700; margin: 0 0 10px; }
+.ca-rows { display: flex; flex-direction: column; gap: 6px; }
+.ca-row { display: flex; align-items: baseline; gap: 10px; font-size: var(--fs-sm); }
+.ca-tag { flex: 0 0 76px; font-size: var(--fs-2xs); font-weight: 700; color: var(--muted);
+  background: var(--surface2); border-radius: 8px; padding: 2px 8px; text-align: center; }
+
 /* ---------- stock header ---------- */
 .stock-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; }
 .stock-title { display: flex; align-items: center; gap: 15px; }

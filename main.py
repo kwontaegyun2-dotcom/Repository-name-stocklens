@@ -315,6 +315,8 @@ def api_analyze(code: str, request: Request = None):
         {"available": False})
     targets["fair_buy"] = val.get("fair_buy") if val.get("available") else None
     ai_verdict = analysis.final_verdict(total, val, cons)
+    combined = (analysis.combined_action(ai_verdict["tier"], tech["verdict_class"])
+                if tech.get("available") else None)
 
     # ⚠️ 손절가(기술적 지지선 0.96배 기반)와 3차 매수가(밸류에이션 적정가 0.80배 기반)는
     # 서로 다른 모델이라 손절가가 3차 매수가보다 높아지는 모순이 생길 수 있다
@@ -339,6 +341,7 @@ def api_analyze(code: str, request: Request = None):
         "market_status": b.get("marketStatus"),
         "total": total,
         "ai_verdict": ai_verdict,
+        "combined_action": combined,
         "opinion": opinion,
         "metrics": fund["metrics"],
         "finance_rows": fund["finance_rows"],
