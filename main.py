@@ -347,7 +347,7 @@ def api_analyze(code: str, request: Request = None):
         "valuation": val,
         "targets": targets,
         "consensus": cons,
-        "sentiment": {"score": senti["score"], "label": senti["label"]},
+        "sentiment": {"score": senti["score"], "label": senti["label"], "sample": senti["sample"]},
         "news": senti["items"][:3],
         "research": research_items,
         "peers": peers,

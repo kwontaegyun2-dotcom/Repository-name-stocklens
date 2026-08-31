@@ -803,6 +803,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .senti-tag.neutral { background: var(--surface2); color: var(--muted); }
 .senti-tag.irrelevant { background: rgba(255,176,32,.14); color: #ffb020; }
 .news-item.news-irrelevant { opacity: .6; }
+.n-evidence { font-size: var(--fs-2xs); color: var(--muted); margin-top: 4px; }
 
 /* ---------- AI ---------- */
 .ai-report { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 22px; margin-top: 14px; font-size: var(--fs-md); color: var(--text2); }

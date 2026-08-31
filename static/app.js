@@ -2188,22 +2188,27 @@ function render(d) {
     : "<p class='hint-p'>최근 리포트가 없습니다.</p>";
 
   /* news */
-  $("senti-badge").textContent = `시장 심리: ${d.sentiment.label} (${d.sentiment.score}점)`;
+  // 진단리포트(2026-08-31) — "긍정적 100점"만 봐서는 표본이 몇 건인지 알 수 없어 사용자가
+  // 신뢰하기 어렵다는 지적. 집계에 실제로 반영된 건수(직접 관련만)를 괄호로 병기한다.
+  const sSample = d.sentiment.sample || {};
+  $("senti-badge").textContent =
+    `시장 심리: ${d.sentiment.label} (${d.sentiment.score}점, 긍정 ${sSample.positive || 0}·부정 ${sSample.negative || 0}·중립 ${sSample.neutral || 0}건)`;
   // ⚠️ 진단리포트 지적사항: 종목 뉴스탭에 그 종목과 무관한 기사(증권사 프로모션·타 상품
-  // 세미나 등)가 섞여 심리 점수를 오염시키고 있었음. 백엔드(news_sentiment)가 종목명이
-  // 제목·본문에 있는지로 관련성을 판정해 점수 집계에서는 이미 제외했고, 화면에서는
-  // 숨기지 않되 "관련성 낮음" 배지로 표시한다(정직하게 보여주는 편이 신뢰를 얻는다는
-  // 이 프로젝트의 일관된 원칙). 원문 링크(n.url)가 비어 있는 항목은 죽은 링크를 만들지
-  // 않도록 제목을 링크로 감싸지 않는다.
+  // 세미나, 업종 전반을 다루는 거시기사 등)가 섞여 심리 점수를 오염시키고 있었음.
+  // 백엔드(news_sentiment)가 제목 기준으로 '직접/간접/무관' 3단계 관련성을 판정해 점수
+  // 집계에는 '직접'만 반영하고, 화면에서는 숨기지 않되 등급 배지로 표시한다(정직하게
+  // 보여주는 편이 신뢰를 얻는다는 이 프로젝트의 일관된 원칙). 원문 링크(n.url)가 비어
+  // 있는 항목은 죽은 링크를 만들지 않도록 제목을 링크로 감싸지 않는다.
   $("news-list").innerHTML = d.news.map((n) => `
     <div class="news-item${n.relevant === false ? " news-irrelevant" : ""}">
       <div class="n-top">
         <b><span class="senti-tag ${n.sentiment}">${n.sentiment === "positive" ? "긍정" : n.sentiment === "negative" ? "부정" : "중립"}</span>
-        ${n.relevant === false ? `<span class="senti-tag irrelevant">관련성 낮음</span>` : ""}
+        ${n.relevant === false ? `<span class="senti-tag irrelevant">${n.relevance === "무관" ? "무관" : "간접 관련"}</span>` : ""}
         ${n.url ? `<a href="${n.url}" target="_blank" rel="noopener noreferrer">${n.title}</a>` : `<span>${n.title}</span>`}</b>
         <span class="n-meta">${n.press} · ${n.datetime ? n.datetime.slice(4, 6) + "/" + n.datetime.slice(6, 8) : ""}</span>
       </div>
       ${n.body ? `<div class="n-body">${n.body}...</div>` : ""}
+      ${n.evidence && n.evidence.length ? `<div class="n-evidence">근거 단어: ${n.evidence.join(", ")}</div>` : ""}
     </div>`).join("");
 
   /* peers */

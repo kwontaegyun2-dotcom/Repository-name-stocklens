@@ -872,34 +872,80 @@ POS_WORDS = ["상승", "급등", "호실적", "최대", "신기록", "돌파", "
              "낙관", "회복", "증가", "신고가", "목표가↑", "목표주가 상향", "어닝서프라이즈"]
 NEG_WORDS = ["하락", "급락", "부진", "적자", "감소", "우려", "리스크", "하향", "매도", "약세",
              "충격", "쇼크", "규제", "소송", "파산", "위기", "불황", "침체", "경고", "악재",
-             "신저가", "손실", "감원", "구조조정", "어닝쇼크"]
+             "신저가", "손실", "감원", "구조조정", "어닝쇼크",
+             "유상증자"]  # 진단리포트(2026-08-31) — 지분희석성 재료라 통상 부정적으로 읽히는데
+                          # 목록에 없어 "확대" 같은 동반 긍정어에 묻혀 긍정으로 오분류되던 사례.
+
+
+def _known_company_names():
+    """관련성(공동언급) 판정에 쓸 상장사명 목록. ranking.py가 이 모듈을 먼저 import하므로
+    모듈 최상단에서 역참조하면 순환import가 난다 — 호출 시점(둘 다 이미 로드된 뒤)에만
+    지연 import한다. 실패해도(순서 문제·미래 리팩터링 등) 기능 저하 없이 조용히 건너뛴다."""
+    try:
+        from app import ranking
+        return [n for _, n, *_ in ranking.UNIVERSE] + [n for _, n, *_ in ranking.US_UNIVERSE]
+    except Exception:
+        return []
 
 
 def news_sentiment(news_items: list, stock_name: str = None) -> dict:
-    """뉴스 감성 분석. stock_name이 주어지면 제목·본문에 종목명이 등장하는지로 관련성을
-    판정해, 무관한 기사(예: 증권사 프로모션·타 상품 세미나 안내가 특정 종목 뉴스탭에
-    잘못 태깅된 경우)가 심리 점수를 오염시키지 않게 한다(진단리포트 실측 사례: SK하이닉스
-    뉴스탭에 "카카오페이증권 주식 축의금 캠페인" 등 무관 기사가 섞여 "시장 심리 긍정적
-    70점"의 근거로 쓰이고 있었음). 화면에서는 숨기지 않고 "관련성 낮음" 표시만 한다 —
-    사용자가 직접 판단할 수 있게 정직하게 보여주는 편이 낫다(이 프로젝트의 일관된 원칙)."""
+    """뉴스 감성 분석. stock_name이 주어지면 제목·본문 등장으로 관련성을 3단계
+    (직접/간접/무관) 판정해, 심리 점수 집계에는 '직접' 관련 기사만 반영한다.
+
+    진단리포트(2026-08-31) 실측 사례 — 삼성전자 뉴스탭에 "SK하이닉스 직원이 많이 사는
+    지역의 소비" 같은 반도체 업종 전반을 다루는 거시 기사가 섞여 있었는데, 이런 기사는
+    보통 본문에는 종목명이 나오지만 **제목에는 나오지 않거나(요약 발췌 시 본문만 걸림)
+    제목에 다른 대형주 이름이 함께 등장**한다(예: "삼성전자·SK하이닉스 동반 상승").
+    그래서 (a) 제목에 종목명이 있어야 하고 (b) 제목에 다른 상장사명이 함께 없어야
+    '직접 관련'으로 본다 — 둘 중 하나라도 걸리면 '간접 관련'으로 낮춰 집계에서 뺀다.
+    화면에서는 숨기지 않고 등급 배지만 표시한다(정직하게 보여주는 편이 낫다는 이
+    프로젝트의 일관된 원칙). 완전한 개체명 인식이 아닌 문자열 매칭 기반 휴리스틱이라
+    한계는 있지만, 기존의 "본문 300자 아무 데나 있으면 관련"보다는 훨씬 보수적이다."""
+    others = [n for n in _known_company_names() if n and n != stock_name] if stock_name else []
+    seen_titles = set()
     tagged = []
     total = 0
+    counts = {"positive": 0, "negative": 0, "neutral": 0}
     for it in news_items:
-        text = (it.get("title", "") + " " + it.get("body", ""))[:300]
-        relevant = True if not stock_name else (stock_name in text)
-        p = sum(1 for w in POS_WORDS if w in text)
-        n = sum(1 for w in NEG_WORDS if w in text)
-        if p > n:
+        title = it.get("title", "")
+        body = it.get("body", "")
+        text = (title + " " + body)[:300]
+
+        # 중복·재배포 기사 제거: "[단독]"/"[자막뉴스]" 같은 태그를 뗀 제목이 이미 나왔으면 skip.
+        norm_title = re.sub(r"^(\[[^\]]*\]\s*)+", "", title).strip()
+        if norm_title:
+            if norm_title in seen_titles:
+                continue
+            seen_titles.add(norm_title)
+
+        if not stock_name:
+            relevant, level = True, "직접"
+        else:
+            in_title = stock_name in title
+            in_text = stock_name in text
+            co_mentioned = in_title and any(o in title for o in others)
+            if in_title and not co_mentioned:
+                relevant, level = True, "직접"
+            elif in_title or in_text:
+                relevant, level = False, "간접"
+            else:
+                relevant, level = False, "무관"
+
+        p_hits = [w for w in POS_WORDS if w in text]
+        n_hits = [w for w in NEG_WORDS if w in text]
+        if len(p_hits) > len(n_hits):
             senti = "positive"
-        elif n > p:
+        elif len(n_hits) > len(p_hits):
             senti = "negative"
         else:
             senti = "neutral"
-        if relevant:   # 심리 점수 집계에는 관련성 있는 기사만 반영
+        if relevant:   # 심리 점수 집계에는 '직접' 관련 기사만 반영
+            counts[senti] += 1
             if senti == "positive": total += 1
             elif senti == "negative": total -= 1
-        tagged.append({**it, "body": it.get("body", "")[:120], "sentiment": senti, "relevant": relevant})
-    relevant_count = sum(1 for t in tagged if t["relevant"]) or len(tagged) or 1
+        tagged.append({**it, "body": body[:120], "sentiment": senti, "relevant": relevant,
+                       "relevance": level, "evidence": (p_hits or n_hits)[:3]})
+    relevant_count = sum(counts.values()) or len(tagged) or 1
     ratio = total / relevant_count  # -1 ~ 1
     score = _clamp(50 + ratio * 60)
     if score >= 65:
@@ -908,7 +954,7 @@ def news_sentiment(news_items: list, stock_name: str = None) -> dict:
         label = "부정적"
     else:
         label = "중립적"
-    return {"items": tagged, "score": round(score, 1), "label": label}
+    return {"items": tagged, "score": round(score, 1), "label": label, "sample": counts}
 
 
 # ---------------------------------------------------------------- consensus / report
