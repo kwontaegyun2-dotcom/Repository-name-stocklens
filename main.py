@@ -258,17 +258,30 @@ def api_analyze(code: str, request: Request = None):
         targets["technical_upside"] = round((targets["technical"] - price) / price * 100, 1)
 
     # 동일업종 비교 (상위 5개) — 미국은 industryCompareInfo.globalStocks
+    # ⚠️ 진단리포트(2026-08-31) — 이 marketValue는 totalInfos의 시총(조/억 텍스트, parse_eok로
+    # 이미 억원 단위)과는 다른 별도 API 필드로, 단위 표기가 전혀 없는 순수 숫자다. 실측으로
+    # 확인: 국내는 백만원 단위(÷100 해야 억원), 미국은 천달러 단위(÷100000 해야 억달러) —
+    # 이걸 그대로 "억원/억달러"로 표시해서 SK하이닉스가 1,222,844,219억원(실제 12,228,442억원)
+    # 으로 100배 부풀려 보였다. parse_eok는 "조"/"억" 텍스트가 없으면 그냥 원값을 반환하므로
+    # 이 필드엔 애초에 안 맞는 함수였다.
     raw_peers = integ.get("industryCompareInfo")
     if isinstance(raw_peers, dict):
         raw_peers = raw_peers.get("globalStocks") or raw_peers.get("domesticStocks") or []
+    # globalStocks에는 미국 외 통화(JPY/CNY/HKD 등 도쿄·홍콩 상장 비교종목)가 섞여 나온다
+    # (실측: 6758.T 소니그룹=JPY, 81810.HK=CNY 등). 환율 변환 없이 그대로 "억 달러"로
+    # 찍으면 통화가 달라 숫자가 또 틀어지므로, USD가 아니면 시가총액 표시를 생략한다.
     peers = []
     for p in (raw_peers or [])[:6]:
+        mv = analysis.to_num(p.get("marketValue"))
+        ccy = (p.get("currencyType") or {}).get("code")
+        if us and ccy and ccy != "USD":
+            mv = None
         peers.append({
             "name": p.get("stockName"),
             "code": p.get("itemCode") or p.get("reutersCode"),
             "price": analysis.to_num(p.get("closePrice")),
             "rate": analysis.to_num(p.get("fluctuationsRatio")),
-            "market_cap": analysis.parse_eok(p.get("marketValue")) if us else analysis.to_num(p.get("marketValue")),
+            "market_cap": (mv / 100000 if us else mv / 100) if mv is not None else None,
         })
 
     # 동종업계 PER — peers 응답에는 PER이 없어 종목별로 조회한다(상위 2개만, 병렬).
