@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """주요 종목 실시간 랭킹 — 백그라운드로 채점·캐싱해 즉시 순위 제공."""
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
 
 from app import naver, analysis, chart_pro, valuation, backtest
 
@@ -235,10 +237,33 @@ US_UNIVERSE = [
 UNIVERSES = {"KR": UNIVERSE, "US": US_UNIVERSE}
 _lock = threading.Lock()
 _state = {
-    "KR": {"items": [], "updated_at": 0, "computing": False},
-    "US": {"items": [], "updated_at": 0, "computing": False},
+    "KR": {"items": [], "updated_at": 0, "computing": False, "stale": False},
+    "US": {"items": [], "updated_at": 0, "computing": False, "stale": False},
 }
 REFRESH_SEC = 1800  # 30분마다 갱신
+_cache_path = {"KR": None, "US": None}
+
+
+def init(data_dir):
+    """진단리포트(2026-08-31) UX 1번 — 배포·재시작 직후 랭킹이 처음부터 다시 계산되는
+    동안 첫 방문자가 몇십 초~몇 분씩 빈 화면을 보는 문제. 매 계산 결과를 디스크(코드
+    배포 경로 밖 STOCKLENS_DATA_DIR — auth.py의 users.db와 동일 패턴)에 스냅샷으로
+    남겨뒀다가, 프로세스 시작 시 즉시 불러와 백그라운드 재계산이 끝나기 전에도 "지난
+    결과"를 바로 보여준다. 신선도는 `stale` 플래그 + updated_at으로 프론트에 그대로
+    노출(억지로 최신인 척하지 않는다 — 이 프로젝트 일관 원칙)."""
+    data_dir = Path(data_dir)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    for market in ("KR", "US"):
+        path = data_dir / f"ranking_cache_{market}.json"
+        _cache_path[market] = path
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if raw.get("items"):
+                _state[market]["items"] = raw["items"]
+                _state[market]["updated_at"] = raw.get("updated_at", 0)
+                _state[market]["stale"] = True
+        except Exception:
+            pass
 
 
 def _safe(fn, d):
@@ -343,13 +368,22 @@ def _score(entry, market, bench=None):
         return None
 
 
-def _publish(st, out):
+def _publish(st, out, market=None):
     snap = sorted(out, key=lambda x: x["score"], reverse=True)
     for i, r in enumerate(snap, 1):
         r["rank"] = i
+    updated_at = time.time()
     with _lock:
         st["items"] = snap
-        st["updated_at"] = time.time()
+        st["updated_at"] = updated_at
+        st["stale"] = False   # 이번 프로세스에서 실제로 새로 계산한 데이터로 교체됨
+    path = _cache_path.get(market) if market else None
+    if path:
+        try:
+            path.write_text(json.dumps({"items": snap, "updated_at": updated_at}, ensure_ascii=False),
+                             encoding="utf-8")
+        except Exception:
+            pass
 
 
 PRICE_REFRESH_SEC = 60  # 등락률만 자주 갱신 — 전체 재계산(30분)보다 훨씬 자주
@@ -420,7 +454,7 @@ def _compute(market):
                 if r:
                     out.append(r)
                 if out and (i % 20 == 0 or i == total):
-                    _publish(st, out)
+                    _publish(st, out, market)
         # 전체 계산이 끝난 뒤(완전한 out)에만 백테스트 스냅샷을 남긴다 — 하루 한 번만
         # 실제로 기록되므로(app/backtest.py가 idempotent 체크) 30분마다 불려도 무방하다.
         _safe(lambda: backtest.snapshot(market, out), None)
@@ -461,7 +495,7 @@ def get(market: str = "KR", sector: str = None):
     st = _state[market]
     with _lock:
         items = list(st["items"])
-        meta = {"updated_at": st["updated_at"], "computing": st["computing"]}
+        meta = {"updated_at": st["updated_at"], "computing": st["computing"], "stale": st["stale"]}
     # 미국 첫 로드: 아직 비어 있으면 집계중으로 표시(프론트가 폴링)
     if market == "US" and not items:
         meta["computing"] = True

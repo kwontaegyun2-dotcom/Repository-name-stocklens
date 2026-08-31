@@ -1208,7 +1208,7 @@ async function loadRanking(sector = "전체") {
     // 있어 10초로 늦췄다(실측: 오라클 인스턴스가 2코어/1GB로 작아 이런 부하가 그대로
     // 체감 지연으로 이어짐).
     clearTimeout(rankPollTimer);
-    if (d.computing) {
+    if (d.computing || d.stale) {
       rankPollTimer = setTimeout(() => loadRanking(currentSector), 10000);
     }
   } catch {
@@ -1249,7 +1249,12 @@ let rankShown = 5;
 function renderRanking(d) {
   if (d.updated_at) {
     const dt = new Date(d.updated_at * 1000);
-    const suffix = d.computing ? ` · 집계 중(${d.items.length}종목 반영됨)…` : "";
+    // 진단리포트(2026-08-31) UX 1번 — 서버 재시작 직후엔 디스크에 저장해 둔 지난 결과를
+    // 먼저 보여준다(백엔드 ranking.init()). "집계 중" 문구만 있으면 지금 보이는 숫자가
+    // 방금 계산된 건지 어제 데이터인지 알 수 없어 오해를 살 수 있으므로, 재시작 후
+    // 아직 한 번도 새로 계산되지 않은 상태(stale)는 별도로 안내한다.
+    const suffix = d.stale ? " · 재시작 전 마지막 결과, 최신 계산 중…"
+      : d.computing ? ` · 집계 중(${d.items.length}종목 반영됨)…` : "";
     $("rank-updated").textContent = `· ${dt.getHours()}시 ${String(dt.getMinutes()).padStart(2, "0")}분 기준${suffix}`;
   }
   if (!d.items.length) {

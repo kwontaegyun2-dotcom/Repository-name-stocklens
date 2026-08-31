@@ -23,6 +23,7 @@ _DATA_DIR = Path(os.environ.get("STOCKLENS_DATA_DIR") or (BASE / "data"))
 @app.on_event("startup")
 def _startup():
     backtest.init(_DATA_DIR)   # ranking 백그라운드 스레드가 매 계산마다 스냅샷을 남기므로 먼저 초기화
+    ranking.init(_DATA_DIR)    # 재시작 직후에도 지난 랭킹 스냅샷을 즉시 보여주기 위한 디스크 캐시
     ranking.start_background()
     auth.init(_DATA_DIR)
     push.init(_DATA_DIR)
