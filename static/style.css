@@ -157,6 +157,13 @@ b { font-weight: 700; }
 .bg-orbs span:nth-child(2) { width: 360px; height: 360px; background: #22d3ee; top: 20%; right: 4%; animation-delay: -6s; }
 .bg-orbs span:nth-child(3) { width: 380px; height: 380px; background: #a855f7; bottom: -100px; left: 40%; animation-delay: -12s; }
 @keyframes float { 0%,100% { transform: translateY(0) translateX(0); } 50% { transform: translateY(-40px) translateX(24px); } }
+/* 진단(2026-09-01, 모바일 체감속도) — filter:blur(90px)는 CSS 속성 중 가장 무거운
+   축에 속하는데, position:fixed 배경이라 스크롤할 때마다 매 프레임 다시 합성해야 한다.
+   데스크톱 GPU는 무리 없지만 중저가 모바일 기기에서는 스크롤 버벅임·배터리 소모의
+   실질적 원인이 된다. 시각 효과(흐린 원)는 그대로 두고 애니메이션만 모바일에서 끈다. */
+@media (max-width: 640px) {
+  .bg-orbs span { animation: none; }
+}
 
 /* ---------- topbar ---------- */
 .topbar {
@@ -593,14 +600,22 @@ td.cmp-best { color: var(--green); font-weight: 800; background: rgba(46,230,166
 
 /* 정보 아이콘 + 클릭/포커스 툴팁 (예: 판단 신뢰도 설명) */
 .info-dot { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border-radius: 50%; background: var(--surface2); border: 1px solid var(--border); font-size: var(--fs-2xs); font-style: normal; cursor: help; color: var(--muted); flex-shrink: 0; }
+/* ⚠️ 모바일 화면 흔들림 재발(2026-09-01, 사용자 지적) — 122행 주석이 "html에 안전장치를
+   걸었다"고 했지만 근본 원인(.tooltip-pop이 visibility:hidden 상태에서도 레이아웃 폭을
+   차지)은 안 고쳐진 채 남아 있었다. 실측: 아이콘이 화면 오른쪽에 가까운 카드(예: 상승여력
+   경고, 신호 일치도)에서 220px 폭 툴팁이 뷰포트 밖으로 튀어나가 document.documentElement.
+   scrollWidth가 항상 실제 폭보다 20~30px 크게 잡혔다 — html의 overflow-x:hidden이 실제
+   가로 스크롤은 막아도, iOS 관성 스크롤은 이 "화면 밖 여분 공간"에 반응해 미세하게
+   좌우로 튕긴다. visibility 대신 display:none을 기본값으로 둬서(펼쳐지지 않은 상태에서는
+   레이아웃에 아예 존재하지 않게) 근본적으로 없앤다 — 대신 페이드 트랜지션은 포기한다. */
 .info-dot .tooltip-pop {
   position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
   width: 220px; max-width: min(220px, calc(100vw - 32px)); padding: 10px 12px; border-radius: 10px;
   background: var(--pop); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.25);
   color: var(--text); font-size: var(--fs-xs); font-weight: 500; line-height: 1.5; text-align: left;
-  opacity: 0; visibility: hidden; transition: .15s; pointer-events: none; z-index: 20;
+  pointer-events: none; z-index: 20; display: none;
 }
-.info-dot:hover .tooltip-pop, .info-dot:focus .tooltip-pop, .info-dot.open .tooltip-pop { opacity: 1; visibility: visible; }
+.info-dot:hover .tooltip-pop, .info-dot:focus .tooltip-pop, .info-dot.open .tooltip-pop { display: block; }
 .hl-why-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .hl-why-col h4 { font-size: var(--fs-sm); margin-bottom: 8px; color: var(--muted); }
 .hl-reasons { list-style: none; display: flex; flex-direction: column; gap: 6px; }

@@ -18,8 +18,16 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=103">
-<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<link rel="stylesheet" href="/static/style.css?v=104">
+<!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
+     defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
+     기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
+     와이파이보다 훨씬 크게 체감된다(이 세션의 Browser 미리보기 도구가 계속 타임아웃난
+     것도 같은 원인으로 추정). defer로 바꿔 HTML 파싱과 병렬 다운로드되게 하고, app.js와
+     상대 실행순서(문서에 먼저 나오는 이 스크립트 → app.js)는 그대로 유지한다(둘 다
+     defer면 문서 순서대로 실행되므로 안전 — app.js는 이미 window.LightweightCharts
+     존재 여부를 체크하는 방어 코드가 있어 로드 시점이 조금 달라져도 깨지지 않는다). -->
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js" defer></script>
 </head>
 <body>
 <!-- 아이콘 스프라이트 (UI/UX 진단보고서 4-3) — 화면 골격의 이모지를 대체한다.
@@ -874,6 +882,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=113"></script>
+<script src="/static/app.js?v=113" defer></script>
 </body>
 </html>
