@@ -1237,6 +1237,15 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .bt-stock.down { color: var(--down); }
 .bt-stock-more { font-size: var(--fs-2xs); padding: 2px 8px; color: var(--dim); }
 
+/* 진단리포트(2026-08-31) 7번 — MDD·변동성·샤프·거래비용·매칭실패 고지, 최소기준
+   미달 경고, 계산방식 공개. */
+.bt-detail { grid-column: 1 / -1; font-size: var(--fs-2xs); color: var(--muted); padding: 0 0 4px; }
+.bt-early-warning { background: rgba(255,176,32,.1); border: 1px solid rgba(255,176,32,.35);
+  border-radius: 12px; padding: 12px 16px; margin-bottom: 14px; font-size: var(--fs-sm); line-height: 1.6; }
+.bt-methodology { margin-top: 14px; font-size: var(--fs-xs); color: var(--muted); }
+.bt-methodology summary { cursor: pointer; font-weight: 600; padding: 6px 0; }
+.bt-methodology ul { margin: 8px 0 0 18px; display: flex; flex-direction: column; gap: 6px; line-height: 1.6; }
+
 /* ---------- footer ---------- */
 .site-footer { text-align: center; padding: 28px 16px 20px; color: var(--dim); font-size: var(--fs-xs); font-weight: 500; }
 .footer-disclaimer { max-width: 640px; margin: 0 auto 10px; line-height: 1.6; color: var(--dim); }

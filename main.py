@@ -318,14 +318,22 @@ def api_analyze(code: str, request: Request = None):
     combined = (analysis.combined_action(ai_verdict["tier"], tech["verdict_class"])
                 if tech.get("available") else None)
 
-    # ⚠️ 손절가(기술적 지지선 0.96배 기반)와 3차 매수가(밸류에이션 적정가 0.80배 기반)는
+    # ⚠️ 손절가(기술적 지지선 기반)와 3차 매수가(밸류에이션 적정가 0.80배 기반)는
     # 서로 다른 모델이라 손절가가 3차 매수가보다 높아지는 모순이 생길 수 있다
     # (2차 진단리포트 4-3: 3차 매수가 1,316,277원 > 손절가 1,318,080원 사례). 손절가는
     # 항상 가장 깊은 매수 단계(3차)보다 아래에 있어야 "계획대로 다 사도 손절선 위"가 된다.
+    # 손절이 단일가 대신 구간(stop_zone)이 된 뒤에도(5번 진단) 이 정합성 보정은 구간
+    # 양쪽 끝(high/low)에 동일하게 적용해야 화면에 "3차 매수가보다 높은 손절구간"이
+    # 여전히 남지 않는다.
     if tech.get("available") and targets["fair_buy"]:
         conservative_price = targets["fair_buy"]["conservative"]["price"]
         if tech["entry"]["stop_loss"] >= conservative_price:
-            tech["entry"]["stop_loss"] = round(conservative_price * 0.97)
+            adjusted = round(conservative_price * 0.97)
+            zone = tech["entry"]["stop_zone"]
+            shift = adjusted - tech["entry"]["stop_loss"]
+            zone["low"] = adjusted
+            zone["high"] = round(zone["high"] + shift)
+            tech["entry"]["stop_loss"] = adjusted
 
     return {
         "code": code,

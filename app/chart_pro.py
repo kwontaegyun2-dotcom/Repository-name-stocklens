@@ -30,27 +30,10 @@ Order Flow)으로 추가됨. 이 프로젝트는 네이버의 **일봉 OHLCV**�
 """
 import math
 
-from app.analysis import _clamp, sma
+from app.analysis import _clamp, sma, atr
 
 
 # ---------------------------------------------------------------- 기본 지표
-def atr(candles, n=14):
-    """Average True Range — 변동성의 절대 크기."""
-    if len(candles) < n + 1:
-        return None
-    trs = []
-    for i in range(1, len(candles)):
-        h, l = candles[i]["high"], candles[i]["low"]
-        pc = candles[i - 1]["close"]
-        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
-    if len(trs) < n:
-        return None
-    a = sum(trs[:n]) / n
-    for t in trs[n:]:
-        a = (a * (n - 1) + t) / n      # Wilder 평활
-    return a
-
-
 def obv(candles):
     """On Balance Volume — 종가 방향으로 거래량을 누적(매집/분산 추적)."""
     if len(candles) < 2:

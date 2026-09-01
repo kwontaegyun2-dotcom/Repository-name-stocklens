@@ -739,17 +739,37 @@ async function loadBacktest() {
     setSectionCollapsed("bt-body-wrap", !anyReady);
     const note = document.getElementById("bt-toggle-note");
     if (note) note.textContent = anyReady ? "" : `추적 ${d.days_collected}일째 — 1주일 뒤부터 결과 표시`;
-    document.getElementById("bt-body").innerHTML = `<div class="bt-grid">${d.periods.map((p) => {
+    // 진단리포트(2026-08-31) 7번 — "13일·표본 2종목으로 성과를 판단하기엔 이르다"는
+    // 지적. 어떤 기간이든 최소기준(등급당 100종목·6개월 추적) 미달이면 결론을 내리기
+    // 이르다는 경고를 강하게, 항상 보이게 띄운다(접혀도 이 배너는 남는다).
+    const allReliable = d.periods.every((p) => !p.available || p.reliable);
+    const warnHtml = allReliable ? "" : `<div class="bt-early-warning">
+      ⚠️ <b>성과 검증 중 — 아직 결론을 내리기 이른 단계입니다.</b>
+      등급별 표본이 ${d.methodology.min_reliable_sample}종목 이상, 추적 기간이
+      ${d.methodology.min_reliable_days}일(6개월) 이상 쌓이기 전까지는 통계적으로
+      의미 있는 결과로 보지 마세요. 아래 수치는 참고용입니다.
+    </div>`;
+    // 종목명이 안 보인다는 지적 — 예전엔 등급별 평균 수익률만 보여주고 정작 "그래서
+    // S등급이 어떤 종목들인데"가 안 보였다. app/backtest.py가 이제 등급당 수익률
+    // 상위 최대 10종목을 함께 내려주므로 칩 목록으로 붙인다.
+    const periodsHtml = `<div class="bt-grid">${d.periods.map((p) => {
       if (!p.available) {
         return `<div class="bt-period bt-period-locked">
           <div class="bt-period-label">${p.label}</div>
           <div class="bt-period-locked-msg">🔒 아직 데이터 부족<br><small>추적 ${d.days_collected}/${p.days}일째</small></div>
         </div>`;
       }
-      // 종목명이 안 보인다는 지적 — 예전엔 등급별 평균 수익률만 보여주고 정작 "그래서
-      // S등급이 어떤 종목들인데"가 안 보였다. app/backtest.py가 이제 등급당 수익률
-      // 상위 최대 10종목을 함께 내려주므로 칩 목록으로 붙인다.
-      const rows = p.buckets.filter((b) => b.count > 0).map((b) => `
+      const rows = p.buckets.filter((b) => b.count > 0).map((b) => {
+        // MDD·변동성·샤프·순수익(거래비용 반영)·제외종목 — 표본이 극히 작을 때(예: 2~3
+        // 종목)는 일별 시계열이 3영업일 미만일 수 있어 null일 수 있다(정직하게 "-").
+        const detailParts = [
+          `순수익(비용반영) ${sign(b.net_avg_return, 1)}%`,
+          b.mdd != null ? `MDD ${b.mdd}%` : null,
+          b.volatility != null ? `변동성(연) ${b.volatility}%` : null,
+          b.sharpe != null ? `샤프 ${b.sharpe}` : null,
+          b.excluded_count > 0 ? `⚠️ 매칭 실패 ${b.excluded_count}종목 제외` : null,
+        ].filter(Boolean);
+        return `
         <div class="bt-row">
           <span class="bt-grade">${b.grade}</span>
           <span class="bt-n">${b.count}종목</span>
@@ -757,16 +777,29 @@ async function loadBacktest() {
           <span class="bt-win">승률 ${b.win_rate}%</span>
           ${b.excess_vs_bench != null ? `<span class="bt-excess ${b.excess_vs_bench >= 0 ? "up" : "down"}">지수대비 ${sign(b.excess_vs_bench, 1)}%p</span>` : ""}
         </div>
+        <div class="bt-detail">${detailParts.join(" · ")}</div>
         <div class="bt-stocks">
           ${(b.stocks || []).map((s) =>
             `<span class="bt-stock ${s.return >= 0 ? "up" : "down"}">${s.name} ${sign(s.return, 1)}%</span>`).join("")}
           ${b.more_count > 0 ? `<span class="bt-stock-more">+${b.more_count}종목 더</span>` : ""}
-        </div>`).join("");
+        </div>`;
+      }).join("");
       return `<div class="bt-period">
-        <div class="bt-period-label">${p.label} <small>(${p.base_date} 기준 ${p.sample_size}종목)</small></div>
+        <div class="bt-period-label">${p.label} <small>(${p.base_date} 기준 ${p.sample_size}종목${p.reliable ? "" : " · 표본/기간 기준 미달"})</small></div>
         ${rows || `<p class="hint-p">표본 부족</p>`}
       </div>`;
     }).join("")}</div>`;
+    const methodHtml = `<details class="bt-methodology">
+      <summary>계산 방식·한계 공개 ▾</summary>
+      <ul>
+        <li>${d.methodology.weighting}</li>
+        <li>${d.methodology.grade_reassignment}</li>
+        <li>${d.methodology.cost_assumption}</li>
+        <li>${d.methodology.survivorship}</li>
+        <li>${d.methodology.no_hindsight}</li>
+      </ul>
+    </details>`;
+    document.getElementById("bt-body").innerHTML = warnHtml + periodsHtml + methodHtml;
   } catch {
     document.getElementById("bt-body").innerHTML = `<p class="hint-p">불러오지 못했습니다.</p>`;
   }
@@ -1541,8 +1574,11 @@ function renderTodayValuation(val, best) {
       text: `내 PER ${val.peer.my_per}배 vs 업종 평균 ${val.peer.peer_avg}배 — ${val.peer.label}` });
   }
   if (val.peg) {
-    rows.push({ label: "PEG (성장 대비 밸류, 미래가치)", ok: val.peg.peg <= 1.0,
-      text: `PEG ${val.peg.peg} = PER ${val.peg.per_used}배 ÷ 성장률 ${val.peg.growth_used}% — ${val.peg.label}` });
+    // 진단리포트(2026-08-31) 6번 — 저기반 회복 의심 시 점수를 완화했다는 사실과
+    // (있으면) 정상화 CAGR을 함께 보여준다.
+    const cagrNote = val.peg.cagr != null ? ` · 참고 ${val.peg.cagr_years}년 CAGR ${val.peg.cagr}%` : "";
+    rows.push({ label: "PEG (성장 대비 밸류, 미래가치)", ok: val.peg.peg <= 1.0 && !val.peg.extreme_growth,
+      text: `PEG ${val.peg.peg} = PER ${val.peg.per_used}배 ÷ 성장률 ${val.peg.growth_used}%${cagrNote} — ${val.peg.label}` });
   }
   if (val.ev_ebitda) {
     rows.push({ label: "EV/EBITDA", ok: val.ev_ebitda.ev_ebitda <= 12,
@@ -1799,8 +1835,11 @@ function renderPriceLadder(fb, price, target) {
 // 1차·2차 매수가가 현재가보다 비싸게 보여 "1차는 지금보다 비싸게 사라"는 말처럼 읽히는
 // 문제가 있었다(진단리포트 지적). 가격 순서 자체는 안전마진 로직상 정상이므로 바꾸지 않고,
 // 대신 각 단계가 "이미 도달했는지"를 명시해 실행 가능한 지시로 만든다.
-function renderBuyPlan(fb, targetPrice, stopLoss, price) {
+function renderBuyPlan(fb, targetPrice, stopZone, price) {
   $("buy-plan-box").classList.remove("hidden");
+  // 진단리포트(2026-08-31) 5번 — 자동 분석치가 "일괄 진입"·"즉시 집행 가능" 같은 단정적
+  // 매매 지시로 읽히면 자동생성 결과를 실제 매매 명령으로 오인하기 쉽다는 지적. 배분
+  // 비율(30/30/40)도 하나의 예시일 뿐 확정된 규칙이 아님을 명시한다.
   const stages = [
     { label: "분할 진입 1차", pct: 30, price: fb.optimistic.price },
     { label: "분할 진입 2차", pct: 30, price: fb.base.price },
@@ -1814,7 +1853,7 @@ function renderBuyPlan(fb, targetPrice, stopLoss, price) {
     if (reached) cumPct += s.pct;
     const gap = price != null ? (s.price - price) / price * 100 : null;
     const status = reached
-      ? `<div class="buy-stage-status reached">✅ 도달 · 즉시 집행 가능</div>`
+      ? `<div class="buy-stage-status reached">✅ 도달 · 해당 가격 구간 진입</div>`
       : `<div class="buy-stage-status pending">⏳ 대기 · ${gap.toFixed(1)}% 더 하락 시 도달</div>`;
     return `
     <div class="buy-stage ${reached ? "is-reached" : ""}">
@@ -1823,23 +1862,25 @@ function renderBuyPlan(fb, targetPrice, stopLoss, price) {
       ${price != null ? status : ""}
     </div>`;
   }).join("");
+  $("buy-plan-pct-note").textContent = "30%·30%·40%는 예시 배분이며, 투자 기간과 감당 가능한 손실 규모에 맞춰 직접 조정하는 것을 권장합니다.";
   // 종합진단리포트(2026-08-24) 4-6 — 3단계 전부 현재가보다 위에 있으면(주가가 이미 크게
   // 빠진 뒤) "보수적(안전마진 20%)"이라는 이름의 가격조차 현재가보다 비싸 안전마진이라는
   // 말이 무의미해진다. 이 경우 "N% 구간 도달"이라는 부분 도달 문구 대신, 분할 자체가
-  // 의미 없는 상태임을 명시하고 일괄 진입 가능 구간임을 알린다.
+  // 의미 없는 상태임을 명시한다(진단리포트 5번 — "일괄 진입" 대신 "매수 검토 가능 구간"
+  // 으로 완화, 밸류에이션 관점의 참고 정보일 뿐 매매 지시가 아님을 분명히 함).
   const noteEl = $("buy-plan-reached-note");
   if (reachedIdx.length === stages.length) {
     noteEl.classList.remove("hidden");
-    noteEl.textContent = "🎯 현재가가 가장 보수적인 안전마진 기준가보다도 낮습니다 — 3단계 분할 없이 일괄 진입을 고려할 수 있는 구간입니다.";
+    noteEl.textContent = "🎯 현재가가 가장 보수적인 안전마진 기준가보다도 낮습니다 — 밸류 기준으로는 매수 검토 가능 구간입니다.";
   } else if (reachedIdx.length) {
     noteEl.classList.remove("hidden");
-    noteEl.textContent = `🎯 현재가 기준 ${cumPct}% 구간에 이미 도달했습니다 — 해당 비중은 지금 바로 집행할 수 있습니다.`;
+    noteEl.textContent = `🎯 현재가 기준 ${cumPct}% 구간에 이미 도달했습니다 — 해당 비중은 지금 가격대에서 매수를 검토할 수 있습니다.`;
   } else {
     noteEl.classList.add("hidden");
     noteEl.textContent = "";
   }
   $("buy-plan-target").textContent = targetPrice ? pw(targetPrice) : "-";
-  $("buy-plan-stop").textContent = stopLoss ? pw(stopLoss) : "-";
+  $("buy-plan-stop").textContent = stopZone ? pwRange(stopZone.low, stopZone.high) : "-";
 }
 
 /* ---------------- 종목상세 탭 ---------------- */
@@ -2020,10 +2061,10 @@ function render(d) {
     $("qs-bad").innerHTML = (badReasons.slice(0, 2).length
       ? badReasons.slice(0, 2).map((r) => `<li>${r.text}</li>`)
       : ["<li>뚜렷한 우려 신호는 없습니다.</li>"]).join("");
-    const stopLoss = (tech.available && tech.entry) ? tech.entry.stop_loss : null;
+    const stopZone = (tech.available && tech.entry) ? tech.entry.stop_zone : null;
     const nextParts = [];
     if (fbBase) nextParts.push(`${pw(fbBase.price)} 도달 시 매수 검토`);
-    if (stopLoss) nextParts.push(`${pw(stopLoss)} 이탈 시 리스크 관리`);
+    if (stopZone) nextParts.push(`${pwRange(stopZone.low, stopZone.high)} 위험 구간 이탈 시 리스크 관리`);
     $("qs-next").textContent = nextParts.length ? nextParts.join(" · ") : "추가로 확인할 가격 기준이 없습니다.";
   }
 
@@ -2101,8 +2142,8 @@ function render(d) {
       </div>`;
     }).join("");
     renderPriceLadder(fb, d.price, t.consensus);
-    const stopLoss = (d.technical.available && d.technical.entry) ? d.technical.entry.stop_loss : null;
-    renderBuyPlan(fb, t.consensus, stopLoss, d.price);
+    const stopZone = (d.technical.available && d.technical.entry) ? d.technical.entry.stop_zone : null;
+    renderBuyPlan(fb, t.consensus, stopZone, d.price);
   } else {
     $("fair-buy-box").classList.add("hidden");
     $("price-ladder").innerHTML = "";
@@ -2121,7 +2162,7 @@ function render(d) {
       <div class="entry-item sell"><label>🔴 매도·차익실현 구간</label><div>${pwRange(e.sell_zone_low, e.sell_zone_high)}</div></div>
       <div class="entry-item"><label>지지선</label><div class="up">${pw(e.support)}${tech.support_confluence ? ` <small class="hint">(컨플루언스 ${pw(tech.support_confluence)})</small>` : ""}</div></div>
       <div class="entry-item"><label>저항선</label><div class="down">${pw(e.resistance)}${tech.resistance_confluence ? ` <small class="hint">(컨플루언스 ${pw(tech.resistance_confluence)})</small>` : ""}</div></div>
-      <div class="entry-item"><label>손절 참고가</label><div class="down">${pw(e.stop_loss)}</div></div>`;
+      <div class="entry-item"><label>위험 구간 <small class="hint">종목 변동성(ATR) 기반 — 고정폭이 아닙니다</small></label><div class="down">${e.stop_zone ? pwRange(e.stop_zone.low, e.stop_zone.high) : pw(e.stop_loss)}</div></div>`;
   }
 
   /* chart */
@@ -2961,8 +3002,9 @@ function renderValuation(v) {
     `${h.avg_per ?? "-"} / ${h.avg_fper ?? "-"}배`,
     `실적 ${h.per_count}년 기준${h.from_per_row ? " · 공시 PER 사용" : " · 연평균 주가 기반"}`]);
   if (v.peg) cells.push(["PEG",
-    `<span class="${v.peg.peg <= 1 ? "up" : v.peg.peg > 1.5 ? "down" : ""}">${v.peg.peg}</span>`,
-    `${v.peg.per_used}배 ÷ 성장 ${v.peg.growth_used}%${v.peg.capped ? ` (실제 ${v.peg.growth_raw}% → 상한 적용)` : ""} — ${v.peg.label}`]);
+    `<span class="${v.peg.peg <= 1 && !v.peg.extreme_growth ? "up" : v.peg.peg > 1.5 ? "down" : ""}">${v.peg.peg}</span>`,
+    `${v.peg.per_used}배 ÷ 성장 ${v.peg.growth_used}%${v.peg.capped ? ` (실제 ${v.peg.growth_raw}% → 상한 적용)` : ""}` +
+    `${v.peg.cagr != null ? ` · 참고 ${v.peg.cagr_years}년 CAGR ${v.peg.cagr}%` : ""} — ${v.peg.label}`]);
   if (v.peer) cells.push(["동종업계 PER",
     `${v.peer.my_per} vs ${v.peer.peer_avg}배`,
     `${v.peer.label} · 업종 ${v.peer.is_median ? "중앙값" : "평균"}`]);

@@ -140,6 +140,26 @@ def bollinger(closes, n=20, k=2.0):
     return {"upper": upper, "mid": mid, "lower": lower, "pct_b": pos}
 
 
+def atr(candles, n=14):
+    """Average True Range — 변동성의 절대 크기(Wilder 평활). 원래 chart_pro.py에만
+    있었는데, 진단리포트(2026-08-31) 5번 — 손절가를 단일 고정 배수(지지선×0.96)
+    대신 종목별 실제 변동성 기반 구간으로 내려면 여기(technical_analysis)에서도
+    필요해 공용 지표로 옮겼다(chart_pro.py는 이 이름을 그대로 import해서 씀)."""
+    if len(candles) < n + 1:
+        return None
+    trs = []
+    for i in range(1, len(candles)):
+        h, l = candles[i]["high"], candles[i]["low"]
+        pc = candles[i - 1]["close"]
+        trs.append(max(h - l, abs(h - pc), abs(l - pc)))
+    if len(trs) < n:
+        return None
+    a = sum(trs[:n]) / n
+    for t in trs[n:]:
+        a = (a * (n - 1) + t) / n      # Wilder 평활
+    return a
+
+
 def _support_resistance(highs, lows, price, lookback=140, span=4):
     """스윙 고점/저점 기반 지지·저항.
     현재가 아래에서 가장 가까운(=가장 높은) 스윙 저점 = 지지,
@@ -455,6 +475,21 @@ def technical_analysis(candles: list) -> dict:
     # 매수 관심 구간: 지지선 ~ 현재가 아래 가장 가까운 지지(스윙 지지·20일선·60일선)
     anchors = [x for x in (support, mas.get(20), mas.get(60)) if x and x < price * 0.999]
     buy_anchor = max(anchors) if anchors else support
+
+    # 진단리포트(2026-08-31) 5번 — 손절가를 지지선의 고정 배수(-4%)로 단일 숫자를
+    # 찍으면, 원래 하루 등락이 큰 종목과 잔잔한 종목이 똑같은 -4%를 손절선으로 받는다
+    # (예: 일간 변동성 1%인 대형주와 5%인 소형주가 같은 폭). ATR(실제 변동성의 절대
+    # 크기)만큼을 지지선에서 빼서 종목별로 다른 폭을 갖게 하고, 단일가 대신 "이 구간
+    # 안이면 아직 지켜지는 중, 벗어나면 이탈"이라는 폭을 그대로 노출한다(0.5~1.5×ATR).
+    # ATR을 못 구하면(캔들 부족 등) 기존 고정 배수로 안전하게 폴백한다.
+    a = atr(candles)
+    if a:
+        stop_zone_high = round(support - 0.5 * a)
+        stop_zone_low = round(support - 1.5 * a)
+    else:
+        stop_zone_high = round(support * 0.98)
+        stop_zone_low = round(support * 0.94)
+
     entry = {
         "support": round(support),
         "resistance": round(resistance),
@@ -462,7 +497,8 @@ def technical_analysis(candles: list) -> dict:
         "buy_zone_high": round(buy_anchor * 1.01),
         "sell_zone_low": round(resistance * 0.98),
         "sell_zone_high": round(resistance),
-        "stop_loss": round(support * 0.96),
+        "stop_zone": {"high": stop_zone_high, "low": stop_zone_low},
+        "stop_loss": stop_zone_low,  # 하위호환(main.py 3차 매수가 정합성 체크 등) — 구간의 보수적 하단
     }
 
     # 1차 목표가 = 가장 가까운 저항(현실적 도달선)

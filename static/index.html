@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=104">
+<link rel="stylesheet" href="/static/style.css?v=105">
 <!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
      defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
      기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
@@ -339,9 +339,10 @@
         <div class="fb-head"><span class="fb-label"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-steps"/></svg> 단계별 매수 전략</span></div>
         <div class="buy-plan-reached-note hidden" id="buy-plan-reached-note"></div>
         <div class="buy-plan-stages" id="buy-plan-stages"></div>
+        <p class="hint-p" id="buy-plan-pct-note"></p>
         <div class="buy-plan-footer">
           <div><label>목표가</label><span id="buy-plan-target"></span></div>
-          <div><label>위험관리 가격 (손절)</label><span id="buy-plan-stop"></span></div>
+          <div><label>위험 구간 <small class="hint">종목 변동성(ATR) 기반 — 고정폭이 아닙니다</small></label><span id="buy-plan-stop"></span></div>
         </div>
       </div>
     </details>
@@ -882,6 +883,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=113" defer></script>
+<script src="/static/app.js?v=115" defer></script>
 </body>
 </html>

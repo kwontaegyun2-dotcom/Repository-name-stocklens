@@ -228,18 +228,91 @@ def _band_score(ratio):
 PEG_GROWTH_CAP = 50.0   # 성장률 상한(%)
 
 
-def peg_analysis(fper, per, growth_fwd, growth_hist):
+def _op_income_years(fin_rows):
+    """영업이익(미국은 EBIT) 실적연도 시계열 → [{year, value, consensus}]. op_growth/
+    op_growth_fwd(analysis.py)와 같은 원본 행을 써야 같은 기준의 성장률끼리 비교된다
+    (EPS 성장률과 영업이익 성장률은 다른 지표라 섞으면 안 됨 — 진단리포트 6번)."""
+    series = None
+    for name, s in (fin_rows or {}).items():
+        if name.strip() in ("영업이익", "EBIT"):
+            series = s
+            break
+    if not series:
+        return []
+    out = []
+    for s in series:
+        y = _fy_year(s.get("period"))
+        if y and s.get("value") is not None:
+            out.append({"year": y, "value": s["value"], "consensus": s.get("consensus", False)})
+    return sorted(out, key=lambda r: r["year"])
+
+
+def _normalized_cagr(years):
+    """실적연도(컨센서스 제외)만으로 정상화 CAGR 계산 — 참고용 병기 지표.
+
+    진단리포트(2026-08-31) 6번이 요구한 "3년 정상화 EPS CAGR 병행"의 구현. 네이버가
+    실적연도를 3년치만 주기 때문에(파일 상단 12행 데이터 한계 참고) "3년 CAGR"을
+    고정 요구하면 항상 None이 나온다 — 실적연도가 3개 이상이면 있는 구간(보통 2년
+    스팬) 그대로 쓴다. ⚠️ 이 값은 화면에 참고 정보로만 병기하고 PEG 계산 자체를
+    이걸로 대체하지 않는다 — 확보 가능한 3년이 마침 사이클 저점~회복 구간과 겹치면
+    (실측 확인: 삼성전자 2년 CAGR 157.7% — 원래 성장률 802%보다는 낮지만 이것도
+    똑같이 저점에서 시작해 부풀려진 숫자라 "정상화"됐다고 보기 어렵다) 이 값 자체가
+    똑같은 왜곡을 그대로 물려받을 수 있기 때문이다."""
+    actual = sorted([y for y in (years or []) if not y.get("consensus") and y.get("value") is not None],
+                     key=lambda y: y["year"])
+    if len(actual) < 3:
+        return None
+    first, last = actual[0], actual[-1]
+    n_years = last["year"] - first["year"]
+    if not (first["value"] and first["value"] > 0 and last["value"] and last["value"] > 0 and n_years > 0):
+        return None
+    return (((last["value"] / first["value"]) ** (1 / n_years)) - 1) * 100, n_years
+
+
+# 성장률이 상한보다도 이만큼(3배) 더 크면 "저기반 회복/사이클 반등" 의심 — 상한을
+# 적용해도 여전히 PEG가 과도하게 낙관적인 신호를 낼 수 있어 점수 자체를 완화한다.
+EXTREME_GROWTH_MULT = 3.0
+
+
+def peg_analysis(fper, per, growth_fwd, growth_hist, fin_rows=None):
     """PEG = PER ÷ 향후 EPS 성장률. 선행 PER 우선, 성장률은 전망 우선.
 
     ⚠️ 저기반 회복(적자→흑자, 반도체 사이클 등)에서는 성장률이 수백 %로 튄다.
        그대로 나누면 PEG가 0.01처럼 무의미해지므로 **50%로 상한**을 둔다.
        (성장률 50%면 PER 50배까지도 PEG 1 — 충분히 관대한 기준)
+
+    진단리포트(2026-08-31) 6번 — 상한(50%)만으로는 부족하다는 지적: 이미 낮게
+    형성된 PER(사이클 저점 경계 심리가 반영된 가격)에 저기반 반등 성장률을 그대로
+    나누면 상한을 적용해도 여전히 PEG 0.1대처럼 과도하게 낙관적인 신호가 나온다
+    (실측 사례: 삼성전자 PER 5.4배 ÷ 성장률 상한 50% = PEG 0.11). 대안으로 시도한
+    "정상화 CAGR로 대체"는 확보 가능한 실적연도(3년)가 마침 사이클 저점~회복 구간과
+    겹칠 때 CAGR 자체도 똑같이 부풀려져(실측: 삼성전자 2년 CAGR 157.7%, 원본 802%
+    보다는 낮지만 여전히 극단적) 효과가 없었다 — "더 나은 성장률 숫자"를 찾는 대신,
+    다음 두 가지로 접근을 바꾼다:
+    1) 직전 연도 영업적자 → 흑자 전환(턴어라운드) 직후는 "성장률" 자체가 의미 없어
+       PEG를 비활성화.
+    2) **원본 성장률이 상한의 3배를 넘으면**(저기반/사이클 반등이 거의 확실) PEG
+       점수를 중립(50점) 쪽으로 절반 완화하고 라벨에 "저기반 효과 의심"을 명시해,
+       이 신호 하나만으로 강한 저평가 결론을 내리지 않게 한다(점수는 낮추되 PEG
+       숫자 자체는 있는 그대로 보여준다 — 계산을 숨기지 않는다는 원칙).
     """
     base_per = fper if (fper and fper > 0) else per
     growth = growth_fwd if (growth_fwd is not None and growth_fwd > 0) else growth_hist
     if not base_per or base_per <= 0 or growth is None or growth <= 0:
         return None
+
+    op_years = _op_income_years(fin_rows)
+    actual_years = sorted([y for y in op_years if not y.get("consensus")], key=lambda y: y["year"])
+    if len(actual_years) >= 2:
+        prev_v, last_v = actual_years[-2]["value"], actual_years[-1]["value"]
+        if prev_v is not None and last_v is not None and prev_v <= 0 < last_v:
+            return None   # 직전 연도 영업적자 → 흑자 전환 직후, 성장률 기반 PEG 자체를 비활성화
+
     capped = min(growth, PEG_GROWTH_CAP)
+    cagr_result = _normalized_cagr(op_years)
+    cagr, cagr_years = cagr_result if cagr_result else (None, None)
+    extreme = growth > PEG_GROWTH_CAP * EXTREME_GROWTH_MULT
+
     peg = base_per / capped
     # 사용자 기준: 0.7이하 저평가 / 1 전후 적정 / 1.5이상 다소고평가 / 2이상 상당고평가
     if peg <= 0.7:
@@ -252,12 +325,18 @@ def peg_analysis(fper, per, growth_fwd, growth_hist):
         label, score = "고평가", 30.0
     else:
         label, score = "상당한 고평가", 14.0
+    if extreme:
+        score = round(score * 0.5 + 50 * 0.5, 1)
+        label += " (저기반 효과 의심)"
     return {
         "peg": round(peg, 2),
         "per_used": round(base_per, 2),
         "growth_used": round(capped, 1),
         "growth_raw": round(growth, 1),
         "capped": growth > PEG_GROWTH_CAP,
+        "extreme_growth": extreme,
+        "cagr": round(cagr, 1) if cagr is not None else None,
+        "cagr_years": cagr_years,
         "is_forward": bool(fper and fper > 0),
         "label": label,
         "score": score,
@@ -529,15 +608,21 @@ def analyze(metrics, fin_rows, candles, cons, peers_per=None, market_cap=None, p
             })
 
     # ── 2순위: PEG ──────────────────────────────────────────────
-    peg = peg_analysis(fper, per, metrics.get("op_growth_fwd"), metrics.get("op_growth"))
+    peg = peg_analysis(fper, per, metrics.get("op_growth_fwd"), metrics.get("op_growth"), fin_rows)
     if peg:
         parts["PEG"] = peg["score"]
         tag = "선행PER" if peg["is_forward"] else "PER"
         # 상한 절단값(growth_used)만 보여주면 "실제로는 더 높은 성장률을 상한 절단해서
         # 낮춰 계산한 것"이라는 맥락이 사라진다(3차 진단리포트 3-4). 절단된 경우 원본도 병기.
+        # 진단리포트(2026-08-31) 6번 — 정상화 CAGR을 구할 수 있으면 참고로 병기하고
+        # (요청한 "3년 CAGR 병행"), 원본 성장률이 극단적이면(extreme_growth) 그 사실과
+        # 점수를 완화했음을 함께 밝힌다.
         growth_note = f"{peg['growth_used']}%" + (f" (상한 적용, 실제 {peg['growth_raw']:.0f}%)" if peg["capped"] else "")
-        signals.append(("bull" if peg["peg"] <= 1.0 else "bear" if peg["peg"] > 1.5 else "neutral",
-                        f"PEG {peg['peg']} ({tag} {peg['per_used']}배 ÷ 성장률 {growth_note}) — {peg['label']}"))
+        if peg["cagr"] is not None:
+            growth_note += f" · 참고: {peg['cagr_years']}년 정상화 CAGR {peg['cagr']:.0f}%"
+        extreme_note = " ⚠️ 저기반 회복 구간으로 보여 점수를 중립 쪽으로 완화했습니다" if peg["extreme_growth"] else ""
+        signals.append(("bull" if peg["peg"] <= 1.0 and not peg["extreme_growth"] else "bear" if peg["peg"] > 1.5 else "neutral",
+                        f"PEG {peg['peg']} ({tag} {peg['per_used']}배 ÷ 성장률 {growth_note}) — {peg['label']}{extreme_note}"))
         checklist.append({
             "item": "PEG가 1 이하인가?",
             "verdict": peg["label"],
