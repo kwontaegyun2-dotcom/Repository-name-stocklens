@@ -2004,13 +2004,20 @@ function render(d) {
     // 그대로 "왜 사야 하나"에 노출되는 문제가 있었다(2차 진단리포트 4-1). 기준일을 함께
     // 보여주고, 괴리가 커 반영 비중을 낮춘 경우(analysis.consensus_info) 배지로 알린다.
     const cons = d.consensus || {};
-    const targetLabel = "컨센서스 목표가" + (cons.date ? ` <small class="hint">(${cons.date} 기준)</small>` : "");
+    // 진단리포트(2026-08-31) UX — "네이버 시세"/"공개 데이터" 정도로만 뭉뚱그려지고
+    // 값 하나하나가 어디서 왔는지는 안 보인다는 지적. 가장 자주 인용되는 두 값(컨센서스
+    // 목표가·매수 적정가)에 출처를 클릭 가능한 정보 아이콘으로 붙인다. 네이버 API가
+    // 실제로 제공하는 필드는 집계일·평균 목표가뿐이라(증권사 수·최고/최저가는 미제공,
+    // 실측 확인) 없는 값을 지어내지 않고 있는 그대로만 밝힌다.
+    const targetSrc = `<span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">출처: 네이버 증권 컨센서스(증권사 리포트 집계, FnGuide 제공)${cons.date ? ` · ${cons.date} 수집` : ""}. 개별 증권사 수·최고/최저 목표가는 이 데이터에 포함되어 있지 않습니다.</span></span>`;
+    const targetLabel = `컨센서스 목표가 ${targetSrc}` + (cons.date ? ` <small class="hint">(${cons.date} 기준)</small>` : "");
+    const fairBuySrc = `<span class="info-dot" tabindex="0">ⓘ<span class="tooltip-pop">출처: 외부 데이터가 아니라 StockLens가 PER·PEG·업종평균·컨센서스 목표가를 가중평균해 자체 계산한 값입니다.</span></span>`;
     const upsideFlagBadge = cons.upside_flagged
       ? ` <span class="info-dot" tabindex="0">⚠️<span class="tooltip-pop">${cons.upside_flag_reason}</span></span>`
       : "";
     const items = [
       { label: "현재가", value: pw(d.price) },
-      { label: "매수 적정가", value: fbBase ? pw(fbBase.price) : "-" },
+      { label: `매수 적정가 ${fairBuySrc}`, value: fbBase ? pw(fbBase.price) : "-" },
       { label: targetLabel, value: t.consensus ? pw(t.consensus) : "-" },
       { label: "상승여력", value: (t.consensus_upside != null ? sign(t.consensus_upside, 1) + "%" : "-") + upsideFlagBadge,
         cls: updownClass(t.consensus_upside) },
@@ -3962,7 +3969,7 @@ function renderPortfolio(p) {
       }));
     $("pf-holdings-table").querySelectorAll("[data-pf-rm]").forEach((b) => {
       b.onclick = async () => {
-        if (!confirm(`${b.dataset.pfName}을(를) 포트폴리오에서 삭제할까요? 거래 이력이 저장되지 않으므로 되돌릴 수 없습니다.`)) return;
+        if (!confirm(`${b.dataset.pfName}${josa(b.dataset.pfName, "을", "를")} 포트폴리오에서 삭제할까요? 거래 이력이 저장되지 않으므로 되돌릴 수 없습니다.`)) return;
         await api(`/api/portfolio/${b.dataset.pfRm}`, { method: "DELETE" });
         loadPortfolio();
       };

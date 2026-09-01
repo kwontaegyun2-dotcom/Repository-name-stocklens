@@ -37,6 +37,21 @@ def parse_eok(v):
     return to_num(s)
 
 
+def josa(word, with_batchim, without_batchim):
+    """받침 유무에 따라 조사를 고른다 (예: josa(name, "은", "는")).
+
+    진단리포트(2026-08-31) — build_opinion()의 한줄평이 "삼성전자은(는)"처럼 조사를
+    해소하지 않은 채 그대로 내보내고 있었다(static/app.js의 josa()는 홈 "오늘의
+    발견" 섹션에만 쓰이고 있었음 — 같은 알고리즘을 백엔드에도 포팅). 유니코드
+    한글 음절(가~힣, U+AC00~U+D7A3)은 28개씩 종성(받침) 조합이 반복되므로
+    코드포인트 % 28 == 0이면 받침 없음."""
+    w = word or ""
+    code = ord(w[-1]) - 0xAC00 if w else -1
+    if code < 0 or code > 11171:
+        return without_batchim
+    return without_batchim if code % 28 == 0 else with_batchim
+
+
 def _clamp(v, lo=0.0, hi=100.0):
     return max(lo, min(hi, v))
 
@@ -1320,13 +1335,14 @@ def build_opinion(name: str, fund: dict, tech: dict, senti: dict, cons: dict, to
         lines.append(f"기술적으로는 '{tech['verdict']}' 구간으로 판단됩니다. {tech['timing_comment']}")
 
     score = total["total_score"]
+    eun_neun = josa(name, "은", "는")
     if score >= 75:
-        head = f"{name}은(는) 종합점수 {score}점({total['grade']}등급)으로 펀더멘털과 시장 모멘텀이 모두 견조한 종목입니다."
+        head = f"{name}{eun_neun} 종합점수 {score}점({total['grade']}등급)으로 펀더멘털과 시장 모멘텀이 모두 견조한 종목입니다."
     elif score >= 60:
-        head = f"{name}은(는) 종합점수 {score}점({total['grade']}등급)으로 전반적으로 양호하나 일부 지표의 확인이 필요합니다."
+        head = f"{name}{eun_neun} 종합점수 {score}점({total['grade']}등급)으로 전반적으로 양호하나 일부 지표의 확인이 필요합니다."
     elif score >= 45:
-        head = f"{name}은(는) 종합점수 {score}점({total['grade']}등급)으로 강점과 약점이 혼재되어 선별적 접근이 필요합니다."
+        head = f"{name}{eun_neun} 종합점수 {score}점({total['grade']}등급)으로 강점과 약점이 혼재되어 선별적 접근이 필요합니다."
     else:
-        head = f"{name}은(는) 종합점수 {score}점({total['grade']}등급)으로 보수적인 접근을 권합니다."
+        head = f"{name}{eun_neun} 종합점수 {score}점({total['grade']}등급)으로 보수적인 접근을 권합니다."
 
     return {"headline": head, "points": lines}
