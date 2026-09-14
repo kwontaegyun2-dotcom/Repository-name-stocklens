@@ -52,6 +52,40 @@ def josa(word, with_batchim, without_batchim):
     return without_batchim if code % 28 == 0 else with_batchim
 
 
+def effective_quote(b: dict) -> dict:
+    """실시간 시세 배지·현재가 표시용 시세를 고른다.
+
+    2026-09-14부터 코스피·코스닥 정규장(09:00~15:30) 마감 후 16:00~20:00에
+    "애프터마켓"(시간외접속매매)이 신설돼 실시간 거래가 이어진다. 네이버는 이를
+    top-level(정규장) 필드와 별개로 `overMarketPriceInfo`에 담아 주는데,
+    `tradingSessionType`이 "REGULAR_MARKET"이 아니면서 `overMarketStatus`가
+    "OPEN"이면 그 세션이 지금 실시간으로 열려 있다는 뜻이다 — 그 경우 price/rate를
+    over 쪽 값으로 바꿔야 정규장 마감 직후에도 "장마감"으로 멈춰 보이지 않는다.
+    (밸류에이션·기술적 목표가 등 판단 로직의 기준가는 여전히 정규장 종가를 쓴다 —
+    유동성이 얕은 애프터마켓 체결가로 점수·목표가가 흔들리면 안 되므로 여기서는
+    화면 표시용 시세만 바꾼다.)
+    """
+    over = b.get("overMarketPriceInfo") or {}
+    session = over.get("tradingSessionType")
+    if session and session != "REGULAR_MARKET" and over.get("overMarketStatus") == "OPEN":
+        return {
+            "price": to_num(over.get("overPrice")),
+            "change": to_num(over.get("compareToPreviousClosePrice")),
+            "rate": to_num(over.get("fluctuationsRatio")),
+            "direction": (over.get("compareToPreviousPrice") or {}).get("name"),
+            "market_status": "AFTER",
+            "traded_at": over.get("localTradedAt"),
+        }
+    return {
+        "price": to_num(b.get("closePrice")),
+        "change": to_num(b.get("compareToPreviousClosePrice")),
+        "rate": to_num(b.get("fluctuationsRatio")),
+        "direction": (b.get("compareToPreviousPrice") or {}).get("name"),
+        "market_status": b.get("marketStatus"),
+        "traded_at": b.get("localTradedAt"),
+    }
+
+
 def _clamp(v, lo=0.0, hi=100.0):
     return max(lo, min(hi, v))
 

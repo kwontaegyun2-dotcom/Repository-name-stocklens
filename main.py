@@ -135,15 +135,11 @@ def api_price(code: str):
             pass  # KIS 실패 시 네이버 폴백
     try:
         b = naver.basic(code)
+        quote = analysis.effective_quote(b)
         return {
             "source": "NAVER",
-            "price": analysis.to_num(b.get("closePrice")),
-            "change": analysis.to_num(b.get("compareToPreviousClosePrice")),
-            "rate": analysis.to_num(b.get("fluctuationsRatio")),
-            "direction": (b.get("compareToPreviousPrice") or {}).get("name"),
-            "market_status": b.get("marketStatus"),
+            **quote,
             "currency": (b.get("currencyType") or {}).get("code") or "KRW",
-            "traded_at": b.get("localTradedAt"),
         }
     except Exception as e:
         raise HTTPException(502, f"시세 조회 실패: {e}")
@@ -174,6 +170,7 @@ def api_analyze(code: str, request: Request = None):
     us = naver.is_us(code)
     name = b.get("stockName", code)
     price = analysis.to_num(b.get("closePrice"))
+    quote = analysis.effective_quote(b)
     currency = (b.get("currencyType") or {}).get("code") or "KRW"
 
     def safe(fn, default):
@@ -342,11 +339,12 @@ def api_analyze(code: str, request: Request = None):
         "currency": currency,
         "market": b.get("stockExchangeName") or (b.get("stockExchangeType") or {}).get("nameKor"),
         "logo": b.get("itemLogoPngUrl"),
-        "price": price,
-        "change": analysis.to_num(b.get("compareToPreviousClosePrice")),
-        "rate": analysis.to_num(b.get("fluctuationsRatio")),
-        "direction": (b.get("compareToPreviousPrice") or {}).get("name"),
-        "market_status": b.get("marketStatus"),
+        "price": quote["price"] if quote["price"] is not None else price,
+        "change": quote["change"],
+        "rate": quote["rate"],
+        "direction": quote["direction"],
+        "market_status": quote["market_status"],
+        "traded_at": quote["traded_at"],
         "total": total,
         "ai_verdict": ai_verdict,
         "combined_action": combined,

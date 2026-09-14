@@ -422,8 +422,9 @@ def _refresh_prices(market):
             b = by_code.get(it["code"])
             if not b:
                 continue
-            price = analysis.to_num(b.get("closePrice"))
-            rate = analysis.to_num(b.get("fluctuationsRatio"))
+            quote = analysis.effective_quote(b)
+            price = quote["price"]
+            rate = quote["rate"]
             if price is not None:
                 it["price"] = price
             if rate is not None:

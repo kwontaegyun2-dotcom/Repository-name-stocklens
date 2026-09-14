@@ -36,6 +36,13 @@ function updownClass(v) {
   if (v == null || v === 0) return "flat";
   return v > 0 ? "up" : "down";
 }
+// 2026-09-14부터 정규장(~15:30) 마감 후 16:00~20:00에 애프터마켓(시간외접속매매)이
+// 신설돼 그 시간에도 실시간 거래가 이어진다 — "장중"/"장마감" 이분법에 상태 하나 추가.
+function marketBadgeLabel(status) {
+  if (status === "OPEN") return "장중";
+  if (status === "AFTER") return "애프터마켓";
+  return "장마감";
+}
 function sign(v, digits = 0) {
   if (v == null) return "-";
   return (v > 0 ? "+" : "") + fmt(v, digits);
@@ -1788,6 +1795,10 @@ async function refreshPrice() {
       $("live-change").className = "live-change " + cls;
       $("live-change").textContent = changeStr(p.change, p.rate);
       $("source-badge").textContent = p.source === "KIS" ? "한국투자증권 실시간" : "네이버 시세";
+      // 정규장→애프터마켓→완전마감 전환이 페이지를 새로고침하지 않아도 2초 폴링만으로
+      // 바로 반영되도록 배지도 여기서 같이 갱신한다(기존엔 최초 render()에서만 찍혀
+      // 15:30 이후에도 "장중"에 멈춰 있었다).
+      if (p.market_status) $("live-badge").textContent = marketBadgeLabel(p.market_status);
     }
   } catch {}
 }
@@ -1931,7 +1942,7 @@ function render(d) {
   $("live-price").className = "live-price " + cls;
   $("live-change").className = "live-change " + cls;
   $("live-change").textContent = changeStr(d.change, d.rate);
-  $("live-badge").textContent = d.market_status === "OPEN" ? "장중" : "장마감";
+  $("live-badge").textContent = marketBadgeLabel(d.market_status);
   $("source-badge").textContent = d.kis_enabled ? "한국투자증권 실시간" : "네이버 시세";
   updateFavBtn();
   updateWatchBtn();
