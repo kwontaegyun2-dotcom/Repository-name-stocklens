@@ -1919,7 +1919,7 @@ function showDetailTab(tab) {
     const vv = lastAnalysis.valuation;
     renderValBandChart(vv.history, vv.pbr_history, vv.current);
   }
-  if (tab === "chart" && chartCtx.code) drawChart();
+  if (tab === "chart" && chartCtx.code) loadChartIfNeeded();
 }
 document.querySelectorAll("#detail-tabs button").forEach((b) => {
   b.onclick = () => showDetailTab(b.dataset.tab);
@@ -2407,19 +2407,42 @@ function drawRadar(categories) {
 }
 
 /* ---------------- candle chart ---------------- */
-let chartCtx = { code: null, name: "", currency: "KRW", candles: [], targets: {}, technical: {}, pro: {}, tf: "day" };
+let chartCtx = { code: null, name: "", currency: "KRW", candles: [], targets: {}, technical: {}, pro: {}, tf: "day", loaded: false };
 let chartApi = null;             // lightweight-charts 인스턴스
 // 고급 차트 오버레이(AVWAP·유동성 스윕·볼륨 프로파일) on/off 상태 — 종목을 바꿔도 유지.
 const chartOverlayState = { avwap: true, sweep: true, vp: true, smart: true };
 
+// 2026-09-14 속도 진단 — 일봉 캔들 1300개가 /api/analyze 응답의 70%(약 150KB)를 차지하는데,
+// 정작 기본 탭은 "종합"이라 차트 탭을 열지 않는 방문자는 그 데이터를 한 번도 안 쓰고
+// 버린다(모바일 회선에서 특히 부담). candles는 이제 analyze()에 안 들어있으므로, 차트
+// 탭을 실제로 열 때만 /api/candles로 따로 받는다 — switchTimeframe()이 이미 쓰던 것과
+// 같은 엔드포인트라 서버는 방금 analyze()가 채운 캔들 캐시(5분 TTL)를 그대로 재사용해
+// 네이버에 추가 요청도 안 간다.
 function renderChart(d) {
   chartCtx = { code: d.code, name: d.name, currency: d.currency || "KRW",
-               candles: d.candles || [], targets: d.targets || {},
-               technical: d.technical || {}, pro: d.chart_pro || {}, tf: "day" };
+               candles: [], targets: d.targets || {},
+               technical: d.technical || {}, pro: d.chart_pro || {}, tf: "day", loaded: false };
   // 봉 주기 버튼 초기화
   $("chart-tf").querySelectorAll("button").forEach((b) =>
     b.classList.toggle("active", b.dataset.tf === "day"));
-  drawChart();
+}
+
+async function loadChartIfNeeded() {
+  if (chartCtx.loaded || !chartCtx.code) {
+    if (chartCtx.loaded) drawChart();
+    return;
+  }
+  $("chart-container").style.opacity = ".4";
+  try {
+    const r = await api(`/api/candles/${chartCtx.code}?tf=day`);
+    chartCtx.candles = r.candles || [];
+    chartCtx.loaded = true;
+    drawChart();
+  } catch {
+    /* 실패 시 조용히 무시 */
+  } finally {
+    $("chart-container").style.opacity = "1";
+  }
 }
 
 /* 봉 주기 전환 — 캔들만 다시 받아 차트 재그림 (전체 재분석 X) */
@@ -2431,6 +2454,7 @@ async function switchTimeframe(tf) {
     const r = await api(`/api/candles/${chartCtx.code}?tf=${tf}`);
     chartCtx.candles = r.candles || [];
     chartCtx.tf = tf;
+    chartCtx.loaded = true;
     drawChart();
   } catch {
     /* 실패 시 조용히 무시 */

@@ -247,7 +247,15 @@ _state = {
     "KR": {"items": [], "updated_at": 0, "computing": False, "stale": False},
     "US": {"items": [], "updated_at": 0, "computing": False, "stale": False},
 }
-REFRESH_SEC = 1800  # 30분마다 갱신
+# 2026-09-14 속도 진단 — 전 종목 재채점(technical_analysis·chart_pro·fundamental)의
+# 입력값은 일봉 캔들·분기 재무제표라 실제로는 하루~분기 단위로만 바뀐다. 그런데도
+# 30분마다 372종목 전체를 처음부터 다시 계산해 CPU를 태워왔고(오라클 인스턴스가
+# CPU 스틸타임 70%대인 빈약한 공유 VM이라 이 부하가 그대로 /api/analyze 등 다른
+# 요청 지연으로 번짐 — 실측: 재계산 도중 analyze 23초대). 가격·등락률은 이미 별도
+# _price_loop(60초)가 가볍게 담당하므로, 점수 자체의 갱신 주기를 늘려도 "방금 산
+# 가격"이 안 보이는 문제는 없다 — 2시간으로 늘려 재계산 빈도(=CPU 부하 발생 빈도)를
+# 4배 줄인다.
+REFRESH_SEC = 7200  # 2시간마다 갱신 (기존 30분 — 점수 입력이 일봉/분기 단위라 과했음)
 _cache_path = {"KR": None, "US": None}
 
 
@@ -455,7 +463,11 @@ def _compute(market):
         # analyze() 요청과 네트워크 대역폭을 다퉈서 몇십 초씩 느려지거나 타임아웃난다
         # (2026-08-13 실측: 재배포 직후 analyze가 19~30초까지 늘어졌다가, 랭킹 계산이
         # 끝나자마자 1초 미만으로 즉시 복귀 — 랭킹 병렬도를 낮춰 완화).
-        with ThreadPoolExecutor(max_workers=8) as ex:
+        # 2026-09-14 재측정 — 8로 낮춘 뒤에도 재계산 도중 analyze가 23초대까지 나옴
+        # (오라클 인스턴스가 CPU 스틸타임 70%대인 빈약한 공유 VM이라 네트워크 대기가
+        # 아니라 종목별 기술적분석·chart_pro 연산 자체가 CPU를 다툰다). start_background()의
+        # 지연 기동과 별개로, 재계산이 실제로 도는 동안의 순간 부하 자체도 낮춘다.
+        with ThreadPoolExecutor(max_workers=4) as ex:
             futures = [ex.submit(_score, e, market, bench) for e in UNIVERSES[market]]
             for i, fut in enumerate(as_completed(futures), 1):
                 r = fut.result()
@@ -492,8 +504,19 @@ def start_background():
     # 바꿔서, 사용자가 미국 탭을 처음 열 때부터 집계를 기다리는 일이 없게 한다(예전엔
     # 첫 요청이 있어야 시작해서, 최초 방문자가 전체 계산 시간을 그대로 떠안았음).
     # 90초 지연은 국내 집계와 동시에 시작해 부하가 몰리는 것만 피하기 위함.
-    threading.Thread(target=_loop, args=("KR",), daemon=True).start()
-    threading.Thread(target=_loop, args=("US", 90), daemon=True).start()
+    #
+    # ⚠️ 2026-09-14 속도 진단 — 디스크 캐시(init()에서 로드)가 이미 있는데도 위 지연은
+    # "즉시 재계산"까지만 미룰 뿐이라, 매 배포(재시작)마다 372종목 전체 재채점이 그
+    # 순간부터 바로 터졌다. 방금 재배포 직후 /api/analyze가 23.7초, 랭킹 API 응답이
+    # 8분 뒤에도 KR 140/182종목만 끝난 상태로 실측됨 — "재배포 직후 지연"이라고
+    # 여러 진단리포트에 반복 기록된 현상의 실제 발생 지점이 바로 이 즉시-재계산이었다.
+    # 캐시가 이미 있으면(=첫 콜드스타트가 아니면) 전체 재채점을 몇 분 늦춰, 배포 직후
+    # 트래픽이 가라앉을 시간을 준다 — 그동안은 캐시된 점수 + _price_loop의 시세만
+    # 갱신되므로 "약간 오래된 점수, 하지만 정확한 실시간가"로 서비스는 계속된다.
+    kr_delay = 0 if not _state["KR"]["items"] else 240
+    us_delay = 90 if not _state["US"]["items"] else 300
+    threading.Thread(target=_loop, args=("KR", kr_delay), daemon=True).start()
+    threading.Thread(target=_loop, args=("US", us_delay), daemon=True).start()
     threading.Thread(target=_price_loop, args=("KR", 20), daemon=True).start()
     threading.Thread(target=_price_loop, args=("US", 110), daemon=True).start()
 

@@ -159,8 +159,10 @@ def api_candles(code: str, tf: str = "day", request: Request = None):
 
 
 # ---------------------------------------------------------------- full analysis
-@app.get("/api/analyze/{code}")
 def api_analyze(code: str, request: Request = None):
+    """워치·포트폴리오·이벤트알림 등이 내부에서 직접 호출하는 전체 분석 함수.
+    이 반환값(candles 포함)이 그 모듈들의 공유 계약이므로 그대로 유지 — HTTP 응답에서
+    candles를 빼는 건 아래 api_analyze_http()에서 별도로 처리한다."""
     _rate_limit(request, limit=30, window=60)
     try:
         b = naver.basic(code)
@@ -367,6 +369,17 @@ def api_analyze(code: str, request: Request = None):
         "ai_enabled": ai.available() and AI_ALLOWED,
         "public": PUBLIC,
     }
+
+
+@app.get("/api/analyze/{code}")
+def api_analyze_http(code: str, request: Request = None):
+    # 2026-09-14 속도 진단 — candles(일봉 1300개)가 전체 응답의 약 70%(150KB 안팎)를
+    # 차지하는데, 기본 진입 탭("종합")에서는 안 쓰이고 차트 탭을 열 때만 필요하다.
+    # 브라우저로 나가는 이 HTTP 경로에서만 candles를 빼고, 차트 탭이 열릴 때
+    # /api/candles로 따로 받게 한다(static/app.js loadChartIfNeeded()). 워치·포트폴리오
+    # 등 내부 호출(api_analyze 직접 호출)은 candles가 그대로 필요해 그쪽은 안 건드린다.
+    d = api_analyze(code, request)
+    return {k: v for k, v in d.items() if k != "candles"}
 
 
 # ---------------------------------------------------------------- KIS config
