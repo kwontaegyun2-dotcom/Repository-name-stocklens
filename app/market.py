@@ -37,7 +37,7 @@ COMMENTARY_REFRESH_SEC = 1800  # AI/룰기반 한줄평 — 30분
 
 _lock = threading.Lock()
 _state = {"data": None, "updated_at": 0}
-_macro = {"bonds": None, "sentiment": None, "commodities2": None, "crypto": None, "updated_at": 0}
+_macro = {"bonds": None, "sentiment": None, "commodities2": None, "fx": None, "crypto": None, "updated_at": 0}
 _slow = {"sp500_per": None, "cape": None, "pb": None, "buffett": None, "updated_at": 0}
 _commentary = {"text": None, "source": None, "updated_at": 0}
 
@@ -225,15 +225,16 @@ def _breadth_item(raw: dict):
 
 # ---------------------------------------------------------------- 스냅샷 조립
 def _build_naver():
-    """네이버 기반 값만 — 지수·환율·원자재(은·구리 제외)·국내 등락종목수. 5분마다 불려도 부담 없다."""
+    """네이버 기반 값만 — 지수·국내 등락종목수. 5분마다 불려도 부담 없다.
+    ⚠️ 2026-09-18 — 환율·원자재는 여기서 뺐다. finance.naver.com/marketindex/가
+    stock.naver.com의 새 SPA로 302 리다이렉트되며(실측 확인) 정규식 스크래핑이 완전히
+    깨져(마켓 브리핑 자산시장 카드가 원/달러·DXY·국제금·WTI 전부 None을 보여주던 원인)
+    대체 공개 JSON API를 찾지 못했다 — Yahoo Finance로 옮겨 _refresh_macro()가 대신
+    채운다(fx/commodities는 아래서 빈 placeholder만 두고, _compute()가 macro 캐시로
+    덮어쓴다 — silver/copper를 이미 이렇게 처리하던 것과 같은 패턴)."""
     majors = (_safe(lambda: naver.home_majors(), {}) or {}).get("homeMajors", [])
-    mkt = _safe(lambda: naver.market_index_page(), {}) or {}
     breadth = _safe(lambda: naver.index_breadth(), {}) or {}
     sp500 = _safe(lambda: _world_index_item(".INX", "S&P 500"))
-
-    def fx(key):
-        v = mkt.get(key)
-        return v or {"value": None, "change": None, "rate": None}
 
     return {
         "indices": {
@@ -245,14 +246,8 @@ def _build_naver():
             "nikkei": _major_item(majors, ".N225"),
             "shanghai": _major_item(majors, ".SSEC"),
         },
-        "fx": {
-            "usdkrw": fx("usdkrw"), "jpykrw100": fx("jpykrw100"), "eurkrw": fx("eurkrw"),
-            "cnykrw": fx("cnykrw"), "usdjpy": fx("usdjpy"), "dxy": fx("dxy"),
-        },
-        "commodities": {
-            "wti": fx("wti"), "gasoline": fx("gasoline"),
-            "gold_intl": fx("gold_intl"), "gold_domestic": fx("gold_domestic"),
-        },
+        "fx": {},
+        "commodities": {},
         "breadth": {
             "kospi": _breadth_item(breadth.get("KOSPI")),
             "kosdaq": _breadth_item(breadth.get("KOSDAQ")),
@@ -262,14 +257,28 @@ def _build_naver():
 
 def _refresh_macro():
     """미국채10·30·2년·3개월(^TNX·^TYX·2YY=F·^IRX)·VIX(^VIX)·은(SI=F)·구리(HG=F)·
-    BTC(BTC-USD) — 전부 Yahoo, 30분 주기 전용 캐시."""
+    BTC(BTC-USD)·환율·원자재(WTI·가솔린·국제금) — 전부 Yahoo, 30분 주기 전용 캐시.
+    ⚠️ 2026-09-18 — 환율·WTI·가솔린·국제금은 원래 naver.market_index_page()(네이버
+    페이지 스크래핑) 담당이었는데 그 페이지가 통째로 새 SPA로 리다이렉트되며 깨져
+    여기로 옮겨왔다. 국내 금(하나은행 고시 기준 원/g)만은 Yahoo에 해당 티커가 없어
+    포기 — commodities.gold_domestic은 계속 None(화면에서도 원래 안 씀, 아래 참고)."""
     symbols = {
         "us10y": "^TNX", "us30y": "^TYX", "us2y": "2YY=F", "us3m": "^IRX",
         "vix": "^VIX", "silver": "SI=F", "copper": "HG=F", "btc": "BTC-USD",
+        "usdkrw": "USDKRW=X", "eurkrw": "EURKRW=X", "jpykrw": "JPYKRW=X", "cnykrw": "CNYKRW=X",
+        "usdjpy": "JPY=X", "dxy": "DX-Y.NYB", "wti": "CL=F", "gasoline": "RB=F", "gold": "GC=F",
     }
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {k: ex.submit(_safe, lambda s=v: _yahoo_quote(s)) for k, v in symbols.items()}
         got = {k: f.result() for k, f in futs.items()}
+
+    def _item(key, mult=1):
+        q = got.get(key)
+        if not q or q.get("price") is None:
+            return {"value": None, "change": None, "rate": None}
+        value = round(q["price"] * mult, 4)
+        rate = q.get("rate")
+        return {"value": value, "change": None, "rate": rate}
 
     now_str = time.strftime("%Y-%m-%d")
     with _lock:
@@ -293,7 +302,15 @@ def _refresh_macro():
         if got["vix"]:
             vix_val = got["vix"].get("price")
             _macro["sentiment"] = {"vix": vix_val, "vix_date": now_str, "vix_gauge": _gauge("vix", vix_val)}
-        _macro["commodities2"] = {"silver": got["silver"], "copper": got["copper"]}
+        _macro["commodities2"] = {
+            "silver": got["silver"], "copper": got["copper"],
+            "wti": _item("wti"), "gasoline": _item("gasoline"), "gold_intl": _item("gold"),
+        }
+        _macro["fx"] = {
+            "usdkrw": _item("usdkrw"), "jpykrw100": _item("jpykrw", mult=100),
+            "eurkrw": _item("eurkrw"), "cnykrw": _item("cnykrw"),
+            "usdjpy": _item("usdjpy"), "dxy": _item("dxy"),
+        }
         _macro["crypto"] = {"btc": got["btc"]}
         _macro["updated_at"] = time.time()
 
@@ -463,6 +480,15 @@ def _compute(ai_allowed: bool):
                                           "rate": silver.get("rate") if silver else None}
         fast["commodities"]["copper"] = {"value": copper.get("price") if copper else None,
                                           "rate": copper.get("rate") if copper else None}
+        # wti/gasoline/gold_intl은 _refresh_macro()의 _item()이 이미 {value,change,rate}
+        # 형태로 만들어 두므로 silver/copper와 달리 그대로 옮긴다. gold_domestic(국내 금)은
+        # Yahoo에 대응 티커가 없어 계속 빈 값 — 화면도 원래 "국제 금과 사실상 같은 정보라
+        # 제외"(app.js 주석)해 안 쓴다.
+        fast["commodities"]["wti"] = cmd2.get("wti") or {"value": None, "change": None, "rate": None}
+        fast["commodities"]["gasoline"] = cmd2.get("gasoline") or {"value": None, "change": None, "rate": None}
+        fast["commodities"]["gold_intl"] = cmd2.get("gold_intl") or {"value": None, "change": None, "rate": None}
+        fast["commodities"]["gold_domestic"] = {"value": None, "change": None, "rate": None}
+        fast["fx"] = _macro["fx"] or {}
         btc = (_macro["crypto"] or {}).get("btc")
         fast["crypto"] = {"btc": {"value": btc.get("price") if btc else None,
                                    "rate": btc.get("rate") if btc else None}}

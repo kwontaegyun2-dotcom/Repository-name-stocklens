@@ -116,23 +116,26 @@ def trend(code: str):
     return _get(f"{M}/stock/{code}/trend?pageSize=60&page=1", ttl=600)
 
 
-_FX_RE = re.compile(r'FX_USDKRW".*?<span class="value">([\d,]+\.?\d*)</span>', re.S)
-
-
 def usd_krw_rate():
-    """원/달러 환율(하나은행 고시 기준, finance.naver.com/marketindex 페이지를 파싱).
-    전용 API 엔드포인트가 없어(시도해본 후보들 전부 404/409) HTML을 정규식으로 읽는다 —
-    candles()의 fchart 파싱과 같은 방식. 실패하면 None(호출부인 portfolio.py가 폴백 처리:
-    환율을 못 구하면 해당 미국 종목은 그 요청에서만 제외하고 다음 조회 때 재시도)."""
+    """원/달러 환율.
+    ⚠️ 2026-09-18 — 예전엔 finance.naver.com/marketindex 페이지를 정규식으로 파싱했는데,
+    그 페이지가 이제 stock.naver.com의 새 SPA로 302 리다이렉트되면서(실측 확인) 서버가
+    렌더링하는 정적 HTML 자체가 사라져 정규식이 아무것도 못 찾고 계속 None만 반환하고
+    있었다(마켓 브리핑 자산시장 카드 전체와 이 함수를 쓰는 portfolio.py 미국 종목 환산이
+    둘 다 조용히 깨진 원인). 새 SPA는 클라이언트 사이드에서 내부 전용 API를 호출해 대체
+    가능한 공개 JSON 엔드포인트를 찾지 못했다 — 대신 이 프로젝트가 이미 국채·VIX·은·구리·
+    BTC에 쓰고 있는 Yahoo Finance 비공식 차트 API로 통일. 실패하면 None(호출부인
+    portfolio.py가 폴백 처리: 환율을 못 구하면 해당 미국 종목은 그 요청에서만 제외하고
+    다음 조회 때 재시도)."""
     now = time.time()
     hit = _cache.get("fx:usdkrw")
     if hit and now - hit[0] < 600:
         return hit[1]
     try:
-        r = requests.get("https://finance.naver.com/marketindex/", headers=HEADERS, timeout=8)
+        r = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X",
+                          params={"interval": "1d", "range": "5d"}, headers=HEADERS, timeout=8)
         r.raise_for_status()
-        m = _FX_RE.search(r.text)
-        rate = float(m.group(1).replace(",", "")) if m else None
+        rate = r.json()["chart"]["result"][0]["meta"].get("regularMarketPrice")
     except Exception:
         rate = None
     if rate is not None:
@@ -152,74 +155,10 @@ def world_index(reuters_code: str):
     return _get(f"https://api.stock.naver.com/index/{reuters_code}/basic", ttl=60)
 
 
-# finance.naver.com/marketindex/ 페이지의 각 항목은 <a ... class="head usd" ...><h3 class=
-# "h_lst"><span class="blind">미국 USD</span></h3> … <div class="head_info point_up|point_dn|
-# point_same">…<span class="value">값</span>…<span class="change">전일대비 절대값</span> 구조다.
-#
-# ⚠️ 실측(2026-08-25)에서 라이브(오라클)가 원/달러 자리에 엔화 값을 담는 등 항목이 밀린 채
-# 서비스되고 있었다 — 두 가지 원인이 겹친 것이었다.
-#   1) 예전엔 항목 순서가 항상 고정이라 보고 순번(zip)으로만 매핑했는데, 페이지에 뜨는
-#      항목 수가 어떤 이유로든 기대보다 하나 적어지는 순간 그 뒤로 전체가 밀린다.
-#      → class="head <이름>"(marketindexCd와 1:1로 고정된 식별자)으로 매핑하도록 변경.
-#   2) 그런데 클래스로 찾아도, "class=\"head X\" ... 다음에 나오는 head_info 블록"을
-#      정규식 하나로 통째로 매칭(.*?로 다음 항목까지 건너뛸 수 있음)하면, X 자신의
-#      head_info가 기대한 형태(point_up/point_dn/point_same)가 아닐 때 정규식이 X를
-#      건너뛰고 그다음 항목(X+1)의 head_info를 X의 값으로 잘못 붙잡는다. 실측으로 확인한
-#      트리거: 오늘 등락이 정확히 0.00일 때 원/달러 항목만 class="head_info head_info"라는
-#      (point_up/dn/same이 아닌) 특이 케이스를 쓴다 — 다른 항목의 "보합"은 point_same을
-#      정상적으로 쓰는데 원/달러만 이렇게 나온 사례를 실측함(Naver 쪽 템플릿 특이사항으로
-#      추정, 원인까지는 알 수 없음). → head_info 뒤에 오는 방향 토큰에 head_info 자체도
-#      허용해 이 케이스를 "보합(변화 없음)"으로 처리하고, 그래도 못 찾으면(진짜 형식이
-#      다른 경우) 그 항목만 조용히 비우지 다른 항목 값을 훔쳐오지 않도록 앵커(class="head
-#      X")를 기준으로 페이지를 항목별로 먼저 잘라(split) 각 조각 안에서만 값을 찾는다 —
-#      한 항목이 통째로 깨져도 그 항목만 빠질 뿐 옆 항목을 오염시키지 않는다.
-_MKT_ANCHOR_RE = re.compile(r'class="head (\w+)"')
-_MKT_VALUE_RE = re.compile(
-    r'<div class="head_info (point_up|point_dn|point_same|head_info)">\s*'
-    r'<span class="value">([\d,]+\.?\d*)</span>.*?'
-    r'<span class="change">\s*([\d,]+\.?\d*)</span>', re.S)
-_MKT_CLASS_KEYS = {
-    "usd": "usdkrw", "jpy": "jpykrw100", "eur": "eurkrw", "cny": "cnykrw",
-    "jpy_usd": "usdjpy", "usd_eur": "eurusd", "usd_gbp": "gbpusd", "usd_idx": "dxy",
-    "wti": "wti", "gasoline": "gasoline", "gold_inter": "gold_intl", "gold_domestic": "gold_domestic",
-}
-
-
-def market_index_page():
-    """환율·유가·금 시세 12종(값+전일대비 등락) — 전용 API가 없어
-    finance.naver.com/marketindex/를 파싱한다(usd_krw_rate()와 같은 방식, 한 번의
-    요청으로 12개를 모두 얻도록 확장). 각 항목은 {value, change, rate}."""
-    now = time.time()
-    hit = _cache.get("mktidx:page")
-    if hit and now - hit[0] < 300:
-        return hit[1]
-    out = {}
-    try:
-        r = requests.get("https://finance.naver.com/marketindex/", headers=HEADERS, timeout=8)
-        r.raise_for_status()
-        parts = _MKT_ANCHOR_RE.split(r.text)
-        # split 결과는 [머리말, 클래스1, 조각1, 클래스2, 조각2, ...] 형태다.
-        for i in range(1, len(parts), 2):
-            key = _MKT_CLASS_KEYS.get(parts[i])
-            if not key:
-                continue
-            chunk = parts[i + 1] if i + 1 < len(parts) else ""
-            m = _MKT_VALUE_RE.search(chunk)
-            if not m:
-                continue
-            direction, value_s, change_s = m.groups()
-            value = float(value_s.replace(",", ""))
-            change = float(change_s.replace(",", ""))
-            if direction == "point_dn":
-                change = -change
-            prev = value - change
-            rate = round(change / prev * 100, 2) if prev else None
-            out[key] = {"value": value, "change": round(change, 4), "rate": rate}
-    except Exception:
-        out = {}
-    if out:
-        _cache["mktidx:page"] = (now, out)
-    return out
+# 2026-09-18 — 이전엔 여기에 finance.naver.com/marketindex/ 페이지를 정규식으로 파싱하는
+# market_index_page()가 있었다. 그 페이지가 stock.naver.com의 새 SPA로 리다이렉트되며
+# 완전히 깨져(usd_krw_rate()와 같은 원인) 제거했다 — 환율·원자재는 이제 app/market.py의
+# _refresh_macro()가 Yahoo Finance로 가져온다.
 
 
 def index_breadth():
