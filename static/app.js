@@ -24,6 +24,21 @@ function pw(n, cur) {
 function pwRange(a, b) {
   return curCur === "USD" ? `$${fmt(a)}~$${fmt(b)}` : `${fmt(a)}~${fmt(b)}`;
 }
+// 시가총액(항상 "억" 단위로 옴 — 국내=억원, 미국=억 달러, CLAUDE.md 8-4)을 화면용으로 포맷.
+// ⚠️ 2026-09-19 — "시가총액 X.X조 달러"처럼 무조건 10000으로 나눠 조 단위로만 보여주면,
+// 미국 대형주 중 $1조(=10000억 달러)를 넘는 극소수(애플·엔비디아 등)를 빼고는 전부
+// 0.0조 달러로 반올림돼 "시총 0조 달러"로 보인다(사용자 실측 제보: 슈퍼마이크로컴퓨터
+// 검색 시 시총 0조 달러로 표시). 국내 소형주도 같은 문제가 날 수 있다(시총 1조원 미만
+// 종목은 전부 0.0조원). 1조(=10000억) 문턱을 넘을 때만 "조" 단위로 올리고, 그 미만은
+// peers 비교표와 같은 "억" 단위로 보여준다.
+function fmtMarketCap(mc, cur) {
+  cur = cur || curCur;
+  if (mc == null || isNaN(mc)) return "-";
+  const bigUnit = cur === "USD" ? "조 달러" : "조원";
+  const smallUnit = cur === "USD" ? "억 달러" : "억원";
+  if (mc >= 10000) return fmt(mc / 10000, 1) + bigUnit;
+  return fmt(mc, 0) + smallUnit;
+}
 function changeStr(chg, rate) {
   if (chg == null) return `${sign(rate, 2)}%`;
   const money = curCur === "USD"
@@ -1956,7 +1971,7 @@ function render(d) {
     const mc = d.metrics && d.metrics.market_cap;
     const t = d.technical || {};
     const parts = [];
-    if (mc) parts.push(`시가총액 ${fmt(mc / 10000, 1)}${curCur === "USD" ? "조 달러" : "조원"}`);
+    if (mc) parts.push(`시가총액 ${fmtMarketCap(mc)}`);
     if (t.high_52w && t.low_52w) parts.push(`52주 ${pw(t.low_52w, curCur)}~${pw(t.high_52w, curCur)}`);
     $("stock-overview").textContent = parts.join(" · ");
     $("stock-overview").classList.toggle("hidden", !parts.length);
@@ -2241,7 +2256,7 @@ function render(d) {
     return `<div class="metric"><label>${label}</label>
       <div>${disp} ${sub ? `<br><small>${sub}</small>` : ""}</div></div>`;
   }).join("") +
-    `<div class="metric"><label>시가총액</label><div>${m.market_cap ? fmt(m.market_cap / 10000, 1) + (curCur === "USD" ? "조 달러" : "조원") : "-"}</div></div>`;
+    `<div class="metric"><label>시가총액</label><div>${m.market_cap ? fmtMarketCap(m.market_cap) : "-"}</div></div>`;
 
   /* finance */
   $("fin-period-controls").innerHTML = ["annual", "quarter"].map((m) =>
