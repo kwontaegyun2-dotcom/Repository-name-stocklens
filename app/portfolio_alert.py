@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 
 from app import portfolio, watch
+from app.analysis import lower_thread_priority
 
 CHECK_INTERVAL_SEC = 30 * 60      # 30분마다 재평가 (관심종목 알림보다 느슨해도 충분)
 COOLDOWN_SEC = 24 * 3600
@@ -122,6 +123,7 @@ def check_now() -> int:
 
 
 def _loop():
+    lower_thread_priority()
     time.sleep(180)   # 서버 기동 직후 부하 몰림 방지 (watch.py보다 늦게 시작)
     while True:
         try:

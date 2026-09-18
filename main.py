@@ -159,11 +159,32 @@ def api_candles(code: str, tf: str = "day", request: Request = None):
 
 
 # ---------------------------------------------------------------- full analysis
+# 2026-09-19 속도 진단 — 워치·포트폴리오·이벤트알림·HTTP 분석요청이 전부 이 함수를
+# 각자 따로 불러, 같은 종목을 여러 경로에서 동시에 봐도(예: 인기 종목을 여러 사용자가
+# 잇달아 조회) 매번 처음부터(네이버 호출 8개+기술적/차트분석/밸류에이션 CPU 연산)
+# 다시 계산했다 — 오라클 인스턴스가 CPU 스틸타임 70%대라 이 중복 계산이 그대로
+# 응답 지연(실측 8~10초)으로 번진다. 종목코드별로 60초만 캐시해도 "방금 본 종목을
+# 다시 보는" 흔한 경우(뒤로가기·같은 인기 종목 재조회·포트폴리오/워치리스트가
+# 같은 종목을 안고 있는 경우)는 사실상 즉시 응답된다.
+_analyze_cache: dict = {}
+_ANALYZE_CACHE_TTL = 60
+
+
 def api_analyze(code: str, request: Request = None):
     """워치·포트폴리오·이벤트알림 등이 내부에서 직접 호출하는 전체 분석 함수.
     이 반환값(candles 포함)이 그 모듈들의 공유 계약이므로 그대로 유지 — HTTP 응답에서
     candles를 빼는 건 아래 api_analyze_http()에서 별도로 처리한다."""
     _rate_limit(request, limit=30, window=60)
+    now = time.time()
+    hit = _analyze_cache.get(code)
+    if hit and now - hit[0] < _ANALYZE_CACHE_TTL:
+        return hit[1]
+    result = _analyze_impl(code)
+    _analyze_cache[code] = (now, result)
+    return result
+
+
+def _analyze_impl(code: str):
     try:
         b = naver.basic(code)
     except Exception as e:

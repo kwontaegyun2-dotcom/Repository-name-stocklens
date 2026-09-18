@@ -26,25 +26,11 @@ _KST = ZoneInfo("Asia/Seoul")
 _db_path = None
 _SECTOR_MAP = {code: sector for code, _name, sector in ranking.UNIVERSE + ranking.US_UNIVERSE}
 
-# 2026-09-18 속도 진단 — compute()는 보유종목마다 analyze_fn(=main.api_analyze, 종목당
-# 네이버 호출 8개+기술적/차트분석/밸류에이션 CPU 연산)을 매 GET /api/portfolio 요청마다
-# 처음부터 다시 돌렸다. 실측 7종목 포트폴리오에서 17초 — "종목 추가"는 POST 자체는
-# 즉시 끝나지만 프론트가 바로 이어서 loadPortfolio()로 이 GET을 다시 부르기 때문에
-# "추가할 때 너무 오래 걸린다"로 느껴진다. 종목당 결과를 60초만 캐시해도 방금 봤던
-# 포트폴리오에 한 종목만 새로 추가한 경우 나머지는 캐시 히트라 새 종목 하나만큼만
-# 기다리면 된다. 코드별 캐시라 여러 사용자가 같은 종목을 들고 있어도 서로 득을 본다.
-_analyze_cache: dict = {}
-_ANALYZE_CACHE_TTL = 60
-
-
-def _cached_analyze(code: str, analyze_fn):
-    now = time.time()
-    hit = _analyze_cache.get(code)
-    if hit and now - hit[0] < _ANALYZE_CACHE_TTL:
-        return hit[1]
-    result = analyze_fn(code)
-    _analyze_cache[code] = (now, result)
-    return result
+# 2026-09-18 속도 진단 — compute()가 보유종목마다 analyze_fn을 매 GET /api/portfolio
+# 요청마다 처음부터 다시 돌려(실측 7종목 17초) "종목 추가"가 느리게 느껴졌었다.
+# 여기 있던 종목별 60초 캐시는 2026-09-19에 main.api_analyze() 자체로 옮겼다 —
+# 워치·이벤트알림 등 analyze_fn을 부르는 다른 곳도 다 같이 득을 보게 하려는
+# 목적(공유종목 기준)이라, 여기서 또 캐시하면 그냥 중복이라 뺐다.
 
 
 def init(data_dir: Path):
@@ -541,7 +527,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         # 사라지는" 무음 실패가 된다(2차 진단리포트 3-8, ETF 추가 사례로 실제 발견).
         # 반드시 (row, 결과, 에러사유) 3-튜플로 돌려줘 실패도 excluded에 이유와 함께 남긴다.
         try:
-            return row, _cached_analyze(row["code"], analyze_fn), None
+            return row, analyze_fn(row["code"]), None
         except Exception as e:
             raw = str(e) or e.__class__.__name__
             # 종합진단리포트(2026-08-24) 4-14 — URL만 지워도 "404: 종목을 찾을 수 없습니다:

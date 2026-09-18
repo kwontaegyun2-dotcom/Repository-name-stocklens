@@ -26,7 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 import requests
 
 from app import ai, naver, ranking
-from app.analysis import to_num
+from app.analysis import to_num, lower_thread_priority
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
@@ -268,7 +268,7 @@ def _refresh_macro():
         "usdkrw": "USDKRW=X", "eurkrw": "EURKRW=X", "jpykrw": "JPYKRW=X", "cnykrw": "CNYKRW=X",
         "usdjpy": "JPY=X", "dxy": "DX-Y.NYB", "wti": "CL=F", "gasoline": "RB=F", "gold": "GC=F",
     }
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=8, initializer=lower_thread_priority) as ex:
         futs = {k: ex.submit(_safe, lambda s=v: _yahoo_quote(s)) for k, v in symbols.items()}
         got = {k: f.result() for k, f in futs.items()}
 
@@ -516,6 +516,7 @@ def _compute(ai_allowed: bool):
 
 
 def _loop(ai_allowed: bool):
+    lower_thread_priority()
     while True:
         _safe(lambda: _compute(ai_allowed))
         time.sleep(REFRESH_SEC)

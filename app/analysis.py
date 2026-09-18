@@ -3,10 +3,32 @@
 from __future__ import annotations
 
 import math
+import os
 import re
+import threading
 
 
 # ---------------------------------------------------------------- helpers
+def lower_thread_priority(nice: int = 10):
+    """현재 스레드(호출한 스레드 자신)의 OS 우선순위를 낮춘다 — 랭킹 전체
+    재채점·워치리스트/포트폴리오 알림 등 백그라운드 루프 전용.
+
+    2026-09-19 속도 진단 — 오라클 인스턴스가 CPU 스틸타임 70%대(사실상 2 vCPU를
+    거의 못 받는 상황)인데, 배경 재채점 스레드와 실제 사용자 요청 처리 스레드가
+    OS 스케줄러 상에서는 완전히 동급으로 경쟁한다. 실측: 랭킹 재채점이 도는 동안
+    /api/analyze가 8~10초까지 늘어짐. nice 값을 올려(우선순위를 낮춰) 배경
+    작업이 CPU를 양보하게 하면, 사용자가 직접 누른 요청은 먼저 스케줄된다 —
+    Linux에서 스레드별 nice는 `os.setpriority(PRIO_PROCESS, tid, ...)`로
+    설정한다(POSIX PRIO_PROCESS가 "프로세스"라 불러도 리눅스 커널은 스레드를
+    독립된 task로 다뤄 스레드 단위로 먹힌다). ThreadPoolExecutor는 `initializer=`
+    인자로 각 워커 스레드 시작 시 1회 호출하면 된다. 실패해도(플랫폼 미지원 등)
+    조용히 넘어간다 — 우선순위 조정은 있으면 좋고 없어도 기능엔 지장 없다."""
+    try:
+        os.setpriority(os.PRIO_PROCESS, threading.get_native_id(), nice)
+    except Exception:
+        pass
+
+
 def to_num(v):
     """'311,500' / '46.76%' / '23.08배' / '12,372원' / 'N/A' → float | None"""
     if v is None:

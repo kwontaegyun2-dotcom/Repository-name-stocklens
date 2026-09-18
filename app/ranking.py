@@ -420,7 +420,7 @@ def _refresh_prices(market):
         b = _safe(lambda: naver.basic(code), None)
         return code, b
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    with ThreadPoolExecutor(max_workers=8, initializer=analysis.lower_thread_priority) as ex:
         for code, b in ex.map(fetch, [it["code"] for it in items]):
             if b:
                 by_code[code] = b
@@ -467,7 +467,7 @@ def _compute(market):
         # (오라클 인스턴스가 CPU 스틸타임 70%대인 빈약한 공유 VM이라 네트워크 대기가
         # 아니라 종목별 기술적분석·chart_pro 연산 자체가 CPU를 다툰다). start_background()의
         # 지연 기동과 별개로, 재계산이 실제로 도는 동안의 순간 부하 자체도 낮춘다.
-        with ThreadPoolExecutor(max_workers=4) as ex:
+        with ThreadPoolExecutor(max_workers=4, initializer=analysis.lower_thread_priority) as ex:
             futures = [ex.submit(_score, e, market, bench) for e in UNIVERSES[market]]
             for i, fut in enumerate(as_completed(futures), 1):
                 r = fut.result()
@@ -484,6 +484,7 @@ def _compute(market):
 
 
 def _loop(market, initial_delay=0):
+    analysis.lower_thread_priority()
     if initial_delay:
         time.sleep(initial_delay)
     while True:
@@ -492,6 +493,7 @@ def _loop(market, initial_delay=0):
 
 
 def _price_loop(market, initial_delay=0):
+    analysis.lower_thread_priority()
     if initial_delay:
         time.sleep(initial_delay)
     while True:

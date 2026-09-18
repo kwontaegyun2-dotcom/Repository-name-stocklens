@@ -24,6 +24,7 @@ import time
 from pathlib import Path
 
 from app import push
+from app.analysis import lower_thread_priority
 
 CHECK_INTERVAL_SEC = 15 * 60      # 15분마다 재평가
 COOLDOWN_SEC = 24 * 3600          # 같은 종목 재알림 최소 간격
@@ -328,6 +329,7 @@ def check_now() -> int:
 
 
 def _loop():
+    lower_thread_priority()
     time.sleep(120)   # 서버 기동 직후 부하 몰림 방지
     while True:
         try:

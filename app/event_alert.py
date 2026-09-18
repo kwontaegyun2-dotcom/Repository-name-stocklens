@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 
 from app import watch
+from app.analysis import lower_thread_priority
 
 CHECK_INTERVAL_SEC = 20 * 60      # 20분마다 재평가
 COOLDOWN_SEC = 24 * 3600
@@ -193,6 +194,7 @@ def check_now() -> int:
 
 
 def _loop():
+    lower_thread_priority()
     time.sleep(240)   # watch.py(120s)·portfolio_alert.py(180s)보다 늦게 시작해 기동 부하 분산
     while True:
         try:
