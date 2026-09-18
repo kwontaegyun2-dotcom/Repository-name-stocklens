@@ -26,6 +26,26 @@ _KST = ZoneInfo("Asia/Seoul")
 _db_path = None
 _SECTOR_MAP = {code: sector for code, _name, sector in ranking.UNIVERSE + ranking.US_UNIVERSE}
 
+# 2026-09-18 속도 진단 — compute()는 보유종목마다 analyze_fn(=main.api_analyze, 종목당
+# 네이버 호출 8개+기술적/차트분석/밸류에이션 CPU 연산)을 매 GET /api/portfolio 요청마다
+# 처음부터 다시 돌렸다. 실측 7종목 포트폴리오에서 17초 — "종목 추가"는 POST 자체는
+# 즉시 끝나지만 프론트가 바로 이어서 loadPortfolio()로 이 GET을 다시 부르기 때문에
+# "추가할 때 너무 오래 걸린다"로 느껴진다. 종목당 결과를 60초만 캐시해도 방금 봤던
+# 포트폴리오에 한 종목만 새로 추가한 경우 나머지는 캐시 히트라 새 종목 하나만큼만
+# 기다리면 된다. 코드별 캐시라 여러 사용자가 같은 종목을 들고 있어도 서로 득을 본다.
+_analyze_cache: dict = {}
+_ANALYZE_CACHE_TTL = 60
+
+
+def _cached_analyze(code: str, analyze_fn):
+    now = time.time()
+    hit = _analyze_cache.get(code)
+    if hit and now - hit[0] < _ANALYZE_CACHE_TTL:
+        return hit[1]
+    result = analyze_fn(code)
+    _analyze_cache[code] = (now, result)
+    return result
+
 
 def init(data_dir: Path):
     global _db_path
@@ -297,7 +317,11 @@ def _today_actions(items):
     cards = []
     for it in items:
         tw = it.get("target_weight")
-        overweight = tw is not None and it["weight"] - tw >= 15
+        weight_gap = it["weight"] - tw if tw is not None else None
+        overweight = weight_gap is not None and weight_gap >= 15
+        # 목표비중보다 "그래도 의미 있게" 높은 종목(_REBALANCE_MEANINGFUL_DIFF 이상)에는
+        # red 정도로 다급하진 않아도 green 추가매수 카드는 억제한다 — 아래 참고.
+        above_target = weight_gap is not None and weight_gap >= _REBALANCE_MEANINGFUL_DIFF
         if overweight:
             cards.append({
                 "level": "red", "code": it["code"], "name": it["name"], "title": "비중 과다",
@@ -312,9 +336,12 @@ def _today_actions(items):
             })
         # 4차 진단리포트 6장 — 비중 과다(red)와 추가매수 기회(green)가 같은 종목에
         # 동시에 뜨면 "줄여라"·"더 사라"는 정반대 지시가 나란히 표시돼 사용자가 뭘
-        # 해야 할지 알 수 없다. 비중 상한을 넘은 종목엔 추가매수 카드를 아예 숨긴다
+        # 해야 할지 알 수 없다. 목표비중보다 이미 above_target인(=_rebalance_note()가
+        # "비중 축소를 고려해볼 만합니다"라고 말하는) 종목엔 추가매수 카드를 아예
+        # 숨긴다 — red 문턱(15%p)이 아니라 리밸런싱 노트와 같은 문턱을 써야, 그 사이
+        # (3~15%p) 구간에서 "줄여라"·"더 사라"가 같은 화면에 동시에 뜨지 않는다
         # (가격은 매력적이어도 지금은 분산이 우선이라는 판단).
-        if not overweight and it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
+        if not above_target and it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
             cards.append({
                 "level": "green", "code": it["code"], "name": it["name"], "title": "추가매수 기회",
                 "detail": f"매수 적정가 대비 {it['buy_discount_pct']:.0f}%",
@@ -341,6 +368,15 @@ _TIER_WEIGHT = {
     "watch_sell": 0.8, "reduce": 0.6, "sell": 0.3,
 }
 _MAX_STOCK_WEIGHT = 30.0
+# 목표비중보다 이만큼(%p) 이상 높으면 "비중을 줄이는 쪽이 낫다"로 본다.
+# _rebalance_note()와 _today_actions()가 반드시 이 값을 같이 써야 한다 — 예전엔
+# _today_actions()의 "추가매수 카드 억제" 조건이 red 카드와 같은 15%p였는데,
+# _rebalance_note()는 3%p만 벌어져도 "비중 축소를 고려해볼 만합니다"라고 말해서,
+# 목표비중과 3~15%p 벌어진 종목은 같은 화면에서 "줄여라"(리밸런싱 노트)·"더
+# 사라"(오늘의 할일 green 카드)가 동시에 뜨는 모순이 생겼다(사용자 실측 제보,
+# 2026-09-18: SMCI 보유비중 27% vs 목표 14%로 12.8%p 벌어져 red 15%p엔 안 걸리면서
+# green 추가매수 카드가 떴음).
+_REBALANCE_MEANINGFUL_DIFF = 3.0
 
 
 def _recommend_weights(items):
@@ -397,12 +433,22 @@ def _rebalance_note(it, n_holdings):
     if n_holdings <= 2:
         return "보유 종목이 적어 AI 리밸런싱은 종목 간 비중 배분만 제안합니다 — 분산이 부족한지는 위 리스크 감점·경고를 참고하세요."
     diff = round(tw - it["weight"], 1)
-    tier_label = (it.get("ai_verdict") or {}).get("label") or "보통"
-    if abs(diff) < 3:
+    verdict = it.get("ai_verdict") or {}
+    tier_label = verdict.get("label") or "보통"
+    if abs(diff) < _REBALANCE_MEANINGFUL_DIFF:
         return f"현재 비중이 AI판단({tier_label})에 대체로 부합합니다."
     if diff > 0:
         return f"AI판단이 '{tier_label}'이라 비중 확대 여지가 있습니다 ({it['weight']:.0f}%→{tw:.0f}%)."
-    return f"AI판단이 '{tier_label}'이거나 종목 집중도가 높아 비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%)."
+    # ⚠️ 예전엔 "AI판단이 '{tier_label}'이거나 종목 집중도가 높아"라고 두 이유를 뭉뚱그려
+    # 말했다 — tier_label이 '매수'류인데도 이 문장이 그대로 붙어서 "매수 추천이면서
+    # 비중축소도 권한다"는 문구 자체가 모순처럼 보였다(사용자 실측 제보, 2026-09-18).
+    # 실제로는 둘 중 하나(종목 자체가 안 좋아서 / 이미 너무 많이 담아서)가 원인이므로
+    # tier로 갈라 정확히 어느 쪽인지 말한다.
+    bullish = verdict.get("tier") in ("strong_buy", "buy", "watch_buy", "accumulate")
+    if bullish:
+        return (f"종목 자체는 AI판단 '{tier_label}'로 긍정적이지만, 이 포트폴리오에서 "
+                f"비중이 이미 높아 분산 차원에서 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%).")
+    return f"AI판단이 '{tier_label}'으로 악화돼 비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%)."
 
 
 # ---------------------------------------------------------------- 리스크 감점
@@ -459,7 +505,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         # 사라지는" 무음 실패가 된다(2차 진단리포트 3-8, ETF 추가 사례로 실제 발견).
         # 반드시 (row, 결과, 에러사유) 3-튜플로 돌려줘 실패도 excluded에 이유와 함께 남긴다.
         try:
-            return row, analyze_fn(row["code"]), None
+            return row, _cached_analyze(row["code"], analyze_fn), None
         except Exception as e:
             raw = str(e) or e.__class__.__name__
             # 종합진단리포트(2026-08-24) 4-14 — URL만 지워도 "404: 종목을 찾을 수 없습니다:
