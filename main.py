@@ -653,20 +653,36 @@ class PortfolioBody(BaseModel):
     name: str
     shares: float
     avg_price: float | None = None
+    avg_fx_rate: float | None = None   # 미국 종목 매입 시점 원/달러 환율(선택) — portfolio.py 모듈 docstring 참고
 
 
 @app.get("/api/portfolio")
 def api_portfolio(request: Request):
     user = _require_user(request)
     rows = portfolio.list_for_user(user["id"])
-    return portfolio.compute(user["id"], rows, api_analyze)
+    cash = portfolio.get_cash(user["id"])
+    return portfolio.compute(user["id"], rows, api_analyze, cash)
+
+
+class PortfolioCashBody(BaseModel):
+    amount: float
+
+
+@app.put("/api/portfolio/cash")
+def api_portfolio_cash(body: PortfolioCashBody, request: Request):
+    user = _require_user(request)
+    try:
+        portfolio.set_cash(user["id"], body.amount)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True}
 
 
 @app.post("/api/portfolio/{code}")
 def api_portfolio_add(code: str, body: PortfolioBody, request: Request):
     user = _require_user(request)
     try:
-        portfolio.upsert(user["id"], code, body.name, body.shares, body.avg_price)
+        portfolio.upsert(user["id"], code, body.name, body.shares, body.avg_price, body.avg_fx_rate)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}
@@ -679,7 +695,7 @@ def api_portfolio_edit(code: str, body: PortfolioBody, request: Request):
     PUT은 더하지 않고 입력값으로 그대로 덮어쓴다."""
     user = _require_user(request)
     try:
-        portfolio.set_holding(user["id"], code, body.name, body.shares, body.avg_price)
+        portfolio.set_holding(user["id"], code, body.name, body.shares, body.avg_price, body.avg_fx_rate)
     except ValueError as e:
         raise HTTPException(400, str(e))
     return {"ok": True}

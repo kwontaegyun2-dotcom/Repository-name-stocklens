@@ -489,11 +489,14 @@ async function buyFromWatch(code) {
   if (!it) return;
   if (location.pathname !== "/portfolio") history.pushState(null, "", "/portfolio");
   await showPortfolio();
-  const nation = /^\d{6}$/.test(code) ? "KR" : "US";
+  // app/naver.py의 is_us()와 같은 규칙: 국내 코드(개별주+ETF)는 항상 6자리에 점(.) 없음.
+  // 예전엔 숫자만 국내로 봐서 0195R0 같은 영문 섞인 국내 ETF 코드가 "달러" placeholder로 잘못 떴다.
+  const nation = code.length === 6 && !code.includes(".") ? "KR" : "US";
   pfSelected = { code, name: it.name, nation };
   $("pf-search-input").value = it.name;
   $("pf-add-btn").disabled = false;
   $("pf-price").placeholder = nation === "US" ? "평균단가(달러, 선택)" : "평균단가(원, 선택)";
+  $("pf-fx").classList.toggle("hidden", nation !== "US");
   $("pf-shares").focus();
 }
 
@@ -3749,6 +3752,7 @@ $("admin-back").onclick = () => goHome();
 /* ---------------- 내 포트폴리오 ---------------- */
 let pfSelected = null;
 let pfEditingCode = null;   // 지금 인라인 수정 중인 보유종목 코드(2차 진단리포트 3-8: 수정 기능 없음)
+let pfCashEditing = false;  // 현금 입력칸이 펼쳐져 있는지(포트폴리오 결함 리포트 2026-09-18 10장)
 let lastPortfolioData = null;
 
 async function showPortfolio() {
@@ -3898,6 +3902,39 @@ function renderRebalance(p) {
     </div>`).join("");
 }
 
+// 현금 — 결함 리포트 2026-09-18 10장: 현금이 없으면 "종목 비중이 100%인 척"하게 되고
+// 매수 제안의 재원 근거도 안 보인다. 종목 weight%·리밸런싱 계산에는 안 섞고(portfolio.py
+// compute() 주석 참고) 총자산·현금 규모만 별도로 보여준다.
+function renderCash(p) {
+  const box = $("pf-cash");
+  if (!box) return;
+  const cash = p.cash || 0;
+  const editing = pfCashEditing;
+  if (editing) {
+    box.innerHTML = `<label>현금</label>
+      <input type="number" min="0" step="1" id="pf-cash-input" value="${cash || ""}" placeholder="보유 현금(원)">
+      <button class="ghost-btn small primary-btn" id="pf-cash-save">저장</button>
+      <button class="ghost-btn small" id="pf-cash-cancel">취소</button>`;
+    $("pf-cash-save").onclick = async () => {
+      const amount = Number($("pf-cash-input").value || 0);
+      if (amount < 0) { showError("현금은 0보다 작을 수 없습니다."); return; }
+      try {
+        await api("/api/portfolio/cash", {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount }),
+        });
+        pfCashEditing = false;
+        await loadPortfolio();
+      } catch (e) { showError("현금 저장 실패: " + e.message); }
+    };
+    $("pf-cash-cancel").onclick = () => { pfCashEditing = false; renderCash(p); };
+    return;
+  }
+  const weightNote = p.cash_weight != null ? ` <small class="hint">(총자산의 ${p.cash_weight}%)</small>` : "";
+  box.innerHTML = `<label>현금</label><b>${won(cash)}</b>${weightNote} <button class="ghost-btn small" id="pf-cash-edit">수정</button>`;
+  $("pf-cash-edit").onclick = () => { pfCashEditing = true; renderCash(p); };
+}
+
 function renderPortfolio(p) {
   const hasHoldings = p.available || (p.excluded && p.excluded.length);
   $("pf-summary-card").classList.toggle("hidden", !hasHoldings);
@@ -3923,6 +3960,7 @@ function renderPortfolio(p) {
     const todayHTML = p.today_pnl != null
       ? `<div class="pf-today">오늘 <span class="${updownClass(p.today_pnl)}">${sign(p.today_pnl)}원 (${sign(p.today_pnl_pct, 2)}%)</span></div>` : "";
     $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>${todayHTML}`;
+    renderCash(p);
 
     // AI 포트폴리오 점수 — 종목상세 "AI 최종판단"과 같은 철학: 판단(등급)을 숫자 점수보다 크게.
     // ⚠️ 예전엔 이 점수가 보유종목 점수의 가중평균일 뿐이라 경고를 세 개 띄우고도
@@ -3988,11 +4026,21 @@ function renderPortfolio(p) {
         // 원화 환산가 그대로 두되, 미국 종목은 "(환산)"을 붙여 환율이 반영된 값임을 알린다.
         const krwNote = isUS ? ` <small class="hint">(환산)</small>` : "";
 
+        // 환차손익 분리(avg_fx_rate 입력된 미국 종목만) — 결함 리포트 5장: 매입원가를
+        // 오늘 환율로 계산해 환차손익이 통째로 사라지던 문제. 매입 시점 환율이 있으면
+        // "주가 변동" vs "환율 변동"을 구분해 보여준다.
+        const fxSplit = (isUS && it.price_pnl != null && it.fx_pnl != null)
+          ? `<br><small class="hint">주가 ${sign(it.price_pnl)}원 · 환율 ${sign(it.fx_pnl)}원</small>` : "";
+
         if (it.code === pfEditingCode) {
+          const priceInput = `<input type="number" min="0" step="any" class="pf-edit-input" id="pf-edit-price" value="${it.avg_price != null ? it.avg_price : ""}" placeholder="평균단가 선택">`;
+          const fxInput = isUS
+            ? `<input type="number" min="0" step="any" class="pf-edit-input" id="pf-edit-fx" value="${it.avg_fx_rate != null ? it.avg_fx_rate : ""}" placeholder="매입환율 선택">`
+            : "";
           return [
             flag + it.name,
             `<input type="number" min="0.0001" step="any" class="pf-edit-input" id="pf-edit-shares" value="${it.shares}">`,
-            `<input type="number" min="0" step="any" class="pf-edit-input" id="pf-edit-price" value="${it.avg_price != null ? it.avg_price : ""}" placeholder="선택">`,
+            priceInput + fxInput,
             isUS ? pw(it.price_native, "USD") : won(it.price),
             "-", "-", `${it.weight}%`,
             it.target_weight != null ? `${it.target_weight}%` : "-",
@@ -4008,7 +4056,7 @@ function renderPortfolio(p) {
           isUS ? pw(it.price_native, "USD") : won(it.price),
           won(it.value) + krwNote,
           it.pnl != null
-            ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>${krwNote}`
+            ? `<span class="${updownClass(it.pnl)}">${sign(it.pnl)}원 (${sign(it.pnl_pct, 1)}%)</span>${krwNote}${fxSplit}`
             : "-",
           `${it.weight}%`,
           it.target_weight != null ? `${it.target_weight}%` : "-",
@@ -4037,14 +4085,21 @@ function renderPortfolio(p) {
         const shares = Number($("pf-edit-shares").value);
         const priceRaw = $("pf-edit-price").value.trim();
         const avg_price = priceRaw ? Number(priceRaw) : null;
+        // pf-edit-fx는 미국 종목일 때만 렌더되므로(위 tableHTML), 없으면 기존값을 그대로
+        // 유지한다 — set_holding()은 PUT으로 넘어온 값을 그대로 덮어쓰므로 여기서 안 챙기면
+        // "수량만 고치려 했는데 매입환율이 지워지는" 회귀가 생긴다.
+        const fxEl = document.getElementById("pf-edit-fx");
+        const fxRaw = fxEl ? fxEl.value.trim() : (it.avg_fx_rate != null ? String(it.avg_fx_rate) : "");
+        const avg_fx_rate = fxRaw ? Number(fxRaw) : null;
         if (!shares || shares <= 0) { showError("수량은 0보다 큰 숫자로 입력하세요."); return; }
         if (priceRaw && (!avg_price || avg_price <= 0)) { showError("평균단가는 0보다 큰 숫자로 입력하세요."); return; }
+        if (fxRaw && (!avg_fx_rate || avg_fx_rate <= 0)) { showError("매입 시점 환율은 0보다 큰 숫자로 입력하세요."); return; }
         b.disabled = true;
         try {
           await api(`/api/portfolio/${code}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ name: it.name, shares, avg_price }),
+            body: JSON.stringify({ name: it.name, shares, avg_price, avg_fx_rate }),
           });
           pfEditingCode = null;
           await loadPortfolio();
@@ -4073,6 +4128,7 @@ pfInput.addEventListener("input", () => {
   pfSelected = null;
   $("pf-add-btn").disabled = true;
   $("pf-price").placeholder = "평균단가(원, 선택)";
+  $("pf-fx").classList.add("hidden");
   const q = pfInput.value.trim();
   if (!q) { pfDropdown.classList.add("hidden"); return; }
   pfSearchTimer = setTimeout(async () => {
@@ -4089,6 +4145,7 @@ pfInput.addEventListener("input", () => {
           pfSelected = { code: it.code, name: it.name, nation: it.nation };
           $("pf-add-btn").disabled = false;
           $("pf-price").placeholder = it.nation === "US" ? "평균단가(달러, 선택)" : "평균단가(원, 선택)";
+          $("pf-fx").classList.toggle("hidden", it.nation !== "US");
         };
         pfDropdown.appendChild(d);
       });
@@ -4100,12 +4157,18 @@ $("pf-add-btn").onclick = async () => {
   const shares = Number($("pf-shares").value);
   const priceRaw = $("pf-price").value.trim();
   const avg_price = priceRaw ? Number(priceRaw) : null;
+  const fxRaw = $("pf-fx").value.trim();
+  const avg_fx_rate = fxRaw ? Number(fxRaw) : null;
   if (!pfSelected || !shares || shares <= 0) {
     $("pf-add-msg").textContent = "종목과 수량을 모두 입력하세요.";
     return;
   }
   if (priceRaw && (!avg_price || avg_price <= 0)) {
     $("pf-add-msg").textContent = "평균단가는 0보다 큰 숫자로 입력하세요.";
+    return;
+  }
+  if (fxRaw && (!avg_fx_rate || avg_fx_rate <= 0)) {
+    $("pf-add-msg").textContent = "매입 시점 환율은 0보다 큰 숫자로 입력하세요.";
     return;
   }
   $("pf-add-btn").disabled = true;
@@ -4115,10 +4178,11 @@ $("pf-add-btn").onclick = async () => {
     await api(`/api/portfolio/${addedCode}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: pfSelected.name, shares, avg_price }),
+      body: JSON.stringify({ name: pfSelected.name, shares, avg_price, avg_fx_rate }),
     });
-    pfInput.value = ""; $("pf-shares").value = ""; $("pf-price").value = ""; pfSelected = null;
+    pfInput.value = ""; $("pf-shares").value = ""; $("pf-price").value = ""; $("pf-fx").value = ""; pfSelected = null;
     $("pf-price").placeholder = "평균단가(원, 선택)";
+    $("pf-fx").classList.add("hidden");
     $("pf-add-msg").textContent = "추가됨. 포트폴리오 불러오는 중...";
     const p = await loadPortfolio();
     // ⚠️ 서버 저장은 성공했는데 분석(analyze_fn)이 실패하는 종목(ETF 등)은 목록에서

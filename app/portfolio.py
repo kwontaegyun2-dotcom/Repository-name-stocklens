@@ -54,6 +54,17 @@ def init(data_dir: Path):
             c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_score REAL")
         if "snapshot_date" not in cols:
             c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_date TEXT")
+        if "avg_fx_rate" not in cols:
+            c.execute("ALTER TABLE portfolio ADD COLUMN avg_fx_rate REAL")
+        # 현금 — 결함 리포트 2026-09-18 10장: 현금 항목이 없어 보유종목 비중이 실제보다
+        # 부풀려지고("100% 다 주식") "얼마를 더 사라"는 리밸런싱 제안의 재원 근거가 없었다.
+        # 종목 테이블과 분리한 별도 테이블(주당수량·평균단가 개념이 없는 단순 금액이라
+        # portfolio 테이블 스키마에 억지로 끼워맞추지 않는다).
+        c.execute("""CREATE TABLE IF NOT EXISTS portfolio_cash (
+            user_id INTEGER PRIMARY KEY,
+            amount REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )""")
 
 
 def _conn():
@@ -63,22 +74,29 @@ def _conn():
 
 
 # ---------------------------------------------------------------- 보유종목 CRUD
-def upsert(user_id: int, code: str, name: str, shares: float, avg_price: float | None = None):
+def upsert(user_id: int, code: str, name: str, shares: float, avg_price: float | None = None,
+           avg_fx_rate: float | None = None):
     """이미 보유 중인 종목을 다시 담으면 추가 매수로 간주해 수량을 더한다
     (버튼이 "추가"인데 값을 덮어쓰면 기존 보유분이 사라진 것처럼 보이는 문제 방지).
     평균단가도 함께 입력되면 (기존수량*기존단가 + 신규수량*신규단가) 가중평균으로 갱신한다.
     한쪽에만 단가가 있으면(과거에 단가 없이 담았던 경우 등) 정확한 가중평균을 낼 수 없으므로
-    새로 입력된 단가를 그대로 쓴다 — 두 값 다 없으면 단가 없이 수량만 누적한다."""
+    새로 입력된 단가를 그대로 쓴다 — 두 값 다 없으면 단가 없이 수량만 누적한다.
+
+    avg_fx_rate(미국 종목 매입 시점 원/달러 환율)도 같은 방식으로 갱신하되, 가중치는
+    "달러 매입금액"(shares*avg_price)이다 — 환율 자체를 주수로 평균내면 매입 규모가
+    다른 두 차례 매수를 동등하게 취급하게 되어 틀린 평균이 나온다."""
     if shares <= 0:
         raise ValueError("수량은 0보다 커야 합니다.")
     if avg_price is not None and avg_price <= 0:
         raise ValueError("평균단가는 0보다 커야 합니다.")
+    if avg_fx_rate is not None and avg_fx_rate <= 0:
+        raise ValueError("매입 시점 환율은 0보다 커야 합니다.")
     with _conn() as c:
         row = c.execute(
-            "SELECT shares, avg_price FROM portfolio WHERE user_id=? AND code=?", (user_id, code)
+            "SELECT shares, avg_price, avg_fx_rate FROM portfolio WHERE user_id=? AND code=?", (user_id, code)
         ).fetchone()
         if row:
-            old_shares, old_avg = row["shares"], row["avg_price"]
+            old_shares, old_avg, old_fx = row["shares"], row["avg_price"], row["avg_fx_rate"]
             total_shares = old_shares + shares
             if avg_price is not None and old_avg is not None:
                 total_avg = (old_shares * old_avg + shares * avg_price) / total_shares
@@ -86,27 +104,42 @@ def upsert(user_id: int, code: str, name: str, shares: float, avg_price: float |
                 total_avg = avg_price
             else:
                 total_avg = old_avg
+            if avg_fx_rate is not None and old_fx is not None and old_avg is not None and avg_price is not None:
+                old_cost = old_shares * old_avg
+                new_cost = shares * avg_price
+                total_fx = (old_cost * old_fx + new_cost * avg_fx_rate) / (old_cost + new_cost) if (old_cost + new_cost) else avg_fx_rate
+            elif avg_fx_rate is not None:
+                total_fx = avg_fx_rate
+            else:
+                total_fx = old_fx
         else:
-            total_shares, total_avg = shares, avg_price
+            total_shares, total_avg, total_fx = shares, avg_price, avg_fx_rate
         c.execute(
-            """INSERT INTO portfolio (user_id, code, name, shares, avg_price, created_at) VALUES (?,?,?,?,?,?)
-               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares, avg_price=excluded.avg_price""",
-            (user_id, code, name, total_shares, total_avg, time.time()),
+            """INSERT INTO portfolio (user_id, code, name, shares, avg_price, avg_fx_rate, created_at)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares, avg_price=excluded.avg_price,
+                 avg_fx_rate=excluded.avg_fx_rate""",
+            (user_id, code, name, total_shares, total_avg, total_fx, time.time()),
         )
 
 
-def set_holding(user_id: int, code: str, name: str, shares: float, avg_price: float | None = None):
+def set_holding(user_id: int, code: str, name: str, shares: float, avg_price: float | None = None,
+                 avg_fx_rate: float | None = None):
     """upsert()와 달리 기존 수량에 더하지 않고 그대로 덮어쓴다 — 잘못 입력한 값을
     수정하는 용도(PUT /api/portfolio/{code})."""
     if shares <= 0:
         raise ValueError("수량은 0보다 커야 합니다.")
     if avg_price is not None and avg_price <= 0:
         raise ValueError("평균단가는 0보다 커야 합니다.")
+    if avg_fx_rate is not None and avg_fx_rate <= 0:
+        raise ValueError("매입 시점 환율은 0보다 커야 합니다.")
     with _conn() as c:
         c.execute(
-            """INSERT INTO portfolio (user_id, code, name, shares, avg_price, created_at) VALUES (?,?,?,?,?,?)
-               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares, avg_price=excluded.avg_price""",
-            (user_id, code, name, shares, avg_price, time.time()),
+            """INSERT INTO portfolio (user_id, code, name, shares, avg_price, avg_fx_rate, created_at)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(user_id, code) DO UPDATE SET shares=excluded.shares, avg_price=excluded.avg_price,
+                 avg_fx_rate=excluded.avg_fx_rate""",
+            (user_id, code, name, shares, avg_price, avg_fx_rate, time.time()),
         )
 
 
@@ -115,10 +148,27 @@ def remove(user_id: int, code: str):
         c.execute("DELETE FROM portfolio WHERE user_id=? AND code=?", (user_id, code))
 
 
+def get_cash(user_id: int) -> float:
+    with _conn() as c:
+        row = c.execute("SELECT amount FROM portfolio_cash WHERE user_id=?", (user_id,)).fetchone()
+    return row["amount"] if row else 0.0
+
+
+def set_cash(user_id: int, amount: float):
+    if amount < 0:
+        raise ValueError("현금은 0보다 작을 수 없습니다.")
+    with _conn() as c:
+        c.execute(
+            """INSERT INTO portfolio_cash (user_id, amount, updated_at) VALUES (?,?,?)
+               ON CONFLICT(user_id) DO UPDATE SET amount=excluded.amount, updated_at=excluded.updated_at""",
+            (user_id, amount, time.time()),
+        )
+
+
 def list_for_user(user_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
-            "SELECT code, name, shares, avg_price, snapshot_score, snapshot_date "
+            "SELECT code, name, shares, avg_price, avg_fx_rate, snapshot_score, snapshot_date "
             "FROM portfolio WHERE user_id=? ORDER BY created_at",
             (user_id,),
         ).fetchall()
@@ -347,6 +397,14 @@ def _today_actions(items):
 
 # ---------------------------------------------------------------- AI 리밸런싱
 _MAX_STOCK_WEIGHT = 30.0
+# 종목별 점수 상대비교만으로는 "업종 전체가 좋다"고 나오면 업종 쏠림이 전혀 줄지 않는다
+# (아래 _recommend_weights() 2026-09-19 개정 참고). _risk_flags()가 업종 쏠림을 경고하는
+# 문턱(50%)보다 낮게 잡아 "경고했는데 리밸런싱은 그대로"인 모순을 막는다.
+_SECTOR_MAX_WEIGHT = 45.0
+# 상관계수 0.7 이상으로 묶인 종목군(=_risk_flags()가 "사실상 같은 베팅"으로 플래그하는
+# 기준과 동일)의 합산 목표비중 상한. _risk_flags()의 플래그 문턱(20%)보다는 높게 잡아
+# "어느 정도 상관된 종목을 같이 담는 것"까지 막지는 않되, 실제로 의미 있게 줄어들게 한다.
+_CLUSTER_MAX_WEIGHT = 30.0
 # 종합점수(0~100, 이미 기본적/기술적/감성/밸류에이션을 다 반영한 값)가 포트폴리오
 # 평균보다 이만큼(점) 높으면, 균등분산 몫(100/n)의 1/_SCORE_SENSITIVITY만큼을
 # 현재 비중에 더해준다. 아래 _recommend_weights() 참고.
@@ -376,7 +434,90 @@ def _meaningfully_different(weight: float, target_weight: float) -> bool:
     return weight > 0 and diff / weight >= 0.3
 
 
-def _recommend_weights(items):
+def _correlation_clusters(items, corr):
+    """corr(items와 같은 순서의 상관행렬)에서 상관계수 0.7 이상인 종목들을 union-find로
+    묶어 2개 이상인 그룹만 [code, ...] 리스트로 반환한다. _risk_flags()의 "상관관계 과다"
+    플래그와 같은 문턱(0.7)을 쓴다 — 여기서 묶이는 종목군이 곧 거기서 "사실상 같은
+    베팅"이라고 경고하는 종목군이어야 리밸런싱과 경고가 같은 기준을 말하게 된다."""
+    if not corr:
+        return []
+    n = len(items)
+    parent = list(range(n))
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if corr[i][j] is not None and corr[i][j] >= 0.7:
+                union(i, j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    return [[items[i]["code"] for i in members] for members in groups.values() if len(members) >= 2]
+
+
+def _clamp_stock_cap(target, max_weight):
+    """개별 종목 상한(max_weight)을 넘는 초과분을 나머지 종목에 현재 비중 비례로
+    재분배한다. 그룹 상한 적용 뒤 다시 개별 상한을 넘는 종목이 생길 수 있어(예: 업종
+    상한으로 줄인 만큼을 업종 밖 1종목이 떠안으면 그 종목이 30%를 넘을 수 있음) 그룹
+    상한 루프 안에서 반복 호출된다."""
+    for _ in range(4):
+        over = {c: w for c, w in target.items() if w > max_weight}
+        if not over:
+            break
+        excess = sum(w - max_weight for w in over.values())
+        for c in over:
+            target[c] = max_weight
+        under_codes = [c for c in target if c not in over]
+        under_total = sum(target[c] for c in under_codes)
+        if under_total <= 0:
+            break
+        for c in under_codes:
+            target[c] += excess * (target[c] / under_total)
+
+
+def _clamp_group_caps(target, groups, cap, max_weight, capped=None):
+    """groups(각각 [code,...]인 그룹 리스트)의 합산 비중이 cap을 넘으면 그룹 내부는
+    현재 비율을 유지한 채 비례 축소하고, 초과분은 그룹 밖 종목에 현재 목표비중 비례로
+    돌려준다. 재분배가 개별 종목 상한을 다시 깰 수 있어 매 반복마다 _clamp_stock_cap을
+    같이 돌려 수렴시킨다. capped(집합)가 주어지면 실제로 축소당한 종목 코드를 기록해
+    _rebalance_note()가 "점수가 낮아서"가 아니라 "업종/상관관계 상한 때문"이라고
+    정확히 설명할 수 있게 한다(점수 자체는 평균 이상이어도 업종 상한에 걸려 줄어들
+    수 있음 — 그런 종목에 "점수가 낮다"는 설명을 붙이면 틀린 설명이 된다)."""
+    for _ in range(4):
+        changed = False
+        for codes in groups:
+            codes = [c for c in codes if c in target]
+            group_total = sum(target[c] for c in codes)
+            if group_total <= cap or group_total <= 0:
+                continue
+            scale = cap / group_total
+            excess = group_total - cap
+            for c in codes:
+                target[c] *= scale
+                if capped is not None:
+                    capped.add(c)
+            other_codes = [c for c in target if c not in codes]
+            other_total = sum(target[c] for c in other_codes)
+            if other_total > 0:
+                for c in other_codes:
+                    target[c] += excess * (target[c] / other_total)
+            changed = True
+        _clamp_stock_cap(target, max_weight)
+        if not changed:
+            break
+
+
+def _recommend_weights(items, corr=None):
     """현재 비중을 기준(anchor)으로 삼아, 종합점수가 포트폴리오 평균보다 높은 종목은
     비중을 늘리고 낮은 종목은 줄이는 방향으로 "조정"한다 — 처음부터 다시 나눠 담는
     게 아니다.
@@ -398,9 +539,25 @@ def _recommend_weights(items):
     실제로 이 계산으로 잡아낸 버그). 상한을 `100%/종목수`에 여유를 둔 값과 30% 중
     큰 쪽으로 동적으로 완화해 이 모순을 막는다. 재분배도 1회가 아니라 반복해
     (재분배 후 새로 상한을 넘는 경우까지) 수렴시킨다.
+
+    ⚠️ 2026-09-18 — 개별 종목 상한만으로는 "업종 전체가 다 buy 등급"인 경우를 못
+    잡는다. 종목별로는 하나도 30%를 안 넘어도 업종 합산은 그대로 70%대에 머물 수
+    있고, 상관계수 0.85로 묶인 두 종목처럼 "사실상 같은 베팅"인 조합이 오히려 둘 다
+    늘어나는 방향으로 나올 수도 있다(포트폴리오 결함 리포트 2026-09-18 2장: "반도체
+    73% 경고해놓고 리밸런싱해도 69.2%", "상관관계 과다 경고 종목인데 리밸런싱은 비중
+    확대 제안"). items의 sector로 업종 그룹, corr로 상관관계 클러스터를 구해 각각
+    합산 비중 상한을 추가로 건다 — 경고(risk_flags)와 처방(리밸런싱)이 같은 기준
+    (섹터·상관관계)을 보게 되어 서로 반대 방향을 가리키는 일이 없어진다.
+
+    반환값은 (target_weights, capped_reason) 튜플이다. capped_reason[code]는 그 종목의
+    비중이 업종/상관관계 상한 때문에 깎였으면 "sector"/"cluster"(둘 다 걸렸으면
+    "cluster"가 우선 — 더 좁고 구체적인 사유), 순수 점수 비교만으로 정해졌으면 없음
+    (키 자체가 없음). _rebalance_note()가 이걸로 "점수가 낮아서 줄이라는 건지 업종/
+    상관관계 상한 때문인지"를 구분해 설명한다 — 안 그러면 점수는 평균 이상인데 업종
+    상한에 걸려 줄어든 종목에 "점수가 낮다"는 틀린 설명이 붙는다.
     """
     if not items:
-        return {}
+        return {}, {}
     n = len(items)
     max_weight = max(_MAX_STOCK_WEIGHT, 100.0 / n * 1.4)
     equal_share = 100.0 / n
@@ -420,27 +577,33 @@ def _recommend_weights(items):
 
     total = sum(raw.values())
     if total <= 0:
-        return {it["code"]: round(100 / n, 1) for it in items}
+        return {it["code"]: round(100 / n, 1) for it in items}, {}
     target = {code: v / total * 100 for code, v in raw.items()}
 
-    for _ in range(4):
-        over = {c: w for c, w in target.items() if w > max_weight}
-        if not over:
-            break
-        excess = sum(w - max_weight for w in over.values())
-        for c in over:
-            target[c] = max_weight
-        under_codes = [c for c in target if c not in over]
-        under_total = sum(target[c] for c in under_codes)
-        if under_total <= 0:
-            break
-        for c in under_codes:
-            target[c] += excess * (target[c] / under_total)
+    _clamp_stock_cap(target, max_weight)
 
-    return {c: round(w, 1) for c, w in target.items()}
+    groups = []
+    by_sector: dict = {}
+    for it in items:
+        by_sector.setdefault(it["sector"], []).append(it["code"])
+    # 업종 자체가 "1종목뿐"이면 상한을 걸어도 재분배할 같은 업종 내 다른 종목이 없어
+    # 무의미하다(오히려 그 1종목만 부당하게 깎일 수 있음) — 2개 이상인 업종만 그룹화.
+    groups.extend(codes for codes in by_sector.values() if len(codes) >= 2)
+    sector_capped: set = set()
+    if groups:
+        _clamp_group_caps(target, groups, _SECTOR_MAX_WEIGHT, max_weight, capped=sector_capped)
+
+    clusters = _correlation_clusters(items, corr)
+    cluster_capped: set = set()
+    if clusters:
+        _clamp_group_caps(target, clusters, _CLUSTER_MAX_WEIGHT, max_weight, capped=cluster_capped)
+
+    capped_reason = {c: "sector" for c in sector_capped}
+    capped_reason.update({c: "cluster" for c in cluster_capped})   # 상관관계 쪽이 더 구체적인 사유라 우선
+    return {c: round(w, 1) for c, w in target.items()}, capped_reason
 
 
-def _rebalance_note(it, n_holdings):
+def _rebalance_note(it, n_holdings, capped_reason=None):
     """현재비중 vs 권장비중 차이를 '왜'까지 담아 한 줄로 설명한다.
 
     ⚠️ 보유종목이 1~2개면 재분배할 다른 종목이 없어 권장비중이 늘 현재비중과 같게
@@ -459,12 +622,24 @@ def _rebalance_note(it, n_holdings):
     tier_label = verdict.get("label") or "보통"
     if not _meaningfully_different(it["weight"], tw):
         return f"현재 비중이 AI판단({tier_label})에 대체로 부합합니다."
+    reason = (capped_reason or {}).get(it["code"])
+    # ⚠️ 2026-09-18 — 업종/상관관계 상한 때문에 줄어든 종목은 그 종목 자체의 점수가
+    # 평균 이상이어도 줄어들 수 있다(업종 전체가 좋아도 업종 쏠림은 그대로 위험이라서).
+    # 이런 종목에 "포트폴리오 내 다른 종목보다 종합점수가 낮아서"라고 하면 틀린
+    # 설명이 된다 — capped_reason으로 실제 사유(업종/상관관계 상한)를 먼저 확인한다.
+    if diff < 0 and reason == "sector":
+        sector = it.get("sector", "동일 업종")
+        return (f"종목 자체 점수와 무관하게 {sector} 업종 비중이 과도해(업종 상한 초과) "
+                f"비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%).")
+    if diff < 0 and reason == "cluster":
+        return (f"종목 자체 점수와 무관하게 포트폴리오 내 다른 종목과 상관관계가 높아 "
+                f"(사실상 같은 베팅) 비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%).")
     # ⚠️ 2026-09-19 — _recommend_weights()가 현재비중 anchor + 종합점수 비교 방식으로
-    # 바뀌면서, "비중 축소" 권고의 실제 이유는 이제 항상 "포트폴리오 내 다른 종목
-    # 대비 종합점수가 낮다"이지 "이미 비중이 커서"가 아니다(작게 담은 종목도 점수가
-    # 낮으면 더 줄이라고 나올 수 있음 — 예전 문구 "비중이 이미 높아"는 그런 경우
-    # 틀린 설명이 된다). tier 라벨은 참고로만 병기하고, 실제 근거(상대 점수)를
-    # 명시한다.
+    # 바뀌면서, 위 업종/상관관계 상한에 안 걸린 "비중 축소" 권고의 실제 이유는 항상
+    # "포트폴리오 내 다른 종목 대비 종합점수가 낮다"이지 "이미 비중이 커서"가 아니다
+    # (작게 담은 종목도 점수가 낮으면 더 줄이라고 나올 수 있음 — 예전 문구 "비중이
+    # 이미 높아"는 그런 경우 틀린 설명이 된다). tier 라벨은 참고로만 병기하고, 실제
+    # 근거(상대 점수)를 명시한다.
     if diff > 0:
         return (f"포트폴리오 내 다른 종목보다 종합점수가 높아(AI판단 '{tier_label}') "
                 f"비중 확대 여지가 있습니다 ({it['weight']:.0f}%→{tw:.0f}%).")
@@ -515,8 +690,9 @@ def _risk_penalty(items, vol, mdd):
 
 
 # ---------------------------------------------------------------- 종합 계산
-def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
-    """holding_rows: list_for_user() 결과. analyze_fn(code) == main.api_analyze."""
+def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.0) -> dict:
+    """holding_rows: list_for_user() 결과. analyze_fn(code) == main.api_analyze.
+    cash: get_cash(user_id) 결과(원화) — 결함 리포트 10장, _recommend_weights.py 위 주석 참고."""
     if not holding_rows:
         return {"available": False, "reason": "담긴 종목이 없습니다."}
 
@@ -584,7 +760,25 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         value = row["shares"] * price
         total_value += value
         avg_price_native = row["avg_price"]
-        cost = row["shares"] * avg_price_native * (fx_rate if is_us else 1) if avg_price_native else None
+        # ⚠️ 2026-09-18 — 매입원가를 항상 "오늘 환율"로 환산하면 환차손익이 통째로
+        # 사라진다(포트폴리오 결함 리포트 2026-09-18 5장: 슈퍼마이크로 255주 실측 사례 —
+        # 매입원가를 매입 시점이 아니라 오늘 환율로 계산해서 6.8%(달러 기준 수익률)와
+        # 910,915원(오늘 환율 기준 금액)이 서로 다른 기준인데 나란히 표시됨). 매입 시점
+        # 환율(avg_fx_rate, 사용자가 종목 추가 시 선택 입력)이 있으면 그걸로 원가를
+        # 계산해 "주가 변동에 따른 손익"과 "환율 변동에 따른 손익"을 분리한다. 없으면
+        # (과거 방식 그대로) 오늘 환율로 근사 — 분리 표시는 생략하고 근사치임을 프론트에서
+        # "(환산)" 표기로 알린다(기존 동작 유지, 신규 회귀 아님).
+        avg_fx_rate = row.get("avg_fx_rate") if is_us else None
+        cost_fx = avg_fx_rate or (fx_rate if is_us else 1)
+        cost = row["shares"] * avg_price_native * cost_fx if avg_price_native else None
+        price_pnl = fx_pnl = None
+        if is_us and avg_fx_rate and avg_price_native and cost is not None:
+            # 총손익 = 가격변동분 + 환율변동분으로 정확히 나눈다(가격변동분을 매입환율
+            # 고정으로 먼저 계산하고, 환율변동분은 "나머지"로 정의해 두 값의 합이 항상
+            # 총손익과 정확히 일치하게 한다 — 교차항을 어느 한쪽에 몰아넣는 대신 잔차
+            # 없이 딱 맞게 만드는 쪽을 택함).
+            price_pnl = round((price_native - avg_price_native) * avg_fx_rate * row["shares"])
+            fx_pnl = round((value - cost) - price_pnl)
         score = d["total"]["total_score"]
 
         snap_score, snap_date = row.get("snapshot_score"), row.get("snapshot_date")
@@ -627,9 +821,10 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
             "price": price, "price_native": price_native if is_us else None,
             "fx_rate": fx_rate if is_us else None,
             "value": value,
-            "avg_price": avg_price_native, "cost": cost,
+            "avg_price": avg_price_native, "avg_fx_rate": avg_fx_rate, "cost": cost,
             "pnl": round(value - cost) if cost is not None else None,
             "pnl_pct": round((value - cost) / cost * 100, 1) if cost else None,
+            "price_pnl": price_pnl, "fx_pnl": fx_pnl,
             "score": score,
             "score_diff": score_diff, "prev_score": prev_score,
             "buy_discount_pct": buy_discount_pct,
@@ -655,10 +850,23 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         it["weight"] = round(it["value"] / total_value * 100, 1)
     items.sort(key=lambda x: -x["weight"])
 
-    target_weights = _recommend_weights(items)
+    sector_weight: dict = {}
+    for it in items:
+        sector_weight[it["sector"]] = round(sector_weight.get(it["sector"], 0) + it["weight"], 1)
+    sector_weight = dict(sorted(sector_weight.items(), key=lambda kv: -kv[1]))
+
+    # ⚠️ 2026-09-18 — 상관관계 행렬(corr)을 리밸런싱보다 먼저 계산해 _recommend_weights()에
+    # 넘긴다. 예전엔 리밸런싱이 종목별 점수만 보고 섹터·상관관계를 전혀 몰라서 "반도체 73%
+    # 쏠림"이라 경고해 놓고 리밸런싱을 그대로 따라도 69.2%로 3.4%p밖에 안 줄고, "삼성전자+
+    # SK하이닉스는 사실상 같은 베팅"이라 경고하면서 SK하이닉스 비중은 오히려 늘리라고
+    # 하는 모순이 있었다(포트폴리오 결함 리포트 2026-09-18 2장). price_by_date가 아직
+    # 삭제되기 전이라 여기서 호출 가능 — 원래 위치(경고 문구 생성 이후)에서 그대로 당겨왔다.
+    corr, contrib = _correlation_and_risk(items)
+
+    target_weights, capped_reason = _recommend_weights(items, corr=corr)
     for it in items:
         it["target_weight"] = target_weights.get(it["code"])
-        it["rebalance_note"] = _rebalance_note(it, len(items))
+        it["rebalance_note"] = _rebalance_note(it, len(items), capped_reason)
 
     def _wavg(key):
         pairs = [(it["weight"], it[key]) for it in items if it.get(key) is not None]
@@ -673,11 +881,6 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
         tw = sum(w for w, _ in pairs)
         return round(sum(w * v for w, v in pairs) / tw, 1) if tw else None
 
-    sector_weight: dict = {}
-    for it in items:
-        sector_weight[it["sector"]] = round(sector_weight.get(it["sector"], 0) + it["weight"], 1)
-    sector_weight = dict(sorted(sector_weight.items(), key=lambda kv: -kv[1]))
-
     series = _portfolio_series([{"shares": it["shares"], "price_by_date": it["price_by_date"]} for it in items])
     vol, mdd = _volatility_and_drawdown(series)
 
@@ -691,7 +894,6 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
     if vol is not None and vol >= 30:
         warnings.append(f"⚠️ 포트폴리오 변동성이 높은 편입니다 (연 {vol}%)")
 
-    corr, contrib = _correlation_and_risk(items)
     if contrib:
         for it in items:
             it["risk_contrib_pct"] = contrib.get(it["code"])
@@ -725,9 +927,23 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn) -> dict:
                 grade, grade_desc = g, desc
                 break
 
+    # ⚠️ 2026-09-18 — 현금(cash)은 여기서 종목 weight%·리밸런싱·리스크 지표 계산에 섞지
+    # 않는다. 섞으면 HHI·섹터상한·상관관계클러스터·리밸런싱 목표비중(100%로 재정규화하는
+    # 로직 전체)이 "투자금 대비"에서 "현금 포함 총자산 대비"로 전부 의미가 바뀌어야 하고,
+    # 그 파급이 이번에 막 고친 리밸런싱 섹터/상관관계 상한 로직 전체를 다시 건드리게 된다.
+    # 대신 "총자산(현금 포함)"과 "현금 비중"을 별도 필드로 노출한다 — 결함 리포트 10장이
+    # 지적한 "현금이 없어 비중이 왜곡된다"·"매수 재원 근거가 없다"는 총자산·현금 규모를
+    # 보여주는 것만으로 해소되고, 종목 간 상대 비중(리밸런싱의 기준)은 원래 의미(투자금
+    # 대비 종목 배분) 그대로 유지하는 게 더 안전하다.
+    total_assets = total_value + cash
+    cash_weight = round(cash / total_assets * 100, 1) if total_assets > 0 else None
+
     return {
         "available": True,
         "total_value": round(total_value),
+        "cash": round(cash),
+        "cash_weight": cash_weight,
+        "total_assets": round(total_assets),
         "total_cost": round(total_cost) if total_cost else None,
         "total_pnl": round(total_pnl) if total_pnl is not None else None,
         "total_pnl_pct": total_pnl_pct,

@@ -17,7 +17,21 @@ A = "https://api.stock.naver.com"     # 해외
 
 
 def is_us(code: str) -> bool:
-    return not str(code).isdigit()
+    """국내(코스피/코스닥) vs 미국 판별.
+    ⚠️ 2026-09-18 — 예전엔 "숫자면 국내, 아니면 미국"이었는데, 최근 상장되는 국내
+    액티브 ETF는 코드에 영문이 섞인다(예: TIGER 삼성전자단일종목레버리지=0195R0,
+    TIGER 리츠부동산인프라TOP10액티브=0086B0). 이런 코드가 숫자만 있지 않다는
+    이유로 미국 API(api.stock.naver.com)로 라우팅되어 404/409가 났고, 포트폴리오에서
+    "미지원 종목(ETF·ETN 등으로 추정)"으로 통째로 빠지는 원인이었다(실측 확인:
+    ETF 자체가 미지원이 아니라 라우팅 오류). 네이버 검색 API를 실측해보면 국내
+    코드는 항상 정확히 6자리(숫자 또는 숫자+영문 혼용, 점(.) 없음)이고, 해외
+    reutersCode는 항상 "TICKER.거래소"(AAPL.O, 164A.T 등) 형태로 점을 포함한다 —
+    이 차이로 판별한다. "SPY" 같은 내부 벤치마크용 짧은 티커(길이 6 아님)는
+    그대로 미국으로 분류된다."""
+    code = str(code)
+    if len(code) == 6 and "." not in code:
+        return False
+    return True
 
 
 def _get(url: str, ttl: int = 60):

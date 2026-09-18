@@ -1129,6 +1129,10 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-total b { font-size: var(--fs-3xl); font-weight: 900; }
 .pf-pnl { font-size: var(--fs-lg); font-weight: 700; }
 .pf-pnl .hint { font-size: var(--fs-xs); font-weight: 400; color: var(--muted); }
+.pf-cash { display: flex; align-items: baseline; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+.pf-cash label { font-size: var(--fs-sm); color: var(--muted); }
+.pf-cash b { font-size: var(--fs-lg); font-weight: 800; }
+.pf-cash input { width: 160px; }
 .pf-grade-hero { margin: 4px 0 16px; padding: 16px 18px; border-radius: 16px; background: var(--surface); border: 1px solid var(--border); }
 .pf-grade-label { font-size: var(--fs-xs); font-weight: 700; color: var(--muted); margin-bottom: 8px; }
 .pf-grade-main { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }

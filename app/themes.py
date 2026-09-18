@@ -7,13 +7,22 @@ app/ranking.py가 이미 백그라운드로 전 종목(국내 182 + 미국 190)�
 """
 from app import ranking
 
+# "AI 반도체" 테마는 손으로 고른 일부 종목이 아니라 ranking.py의 "반도체" 섹터 태그를
+# 그대로 끌어와 자동 구성한다. 2026-09-18 진단 — 손으로 골랐던 목록엔 슈퍼마이크로(SMCI.O,
+# AI서버용 반도체 관련주)가 빠져 있어서, 포트폴리오 화면에서 "실질 노출(테마) 44.6%"와
+# "업종별 비중 72.6%"이 같은 화면에 동시에 표시되는 모순이 생겼다(포트폴리오 결함 리포트
+# 2026-09-18 7장). portfolio.py의 업종별 비중도 이 ranking 섹터 태그(_SECTOR_MAP)로
+# 계산하므로, 테마도 같은 소스에서 파생시키면 신규 반도체 종목이 추가돼도 다시 벌어지지
+# 않는다(손 유지보수 불필요).
+_SEMICONDUCTOR_CODES = [
+    ("KR", code) for code, _name, sector in ranking.UNIVERSE if sector == "반도체"
+] + [
+    ("US", code) for code, _name, sector in ranking.US_UNIVERSE if sector == "반도체"
+]
+
 # (market, code) — market은 ranking.get()이 쓰는 "KR"/"US" 그대로.
 THEMES = {
-    "AI 반도체": [
-        ("US", "NVDA.O"), ("US", "AMD.O"), ("US", "TSM"), ("US", "AVGO.O"),
-        ("US", "QCOM.O"), ("US", "MU.O"),
-        ("KR", "005930"), ("KR", "000660"), ("KR", "042700"), ("KR", "009150"),
-    ],
+    "AI 반도체": _SEMICONDUCTOR_CODES,
     "2차전지": [
         ("KR", "373220"), ("KR", "006400"), ("KR", "247540"), ("KR", "086520"),
         ("KR", "003670"), ("KR", "051910"), ("KR", "348370"),
