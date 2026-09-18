@@ -2355,8 +2355,12 @@ function numCell(v) {
   return `<span class="${cls}">${sign(v)}</span>`;
 }
 function tableHTML(headers, rows) {
+  // data-label을 각 td에 실어둔다 — 기본은 아무 효과 없는 순수 부가 속성이고, 좁은
+  // 화면에서 표를 카드형으로 접는 CSS(예: #pf-holdings-table, style.css 참고)가 있을 때만
+  // ::before로 라벨을 꺼내 쓴다. 결함 리포트 2026-09-18 8장 — 375px 화면에서 보유종목
+  // 표가 실제 폭 1,001px라 3.2배 가로 스크롤이 필요했던 문제.
   return `<table><thead><tr>${headers.map((h) => `<th>${h}</th>`).join("")}</tr></thead>
-    <tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    <tbody>${rows.map((r) => `<tr>${r.map((c, i) => `<td data-label="${(headers[i] || "").replace(/"/g, "&quot;")}">${c}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
 }
 
 /* ---------------- gauge ---------------- */
@@ -3755,6 +3759,92 @@ let pfEditingCode = null;   // 지금 인라인 수정 중인 보유종목 코�
 let pfCashEditing = false;  // 현금 입력칸이 펼쳐져 있는지(포트폴리오 결함 리포트 2026-09-18 10장)
 let lastPortfolioData = null;
 
+// 평가금액 추이 + 벤치마크 비교 — 결함 리포트 Tier1 1-3. app/backtest.py의 등급별 성과
+// 추적과 같은 철학: 데이터가 쌓이기 전엔 "집계 중"을 정직하게 보여주고, 억지로 채우지
+// 않는다. 시작일=100 지수로 정규화해 포트폴리오·코스피·S&P500을 같은 축에서 비교한다.
+async function renderPortfolioHistory() {
+  const card = $("pf-history-card"), note = $("pf-history-note"), cvs = $("pf-history-chart");
+  let history;
+  try {
+    ({ history } = await api("/api/portfolio/history"));
+  } catch {
+    card.classList.add("hidden");
+    return;
+  }
+  if (!history || history.length < 2) {
+    card.classList.remove("hidden");
+    note.textContent = history && history.length === 1
+      ? "오늘부터 매일 실제 평가금액을 기록합니다. 추이는 며칠 뒤부터 보여드립니다."
+      : "집계할 데이터가 아직 없습니다.";
+    cvs.classList.add("hidden");
+    return;
+  }
+  card.classList.remove("hidden");
+  cvs.classList.remove("hidden");
+
+  const base = history[0];
+  const series = (key) => history.map((h) => (h[key] != null && base[key] ? h[key] / base[key] * 100 : null));
+  const lines = [
+    { label: "내 포트폴리오", color: cssVar("--accent"), values: series("total_value") },
+    { label: "코스피", color: cssVar("--accent2"), values: series("kospi") },
+    { label: "S&P500", color: cssVar("--amber"), values: series("spy") },
+  ].filter((l) => l.values.some((v) => v != null));
+
+  const last = history[history.length - 1];
+  const portReturn = last.total_value != null && base.total_value
+    ? (last.total_value / base.total_value - 1) * 100 : null;
+  note.innerHTML = `${base.date} 대비 ${history.length}일째 기록 중`
+    + (portReturn != null ? ` · 내 포트폴리오 <span class="${updownClass(portReturn)}">${sign(portReturn, 1)}%</span>` : "");
+
+  cvs.width = cvs.parentElement.clientWidth - 48;
+  const ctx = cvs.getContext("2d");
+  const W = cvs.width, H = cvs.height, padL = 50, padR = 14, padT = 14, padB = 26;
+  ctx.clearRect(0, 0, W, H);
+
+  const allVals = lines.flatMap((l) => l.values.filter((v) => v != null));
+  if (!allVals.length) { note.textContent = "비교할 데이터가 없습니다."; return; }
+  const maxV = Math.max(...allVals, 100), minV = Math.min(...allVals, 100);
+  const range = (maxV - minV) || 1;
+  const pad = range * 0.1;
+  const yTop = maxV + pad, yBot = minV - pad;
+  const x = (i) => padL + (i / (history.length - 1)) * (W - padL - padR);
+  const y = (v) => padT + (1 - (v - yBot) / (yTop - yBot)) * (H - padT - padB);
+
+  // 기준선(=100, 시작일)
+  ctx.strokeStyle = cssVar("--border"); ctx.setLineDash([4, 4]); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(padL, y(100)); ctx.lineTo(W - padR, y(100)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = cssVar("--muted"); ctx.font = "11px sans-serif"; ctx.textAlign = "right";
+  ctx.fillText("100", padL - 6, y(100) + 4);
+
+  lines.forEach((l) => {
+    ctx.strokeStyle = l.color; ctx.lineWidth = 2; ctx.beginPath();
+    let started = false;
+    l.values.forEach((v, i) => {
+      if (v == null) { started = false; return; }
+      if (!started) { ctx.moveTo(x(i), y(v)); started = true; }
+      else ctx.lineTo(x(i), y(v));
+    });
+    ctx.stroke();
+  });
+
+  ctx.fillStyle = cssVar("--muted"); ctx.textAlign = "left";
+  ctx.fillText(base.date, padL, H - 6);
+  ctx.textAlign = "right";
+  ctx.fillText(last.date, W - padR, H - 6);
+
+  // 범례 — 값이 있는 선만 표시(SPY 조회 실패 등으로 한 선이 빠질 수 있음)
+  let lx = padL;
+  ctx.textAlign = "left"; ctx.font = "12px sans-serif";
+  lines.forEach((l) => {
+    ctx.fillStyle = l.color; ctx.fillRect(lx, padT - 10, 10, 10);
+    ctx.fillStyle = cssVar("--text");
+    const w = ctx.measureText(l.label).width;
+    ctx.fillText(l.label, lx + 14, padT - 1);
+    lx += 14 + w + 16;
+  });
+}
+
 async function showPortfolio() {
   hideAllViews();
   $("portfolio-view").classList.remove("hidden");
@@ -3778,10 +3868,12 @@ async function loadPortfolio() {
   $("pf-exposure-card").classList.add("hidden");
   $("pf-corr-card").classList.add("hidden");
   $("pf-rebalance-card").classList.add("hidden");
+  $("pf-history-card").classList.add("hidden");
   try {
     const p = await api("/api/portfolio");
     lastPortfolioData = p;
     renderPortfolio(p);
+    if (p.available) renderPortfolioHistory();   // 실패해도 본문 렌더는 이미 끝났으니 별도 처리
     return p;
   } catch (e) {
     $("pf-summary-card").classList.remove("hidden");
@@ -3899,6 +3991,7 @@ function renderRebalance(p) {
         <span class="pf-rebal-pct">${it.target_weight}%</span>
       </div>
       <p class="pf-rebal-note">${it.rebalance_note || ""}</p>
+      ${it.rebalance_action ? `<p class="pf-rebal-action">➡ ${it.rebalance_action.text}</p>` : ""}
     </div>`).join("");
 }
 
@@ -3935,6 +4028,47 @@ function renderCash(p) {
   $("pf-cash-edit").onclick = () => { pfCashEditing = true; renderCash(p); };
 }
 
+// 포트폴리오 알림 가시성 — 결함 리포트 2026-09-18 4장·8장: portfolio_alert.py가 매수·매도·
+// 손절·판단변경·이상징후 5종을 이미 감시하고 있었지만(백엔드), 화면 어디에도 그 사실이
+// 안 보여서 "관심종목엔 알림 5종, 포트폴리오엔 0종"으로 읽혔다. 관심종목처럼 종목별
+// 설정 모달을 새로 만드는 대신(포트폴리오는 종목마다 켜고 끌 이유가 약함 — 내 돈이
+// 들어간 종목은 전부 감시되는 게 자연스러움), 웹푸시가 켜져 있는지만 확인해 상태를
+// 보여주고 꺼져 있으면 한 번에 켤 수 있게 한다.
+async function renderAlertStatus() {
+  const box = $("pf-alert-status");
+  if (!box) return;
+  if (!pushSupported() || !window.isSecureContext) {
+    box.textContent = "";
+    return;
+  }
+  let subscribed = false;
+  try {
+    if (Notification.permission === "granted" && navigator.serviceWorker.controller) {
+      const reg = await navigator.serviceWorker.getRegistration("/");
+      const sub = reg && await reg.pushManager.getSubscription();
+      subscribed = !!sub;
+    }
+  } catch {}
+  if (subscribed) {
+    box.innerHTML = `🔔 <b>포트폴리오 알림 켜짐</b> — 매수·매도·손절·판단변경·이상징후를 감시해 알려드립니다.`;
+  } else {
+    box.innerHTML = `🔕 포트폴리오 알림이 꺼져 있습니다. <button class="ghost-btn small" id="pf-alert-enable">알림 켜기</button>`;
+    const btn = document.getElementById("pf-alert-enable");
+    if (btn) {
+      btn.onclick = async () => {
+        btn.disabled = true;
+        try {
+          await ensurePushSubscribed();
+          box.innerHTML = `🔔 <b>포트폴리오 알림 켜짐</b> — 매수·매도·손절·판단변경·이상징후를 감시해 알려드립니다.`;
+        } catch (e) {
+          showError("알림 켜기 실패: " + e.message);
+          btn.disabled = false;
+        }
+      };
+    }
+  }
+}
+
 function renderPortfolio(p) {
   const hasHoldings = p.available || (p.excluded && p.excluded.length);
   $("pf-summary-card").classList.toggle("hidden", !hasHoldings);
@@ -3961,6 +4095,15 @@ function renderPortfolio(p) {
       ? `<div class="pf-today">오늘 <span class="${updownClass(p.today_pnl)}">${sign(p.today_pnl)}원 (${sign(p.today_pnl_pct, 2)}%)</span></div>` : "";
     $("pf-total").innerHTML = `<label>총 평가금액</label><b>${won(p.total_value)}</b><span class="pf-pnl">${pnlHTML}</span>${todayHTML}`;
     renderCash(p);
+    // 결함 리포트 Tier1 1-2 — 관심종목 페이지의 watchSummaryHtml()과 같은 목적: "어제 대비
+    // 판단이 바뀐 보유종목"을 매일 들어와 확인할 이유로 한 줄 보여준다.
+    const cs = p.changes_summary || {};
+    let csLine = "";
+    if (cs.improved && cs.worsened) csLine = `📌 ${cs.improved}종목은 판단이 상향, ${cs.worsened}종목은 하향됐습니다 (어제 대비)`;
+    else if (cs.improved) csLine = `📌 ${cs.improved}종목은 판단이 상향됐습니다 (어제 대비)`;
+    else if (cs.worsened) csLine = `📌 ${cs.worsened}종목은 판단이 하향됐습니다 (어제 대비)`;
+    $("pf-changes").textContent = csLine;
+    renderAlertStatus();
 
     // AI 포트폴리오 점수 — 종목상세 "AI 최종판단"과 같은 철학: 판단(등급)을 숫자 점수보다 크게.
     // ⚠️ 예전엔 이 점수가 보유종목 점수의 가중평균일 뿐이라 경고를 세 개 띄우고도

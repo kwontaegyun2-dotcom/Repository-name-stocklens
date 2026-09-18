@@ -261,7 +261,16 @@ def candles(code: str, count: int = 260, timeframe: str = "day"):
 
 def index_candles(symbol: str = "KOSPI", count: int = 1300):
     """지수 일봉 (상대강도 벤치마크용). 국내 지수는 fchart 로 조회 가능.
-    symbol: KOSPI | KOSDAQ | KPI200"""
+    symbol: KOSPI | KOSDAQ | KPI200
+
+    ⚠️ 2026-09-18 — 예전엔 [float, ...](종가만)을 반환했는데, candles()는 같은 fchart
+    엔드포인트·같은 파싱을 쓰면서 [{date,open,high,low,close,volume}, ...]를 반환해
+    두 함수의 반환 형태가 달랐다. 호출부(app/backtest.py `_bench_price()`)가 이 차이를
+    모르고 index_candles() 결과에도 candles()처럼 c[-1]["close"]를 시도해 TypeError가
+    나고 except로 조용히 삼켜져, 코스피 벤치마크가 한 번도 계산된 적이 없었다(실측:
+    backtest_snapshots.jsonl의 KR 레코드 1067건 전부 bench=null). candles()와 같은
+    dict 형태로 통일해 이 함정 자체를 없앤다 — 날짜(parts[0])도 원본 데이터에 이미
+    있었는데 버려지고 있었을 뿐이라 추가 조회 없이 그대로 채울 수 있다."""
     url = (f"https://fchart.stock.naver.com/sise.nhn?symbol={symbol}"
            f"&timeframe=day&count={count}&requestType=0")
     key = f"idx:{url}"
@@ -274,10 +283,15 @@ def index_candles(symbol: str = "KOSPI", count: int = 1300):
     out = []
     for m in _ITEM_RE.finditer(r.text):
         parts = m.group(1).split("|")
-        if len(parts) < 5:
+        if len(parts) < 6:
             continue
         try:
-            out.append(float(parts[4]))     # 종가만 필요
+            out.append({
+                "date": parts[0],
+                "open": float(parts[1]), "high": float(parts[2]),
+                "low": float(parts[3]), "close": float(parts[4]),
+                "volume": float(parts[5]),
+            })
         except ValueError:
             continue
     _cache[key] = (now, out)

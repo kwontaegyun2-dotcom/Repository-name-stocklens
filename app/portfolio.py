@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from app import analysis, naver, ranking, themes
+from app import analysis, backtest, naver, ranking, themes
 
 _KST = ZoneInfo("Asia/Seoul")
 
@@ -54,6 +54,11 @@ def init(data_dir: Path):
             c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_score REAL")
         if "snapshot_date" not in cols:
             c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_date TEXT")
+        if "snapshot_verdict_tier" not in cols:
+            # 결함 리포트 Tier1 1-2 — score_diff는 있었지만 "판단(AI등급) 자체가 바뀐
+            # 종목"은 추적하지 않았다. watch.py의 added_verdict_tier와 같은 목적으로,
+            # 점수 스냅샷과 같은 타이밍(하루 1회, snapshot_date 갱신 시)에 같이 저장한다.
+            c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_verdict_tier TEXT")
         if "avg_fx_rate" not in cols:
             c.execute("ALTER TABLE portfolio ADD COLUMN avg_fx_rate REAL")
         # 현금 — 결함 리포트 2026-09-18 10장: 현금 항목이 없어 보유종목 비중이 실제보다
@@ -64,6 +69,20 @@ def init(data_dir: Path):
             user_id INTEGER PRIMARY KEY,
             amount REAL NOT NULL,
             updated_at REAL NOT NULL
+        )""")
+        # 일별 평가금액 스냅샷 — 결함 리포트 Tier1 1-3: "내 자산이 한 달 전보다 늘었나"를
+        # 볼 수 없었다. app/backtest.py가 이미 랭킹 전체를 매일 스냅샷해 등급별 성과를
+        # 추적하는 것과 같은 패턴을 포트폴리오 단위로 적용 — compute()가 하루 첫 호출 때만
+        # (idempotent) 기록한다. 사용자가 그날 한 번도 안 들어와도 portfolio_alert.py의
+        # 30분 주기 백그라운드 체크가 모든 보유자를 훑으면서 자동으로 기록해준다.
+        c.execute("""CREATE TABLE IF NOT EXISTS portfolio_snapshot (
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            total_value REAL NOT NULL,
+            cash REAL NOT NULL DEFAULT 0,
+            kospi REAL,
+            spy REAL,
+            PRIMARY KEY (user_id, date)
         )""")
 
 
@@ -148,6 +167,54 @@ def remove(user_id: int, code: str):
         c.execute("DELETE FROM portfolio WHERE user_id=? AND code=?", (user_id, code))
 
 
+# ---------------------------------------------------------------- 평가금액 추이
+def _bench_prices():
+    """코스피·SPY 현재가. app/backtest.py의 _bench_price()와 같은 목적, 같은 방식 —
+    실패하면 None(그 지수 비교는 건너뛰고 포트폴리오 값만 기록)."""
+    kospi = spy = None
+    try:
+        c = naver.index_candles("KOSPI", 3)
+        kospi = c[-1]["close"] if c else None
+    except Exception:
+        pass
+    try:
+        c = naver.candles("SPY", 3)
+        spy = c[-1]["close"] if c else None
+    except Exception:
+        pass
+    return kospi, spy
+
+
+def _record_snapshot(user_id: int, total_value: float, cash: float):
+    """하루 한 번만 실제로 기록(idempotent, PRIMARY KEY(user_id,date)로 강제) —
+    compute()가 매 요청마다 호출해도 상관없다(app/backtest.py의 snapshot()과 동일 패턴)."""
+    today_str = datetime.now(_KST).date().isoformat()
+    with _conn() as c:
+        row = c.execute(
+            "SELECT 1 FROM portfolio_snapshot WHERE user_id=? AND date=?", (user_id, today_str)
+        ).fetchone()
+        if row:
+            return
+    kospi, spy = _bench_prices()
+    with _conn() as c:
+        c.execute(
+            "INSERT OR IGNORE INTO portfolio_snapshot (user_id, date, total_value, cash, kospi, spy) "
+            "VALUES (?,?,?,?,?,?)",
+            (user_id, today_str, total_value, cash, kospi, spy),
+        )
+
+
+def get_history(user_id: int) -> list[dict]:
+    """평가금액 추이 + 코스피/SPY 동시점 지수 — 프론트가 시작일=100 기준 지수로
+    정규화해 "내 포트폴리오 vs 코스피 vs S&P500" 비교선을 그린다(결함 리포트 Tier1 1-3)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT date, total_value, cash, kospi, spy FROM portfolio_snapshot "
+            "WHERE user_id=? ORDER BY date", (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def get_cash(user_id: int) -> float:
     with _conn() as c:
         row = c.execute("SELECT amount FROM portfolio_cash WHERE user_id=?", (user_id,)).fetchone()
@@ -168,22 +235,24 @@ def set_cash(user_id: int, amount: float):
 def list_for_user(user_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
-            "SELECT code, name, shares, avg_price, avg_fx_rate, snapshot_score, snapshot_date "
-            "FROM portfolio WHERE user_id=? ORDER BY created_at",
+            "SELECT code, name, shares, avg_price, avg_fx_rate, snapshot_score, snapshot_date, "
+            "snapshot_verdict_tier FROM portfolio WHERE user_id=? ORDER BY created_at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
 
 
 def _update_snapshots(user_id: int, updates: list[tuple]):
-    """updates: [(code, score, date_str)]. 오늘 처음 조회한 종목만 (compute()에서) 전달됨."""
+    """updates: [(code, score, verdict_tier, date_str)]. 오늘 처음 조회한 종목만
+    (compute()에서) 전달됨."""
     if not updates:
         return
     with _conn() as c:
-        for code, score, date_str in updates:
+        for code, score, verdict_tier, date_str in updates:
             c.execute(
-                "UPDATE portfolio SET snapshot_score=?, snapshot_date=? WHERE user_id=? AND code=?",
-                (score, date_str, user_id, code),
+                "UPDATE portfolio SET snapshot_score=?, snapshot_verdict_tier=?, snapshot_date=? "
+                "WHERE user_id=? AND code=?",
+                (score, verdict_tier, date_str, user_id, code),
             )
 
 
@@ -648,6 +717,51 @@ def _rebalance_note(it, n_holdings, capped_reason=None):
             f"({it['weight']:.0f}%→{tw:.0f}%).")
 
 
+def _actionable_rebalance(it, total_value: float):
+    """"몇 주를 사고팔아야 하는가"로 번역한다 — 결함 리포트 Tier1 1-4: 권장 비중만 %로
+    제시하고 실제로 뭘 해야 하는지는 화면 어디에도 없었다("한화오션 3.3%→0.7%"만 보고
+    사용자가 직접 20주 중 몇 주를 팔지 계산해야 했음).
+
+    비중 차이(%p) → 원화 금액 → 주수로 변환한다. 미국 종목은 원화 금액을 종목 통화(달러)
+    환산 후 price_native로 나눠야 한다(원화 가격으로 나누면 단위가 안 맞아 주수가
+    1000배 가까이 틀어진다 — 이 파일 상단 모듈 docstring의 price_native 경고와 같은 함정).
+    거래비용은 홈 백테스트(app/backtest.py)가 쓰는 것과 같은 왕복 가정치를 그대로
+    재사용해 일관성을 맞춘다(새 가정을 또 만들지 않음)."""
+    tw = it.get("target_weight")
+    if tw is None or total_value <= 0:
+        return None
+    diff_pct = tw - it["weight"]
+    if abs(diff_pct) < 0.5:   # 반올림 오차 수준이면 "0주" 같은 무의미한 액션을 보여주지 않는다
+        return None
+    diff_value_krw = diff_pct / 100 * total_value
+    if it["currency"] == "USD" and it.get("fx_rate"):
+        diff_value_native = diff_value_krw / it["fx_rate"]
+        price_native = it.get("price_native")
+    else:
+        diff_value_native = diff_value_krw
+        price_native = it["price"]
+    if not price_native:
+        return None
+    shares = round(diff_value_native / price_native)
+    if shares == 0:
+        return None
+    cost_est = round(abs(diff_value_krw) * backtest.ROUNDTRIP_COST_PCT / 100)
+    unit_price = f"${price_native:,.2f}" if it["currency"] == "USD" else f"{price_native:,.0f}원"
+    action = "매수" if shares > 0 else "매도"
+    return {
+        "shares": abs(shares), "direction": action,
+        "value_krw": round(abs(diff_value_krw)),
+        "cost_est": cost_est,
+        "text": f"{it['name']} {abs(shares)}주 {action} (주당 {unit_price} 기준, 약 {won(abs(diff_value_krw))}원, "
+                f"거래비용 약 {won(cost_est)}원 가정)",
+    }
+
+
+def won(v):
+    """정수 원화 3자리 콤마 포맷 — 이 파일 안에서만 쓰는 간단한 표시용(프론트 fmt()와 별개)."""
+    return f"{v:,.0f}"
+
+
 # ---------------------------------------------------------------- 리스크 감점
 def _risk_penalty(items, vol, mdd):
     """포트폴리오 종합점수 = 종목 품질 점수(quality_score, 보유종목 가중평균)만으로는
@@ -780,14 +894,20 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
             price_pnl = round((price_native - avg_price_native) * avg_fx_rate * row["shares"])
             fx_pnl = round((value - cost) - price_pnl)
         score = d["total"]["total_score"]
+        verdict_tier = (d.get("ai_verdict") or {}).get("tier")
 
         snap_score, snap_date = row.get("snapshot_score"), row.get("snapshot_date")
+        snap_verdict_tier = row.get("snapshot_verdict_tier")
         if snap_date != today_str:
             score_diff = round(score - snap_score, 1) if snap_score is not None else None
             prev_score = snap_score
-            snapshot_updates.append((row["code"], score, today_str))
+            # 결함 리포트 Tier1 1-2 — 점수뿐 아니라 "AI판단 등급 자체가 바뀌었는지"도
+            # 추적한다(watch.py의 added_verdict_tier와 같은 목적). 처음 담긴 날(스냅샷
+            # 없음)은 비교 기준이 없어 오탐 방지를 위해 False.
+            verdict_changed = bool(snap_verdict_tier and verdict_tier and verdict_tier != snap_verdict_tier)
+            snapshot_updates.append((row["code"], score, verdict_tier, today_str))
         else:
-            score_diff, prev_score = None, None
+            score_diff, prev_score, verdict_changed = None, None, False
 
         fair_buy = (d.get("targets") or {}).get("fair_buy") or {}
         base_price = (fair_buy.get("base") or {}).get("price")
@@ -811,6 +931,13 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
             sell_candidates.append("외국인 순매도 전환")
         sell_reasons = sell_candidates if len(sell_candidates) >= 2 else []
 
+        # 손절선 도달 — 결함 리포트 Tier1 1-1(포트폴리오 알림 5종 중 하나). 단일 신호라도
+        # 손절은 "겹칠 때만 신호"(위 sell_reasons)와 달리 그 자체로 명확한 리스크 경고라
+        # 별도 필드로 둔다. entry.stop_loss는 종목 상세페이지 매수 계획과 같은 값(app/main.py
+        # _analyze_impl의 손절가 정합성 보정을 그대로 물려받음).
+        stop_loss_native = (tech.get("entry") or {}).get("stop_loss") if tech.get("available") else None
+        stop_loss_hit = bool(stop_loss_native and price_native <= stop_loss_native)
+
         # 변동성·상관관계 계산용 시계열도 원화 환산(현재 환율을 과거에 균일 적용하는 근사치).
         # 수익률(%)·상관계수는 스케일 불변이라 이 근사가 계산 자체를 왜곡하진 않는다 — 실제
         # 과거 환율 변동만 반영이 안 될 뿐(환율 이력 소스가 없어 여기까지는 범위 밖).
@@ -829,6 +956,8 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
             "score_diff": score_diff, "prev_score": prev_score,
             "buy_discount_pct": buy_discount_pct,
             "sell_reasons": sell_reasons,
+            "stop_loss_hit": stop_loss_hit,
+            "verdict_changed": verdict_changed, "prev_verdict_tier": snap_verdict_tier,
             "ai_verdict": d.get("ai_verdict"),
             "change": d.get("change", 0) * fx_mult if d.get("change") is not None else None,
             "val_score": (d.get("valuation") or {}).get("score"),
@@ -867,6 +996,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
     for it in items:
         it["target_weight"] = target_weights.get(it["code"])
         it["rebalance_note"] = _rebalance_note(it, len(items), capped_reason)
+        it["rebalance_action"] = _actionable_rebalance(it, total_value)
 
     def _wavg(key):
         pairs = [(it["weight"], it[key]) for it in items if it.get(key) is not None]
@@ -917,6 +1047,24 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
     prev_value = total_value - today_pnl if today_pnl is not None else None
     today_pnl_pct = round(today_pnl / prev_value * 100, 2) if prev_value else None
 
+    # 결함 리포트 Tier1 1-2 — "어제 대비 판단이 바뀐 보유종목" 한 줄 요약(관심종목 페이지의
+    # watchSummaryHtml()과 같은 목적). _TIER_ORDER는 0=가장 공격적 매수 ~ 뒤로 갈수록
+    # 보수적이라, 인덱스가 줄면 상향(개선)·늘면 하향(악화)이다.
+    improved = worsened = 0
+    for it in items:
+        if not it.get("verdict_changed"):
+            continue
+        cur_tier = (it.get("ai_verdict") or {}).get("tier")
+        prev_tier = it.get("prev_verdict_tier")
+        try:
+            if analysis._TIER_ORDER.index(cur_tier) < analysis._TIER_ORDER.index(prev_tier):
+                improved += 1
+            else:
+                worsened += 1
+        except ValueError:
+            pass
+    changes_summary = {"improved": improved, "worsened": worsened}
+
     quality_score = _wavg("score")
     risk_penalty, risk_penalty_detail = _risk_penalty(items, vol, mdd)
     pf_score = round(max(0.0, quality_score - risk_penalty), 1) if quality_score is not None else None
@@ -938,6 +1086,8 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
     total_assets = total_value + cash
     cash_weight = round(cash / total_assets * 100, 1) if total_assets > 0 else None
 
+    _record_snapshot(user_id, total_assets, cash)
+
     return {
         "available": True,
         "total_value": round(total_value),
@@ -949,6 +1099,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
         "total_pnl_pct": total_pnl_pct,
         "today_pnl": today_pnl,
         "today_pnl_pct": today_pnl_pct,
+        "changes_summary": changes_summary,
         "items": items,
         "sector_weight": sector_weight,
         "score": pf_score,

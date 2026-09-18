@@ -450,10 +450,12 @@ def _compute(market):
         st["computing"] = True
     try:
         # 상대강도 벤치마크를 1회만 조회해 전 종목에 공유 (analyze와 동일 기준).
+        # ⚠️ 2026-09-18 — naver.index_candles()를 candles()와 같은 dict 형태로 통일했다
+        # (app/naver.py 참고). 양쪽 다 ["close"]로 추출해야 한다.
         if market == "US":
             bench = _safe(lambda: [c["close"] for c in naver.candles("SPY", 1300)], [])
         else:
-            bench = _safe(lambda: naver.index_candles("KOSPI", 1300), [])
+            bench = _safe(lambda: [c["close"] for c in naver.index_candles("KOSPI", 1300)], [])
         out = []
         total = len(UNIVERSES[market])
         # 전부 끝날 때까지 화면이 텅 비어있지 않도록, 완료되는 대로 주기적으로 중간 결과를

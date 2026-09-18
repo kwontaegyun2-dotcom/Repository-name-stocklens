@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=106">
+<link rel="stylesheet" href="/static/style.css?v=108">
 <!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
      defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
      기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
@@ -716,10 +716,21 @@
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-briefcase"/></svg> 내 포트폴리오 <small class="hint">국내+미국 지원 · 미국 종목은 실시간 환율로 원화 환산해 합산됩니다</small></h3>
     <div class="pf-total" id="pf-total"></div>
     <div class="pf-cash" id="pf-cash"></div>
+    <p id="pf-changes" class="hint-p"></p>
+    <p id="pf-alert-status" class="hint-p"></p>
     <div class="pf-grade-hero" id="pf-grade-hero"></div>
     <ul id="pf-warnings" class="pf-warnings"></ul>
     <div class="pro-grid" id="pf-metrics"></div>
     <p id="pf-excluded" class="hint-p"></p>
+  </section>
+
+  <!-- 평가금액 추이 + 벤치마크 비교 — 결함 리포트 Tier1 1-3: "내 자산이 한 달 전보다
+       늘었나", "코스피/S&P500보다 잘했나"에 답이 없었다. 스냅샷이 쌓이기 전(첫 며칠)엔
+       홈 화면 등급추적과 같은 원칙으로 "집계 중"을 정직하게 보여준다. -->
+  <section class="card hidden" id="pf-history-card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg> 평가금액 추이 <small class="hint">매일 실제 값으로 기록 · 코스피·S&amp;P500과 비교</small></h3>
+    <p id="pf-history-note" class="hint-p"></p>
+    <canvas id="pf-history-chart" height="220"></canvas>
   </section>
 
   <!-- 종목 추가를 보유종목 바로 아래 같은 카드에 둔다 — 예전엔 '오늘의 Action' 카드
@@ -889,6 +900,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=120" defer></script>
+<script src="/static/app.js?v=121" defer></script>
 </body>
 </html>

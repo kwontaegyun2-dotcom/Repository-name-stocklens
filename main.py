@@ -213,10 +213,12 @@ def _analyze_impl(code: str):
         f_trend = ex.submit(safe, lambda: naver.trend(code), [])
         f_candles = ex.submit(safe, lambda: naver.candles(code, 1300), [])   # 약 5년
         # 상대강도 벤치마크: 국내=코스피지수 / 미국=SPY(S&P500 ETF)
+        # ⚠️ 2026-09-18 — naver.index_candles()를 candles()와 같은 dict 형태로 통일했다
+        # (app/naver.py 참고). 양쪽 다 ["close"]로 추출해야 한다.
         if us:
             f_bench = ex.submit(safe, lambda: [c["close"] for c in naver.candles("SPY", 1300)], [])
         else:
-            f_bench = ex.submit(safe, lambda: naver.index_candles("KOSPI", 1300), [])
+            f_bench = ex.submit(safe, lambda: [c["close"] for c in naver.index_candles("KOSPI", 1300)], [])
         integ = f_integ.result()
         fin_annual = f_fin.result()
         fin_quarter = f_fin_q.result()
@@ -662,6 +664,12 @@ def api_portfolio(request: Request):
     rows = portfolio.list_for_user(user["id"])
     cash = portfolio.get_cash(user["id"])
     return portfolio.compute(user["id"], rows, api_analyze, cash)
+
+
+@app.get("/api/portfolio/history")
+def api_portfolio_history(request: Request):
+    user = _require_user(request)
+    return {"history": portfolio.get_history(user["id"])}
 
 
 class PortfolioCashBody(BaseModel):

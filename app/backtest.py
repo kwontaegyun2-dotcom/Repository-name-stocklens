@@ -48,12 +48,16 @@ def _write_state(state):
 
 def _bench_price(market):
     """벤치마크 지수 현재가 — 국내 KOSPI / 미국 SPY. 실패하면 None(그 시장 초과수익률
-    비교는 건너뛰고 종목 수익률만 보여준다)."""
+    비교는 건너뛰고 종목 수익률만 보여준다).
+
+    ⚠️ 2026-09-18 발견(현재는 naver.index_candles() 자체를 candles()와 같은 dict
+    형태로 통일해 해결 — naver.py 참고) — 예전엔 index_candles()가 [float, ...]만
+    반환해서 여기서 c[-1]["close"]를 시도하면 TypeError가 나고 except로 조용히
+    삼켜져 KOSPI 벤치마크가 늘 None이었다(실측: backtest_snapshots.jsonl의 KR
+    레코드 1067건 전부 bench=null이었음 — 홈 화면 "코스피 대비 초과수익률"이 실제로는
+    국내 종목 버킷에도 계산된 적 없이 빈 값이었다)."""
     try:
-        if market == "US":
-            c = naver.candles("SPY", 3)
-        else:
-            c = naver.index_candles("KOSPI", 3)
+        c = naver.candles("SPY", 3) if market == "US" else naver.index_candles("KOSPI", 3)
         return c[-1]["close"] if c else None
     except Exception:
         return None

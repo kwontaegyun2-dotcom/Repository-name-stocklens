@@ -67,9 +67,15 @@ def _distinct_users() -> list:
     return [r["user_id"] for r in rows]
 
 
-def _alerts_for_item(it):
+def _alerts_for_item(it, anomaly_map):
     """(signal_key, 제목, 본문) 목록. 가격이 적정매수가 이하이면서 동시에 목표가
-    이상일 수는 없으므로, 종목 하나에서 매수·매도 신호가 함께 나오는 경우는 없다."""
+    이상일 수는 없으므로, 종목 하나에서 매수·매도 신호가 함께 나오는 경우는 없다.
+
+    ⚠️ 결함 리포트 2026-09-18 4장 — 관심종목엔 알림이 5종(매수신호·목표가·점수기준·
+    판단변경·이상징후)인데 포트폴리오엔 매수/매도 2종뿐이었다("기능 배치가 거꾸로").
+    portfolio.compute()가 이미 계산해둔 verdict_changed·stop_loss_hit 필드와, 관심종목과
+    같은 이상징후 캐시(anomaly_map)를 재사용해 판단변경·손절선·이상징후 3종을 추가한다.
+    새 네트워크 호출·분석 계산은 전혀 없다(전부 기존 compute() 결과 재사용)."""
     out = []
     if (it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5
             and it.get("score", 0) >= BUY_SCORE_MIN):
@@ -87,12 +93,47 @@ def _alerts_for_item(it):
             f"🔴 {it['name']} 매도 신호",
             "\n".join(it["sell_reasons"]) + "\nAI 판단: 일부 차익실현 고려",
         ))
+    if it.get("stop_loss_hit"):
+        out.append((
+            "stop_loss",
+            f"⛔ {it['name']} 손절선 도달",
+            f"현재가 {it['price']:,.0f}원이 손절 기준가 이하입니다\nAI 판단: 손절 여부 재검토",
+        ))
+    if it.get("verdict_changed"):
+        v = it.get("ai_verdict") or {}
+        out.append((
+            "verdict_change",
+            f"🔄 {it['name']} 판단 변경",
+            f"AI 판단: {it.get('prev_verdict_tier') or '-'} → {v.get('label') or '-'}",
+        ))
+    anomaly_item = anomaly_map.get(it["code"])
+    if anomaly_item:
+        from app import anomaly
+        kind, why = anomaly.classify_item(anomaly_item)
+        if kind in ("bull", "bear"):
+            tag = "저평가 확대" if kind == "bull" else "단기 과열"
+            out.append((
+                "anomaly",
+                f"⚡ {it['name']} 이상징후({tag})",
+                ", ".join(why[:2]),
+            ))
     return out
 
 
 def check_now() -> int:
-    """보유종목이 있는 모든 사용자를 재평가해 매수/매도 신호가 있으면 푸시 발송.
-    발송 건수를 반환한다."""
+    """보유종목이 있는 모든 사용자를 재평가해 매수/매도/손절/판단변경/이상징후 신호가
+    있으면 푸시 발송. 발송 건수를 반환한다."""
+    # 이상징후 조건용 — watch.py와 동일하게 랭킹 백그라운드 채점 캐시를 재사용
+    # (추가 네트워크 호출 없음). 사용자마다 새로 만들 필요 없이 한 번만 만든다.
+    anomaly_map = {}
+    try:
+        from app import ranking
+        for market in ("KR", "US"):
+            for item in ranking.get(market).get("items", []):
+                anomaly_map[item["code"]] = item
+    except Exception:
+        pass
+
     fired = 0
     for user_id in _distinct_users():
         rows = portfolio.list_for_user(user_id)
@@ -105,7 +146,7 @@ def check_now() -> int:
         if not result.get("available"):
             continue
         for it in result["items"]:
-            for signal, title, body in _alerts_for_item(it):
+            for signal, title, body in _alerts_for_item(it, anomaly_map):
                 if _recently_fired(user_id, it["code"], signal):
                     continue
                 payload = {

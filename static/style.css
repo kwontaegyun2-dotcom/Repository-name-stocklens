@@ -831,6 +831,40 @@ th:first-child, td:first-child { text-align: left; }
 tbody tr { transition: background .12s; } tbody tr:hover { background: var(--surface); }
 td.pos { color: var(--up); } td.neg { color: var(--down); }
 
+/* 보유 종목 표(#pf-holdings-table) 전용 모바일 카드형 — 결함 리포트 2026-09-18 8장:
+   375px 화면에서 10개 열짜리 표가 실제 폭 1,001px라 3.2배 가로 스크롤이 필요했다.
+   매일 확인하는 화면이 매번 좌우로 밀어야 다 보인다면 습관이 안 생긴다는 지적.
+   tableHTML()이 각 td에 실어두는 data-label(헤더 텍스트)로 라벨을 만든다 — 이 표만
+   card로 접고, 다른 tableHTML() 표(재무제표·동종업계 비교 등)는 기존 가로 스크롤
+   그대로 둔다(열이 훨씬 많거나 숫자 비교가 핵심이라 카드형이 오히려 불리함). */
+@media (max-width: 640px) {
+  #pf-holdings-table table, #pf-holdings-table thead, #pf-holdings-table tbody,
+  #pf-holdings-table th, #pf-holdings-table td, #pf-holdings-table tr { display: block; }
+  #pf-holdings-table thead { display: none; }
+  #pf-holdings-table tbody tr {
+    border: 1px solid var(--border); border-radius: 14px; margin-bottom: 10px;
+    padding: 4px 14px; background: var(--surface);
+  }
+  #pf-holdings-table td {
+    display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px 12px;
+    border-bottom: 1px dashed var(--border); padding: 9px 0; white-space: normal; text-align: right;
+  }
+  /* 평가손익 셀의 환차손익 분리 표기(<small>)는 값 밑으로 온전히 한 줄 내려서 보여준다 —
+     좁은 폭에서 라벨·값과 한 줄에 끼면 결함 리포트가 지적한 것과 같은 가독성 문제가 재발한다. */
+  #pf-holdings-table td small.hint { flex-basis: 100%; text-align: right; }
+  #pf-holdings-table td:last-child { border-bottom: none; }
+  #pf-holdings-table td::before {
+    content: attr(data-label); color: var(--muted); font-size: var(--fs-xs); font-weight: 600;
+    text-align: left; flex: 0 0 auto;
+  }
+  #pf-holdings-table td[data-label=""]::before { content: none; }
+  #pf-holdings-table td[data-label=""] { justify-content: flex-end; gap: 8px; }
+  #pf-holdings-table td[data-label="종목"] {
+    font-weight: 700; font-size: var(--fs-md); justify-content: flex-start;
+  }
+  #pf-holdings-table td[data-label="종목"]::before { content: none; }
+}
+
 /* ---------- research / news ---------- */
 .research-list, .news-list { display: flex; flex-direction: column; gap: 10px; }
 .research-item, .news-item { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px 17px; transition: .15s; }
@@ -1158,6 +1192,7 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-rebal-fill.target { background: var(--grad); }
 .pf-rebal-pct { font-size: var(--fs-xs); font-weight: 700; text-align: right; }
 .pf-rebal-note { font-size: var(--fs-xs); color: var(--muted); margin-top: 8px; }
+.pf-rebal-action { font-size: var(--fs-sm); color: var(--text); font-weight: 700; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .pf-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .pf-warnings li { font-size: var(--fs-sm); padding: 9px 13px; border-radius: 10px; background: rgba(255,166,77,.1); border: 1px solid rgba(255,166,77,.3); }
 .pf-warnings li.pos { background: rgba(46,230,166,.08); border-color: rgba(46,230,166,.3); }
