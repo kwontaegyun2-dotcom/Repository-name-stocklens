@@ -319,9 +319,10 @@ def _today_actions(items):
         tw = it.get("target_weight")
         weight_gap = it["weight"] - tw if tw is not None else None
         overweight = weight_gap is not None and weight_gap >= 15
-        # 목표비중보다 "그래도 의미 있게" 높은 종목(_REBALANCE_MEANINGFUL_DIFF 이상)에는
-        # red 정도로 다급하진 않아도 green 추가매수 카드는 억제한다 — 아래 참고.
-        above_target = weight_gap is not None and weight_gap >= _REBALANCE_MEANINGFUL_DIFF
+        # 목표비중보다 "그래도 의미 있게" 높은 종목에는 red 정도로 다급하진 않아도
+        # green 추가매수 카드는 억제한다 — 아래 참고.
+        above_target = (weight_gap is not None and weight_gap > 0
+                        and _meaningfully_different(it["weight"], tw))
         if overweight:
             cards.append({
                 "level": "red", "code": it["code"], "name": it["name"], "title": "비중 과다",
@@ -359,15 +360,11 @@ def _today_actions(items):
 
 
 # ---------------------------------------------------------------- AI 리밸런싱
-# analysis.py의 8단계 AI 최종판단(VERDICT_TIERS)과 짝을 맞춘 배점 — 예전 5단계
-# {buy:1.5, accumulate:1.2, hold:1.0, reduce:0.6, sell:0.3}을 그대로 유지한 채
-# 사이 3단계(strong_buy·watch_buy·watch_sell)를 보간해 넣었다.
-_TIER_WEIGHT = {
-    "strong_buy": 1.7, "buy": 1.5, "watch_buy": 1.35, "accumulate": 1.2,
-    "hold": 1.0,
-    "watch_sell": 0.8, "reduce": 0.6, "sell": 0.3,
-}
 _MAX_STOCK_WEIGHT = 30.0
+# 종합점수(0~100, 이미 기본적/기술적/감성/밸류에이션을 다 반영한 값)가 포트폴리오
+# 평균보다 이만큼(점) 높으면, 균등분산 몫(100/n)의 1/_SCORE_SENSITIVITY만큼을
+# 현재 비중에 더해준다. 아래 _recommend_weights() 참고.
+_SCORE_SENSITIVITY = 4.0
 # 목표비중보다 이만큼(%p) 이상 높으면 "비중을 줄이는 쪽이 낫다"로 본다.
 # _rebalance_note()와 _today_actions()가 반드시 이 값을 같이 써야 한다 — 예전엔
 # _today_actions()의 "추가매수 카드 억제" 조건이 red 카드와 같은 15%p였는데,
@@ -379,10 +376,35 @@ _MAX_STOCK_WEIGHT = 30.0
 _REBALANCE_MEANINGFUL_DIFF = 3.0
 
 
+def _meaningfully_different(weight: float, target_weight: float) -> bool:
+    """목표비중과 현재비중이 "반올림 오차 수준"을 넘어 실제로 조정할 만해 보이는지.
+
+    ⚠️ 2026-09-19 — _recommend_weights()를 현재비중 anchor 방식으로 바꾼 뒤, 원래
+    비중이 작은 종목은 절대 %p 차이만으로는 안 걸리는 사각지대가 생겼다(예: 3.3%→0.8%는
+    "70% 넘게 줄이라"는 뚜렷한 신호인데 절대 차이는 2.5%p뿐이라 3%p 문턱에 못 미침).
+    절대 %p 차이(큰 비중 종목용)와 상대 변화율(작은 비중 종목용) 중 하나라도 크면
+    "의미 있는 차이"로 본다."""
+    diff = abs(weight - target_weight)
+    if diff >= _REBALANCE_MEANINGFUL_DIFF:
+        return True
+    return weight > 0 and diff / weight >= 0.3
+
+
 def _recommend_weights(items):
-    """종목별 AI판단(ai_verdict.tier)에 배점을 매겨 권장 비중을 만든다. 정밀한 포트폴리오
-    최적화가 아니라 "확신도가 높은 종목에 더 담되 한 종목에 쏠리지 않게"라는 단순하고
-    설명 가능한 원칙만 적용한다.
+    """현재 비중을 기준(anchor)으로 삼아, 종합점수가 포트폴리오 평균보다 높은 종목은
+    비중을 늘리고 낮은 종목은 줄이는 방향으로 "조정"한다 — 처음부터 다시 나눠 담는
+    게 아니다.
+
+    ⚠️ 2026-09-19 — 예전엔 현재 비중을 아예 무시하고 AI판단 티어(8단계) 배점만으로
+    전량 재분배했다. 문제는 보유종목 대부분이 buy/watch_buy처럼 비슷한 티어에
+    몰리기 쉬워서(이 프로젝트 점수화가 극단값을 잘 안 주는 편), 실제로는 44%·27%·
+    11%처럼 제각각이던 비중이 죄다 14% 안팎으로 수렴해버렸다(사용자 실측 제보:
+    "25%→14%로 다 몰아넣으면 이게 숫자놀이지, 종목별로 종합적으로 분석해서 좋은
+    종목은 비중이 높아도 놔두고 나쁜 종목만 낮춰야 리밸런싱이지"). 티어는 8단계뿐이라
+    미묘한 우열을 못 담지만, 종합점수(0~100)는 이미 연속값이라 종목 간 실제 품질
+    차이를 그대로 보여준다 — 그 점수를 현재 비중에 대한 "가감"으로만 쓰면, 이미
+    비중이 크더라도 평균 이상으로 좋은 종목은 그대로 크게 두고, 평균에 못 미치는
+    종목만 실제로 깎인다.
 
     ⚠️ 종목 수가 적으면 고정 30% 상한이 수학적으로 불가능해진다(예: 3종목 중 2개가
     상한(30%)에 걸리면 나머지 1종목이 무조건 40%를 떠안는데, 그 1종목이 하필
@@ -395,11 +417,25 @@ def _recommend_weights(items):
         return {}
     n = len(items)
     max_weight = max(_MAX_STOCK_WEIGHT, 100.0 / n * 1.4)
-    mult = {it["code"]: _TIER_WEIGHT.get((it.get("ai_verdict") or {}).get("tier"), 1.0) for it in items}
-    total = sum(mult.values())
+    equal_share = 100.0 / n
+
+    scored = [it["score"] for it in items if it.get("score") is not None]
+    avg_score = sum(scored) / len(scored) if scored else None
+
+    raw = {}
+    for it in items:
+        score = it.get("score")
+        if score is None or avg_score is None:
+            # 점수를 못 구한 종목(일시적 조회 실패 등)은 가감 없이 현재 비중을 그대로 둔다.
+            raw[it["code"]] = it["weight"]
+            continue
+        delta = equal_share * (score - avg_score) / 10.0 / _SCORE_SENSITIVITY
+        raw[it["code"]] = max(0.0, it["weight"] + delta)
+
+    total = sum(raw.values())
     if total <= 0:
         return {it["code"]: round(100 / n, 1) for it in items}
-    target = {code: v / total * 100 for code, v in mult.items()}
+    target = {code: v / total * 100 for code, v in raw.items()}
 
     for _ in range(4):
         over = {c: w for c, w in target.items() if w > max_weight}
@@ -435,20 +471,20 @@ def _rebalance_note(it, n_holdings):
     diff = round(tw - it["weight"], 1)
     verdict = it.get("ai_verdict") or {}
     tier_label = verdict.get("label") or "보통"
-    if abs(diff) < _REBALANCE_MEANINGFUL_DIFF:
+    if not _meaningfully_different(it["weight"], tw):
         return f"현재 비중이 AI판단({tier_label})에 대체로 부합합니다."
+    # ⚠️ 2026-09-19 — _recommend_weights()가 현재비중 anchor + 종합점수 비교 방식으로
+    # 바뀌면서, "비중 축소" 권고의 실제 이유는 이제 항상 "포트폴리오 내 다른 종목
+    # 대비 종합점수가 낮다"이지 "이미 비중이 커서"가 아니다(작게 담은 종목도 점수가
+    # 낮으면 더 줄이라고 나올 수 있음 — 예전 문구 "비중이 이미 높아"는 그런 경우
+    # 틀린 설명이 된다). tier 라벨은 참고로만 병기하고, 실제 근거(상대 점수)를
+    # 명시한다.
     if diff > 0:
-        return f"AI판단이 '{tier_label}'이라 비중 확대 여지가 있습니다 ({it['weight']:.0f}%→{tw:.0f}%)."
-    # ⚠️ 예전엔 "AI판단이 '{tier_label}'이거나 종목 집중도가 높아"라고 두 이유를 뭉뚱그려
-    # 말했다 — tier_label이 '매수'류인데도 이 문장이 그대로 붙어서 "매수 추천이면서
-    # 비중축소도 권한다"는 문구 자체가 모순처럼 보였다(사용자 실측 제보, 2026-09-18).
-    # 실제로는 둘 중 하나(종목 자체가 안 좋아서 / 이미 너무 많이 담아서)가 원인이므로
-    # tier로 갈라 정확히 어느 쪽인지 말한다.
-    bullish = verdict.get("tier") in ("strong_buy", "buy", "watch_buy", "accumulate")
-    if bullish:
-        return (f"종목 자체는 AI판단 '{tier_label}'로 긍정적이지만, 이 포트폴리오에서 "
-                f"비중이 이미 높아 분산 차원에서 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%).")
-    return f"AI판단이 '{tier_label}'으로 악화돼 비중 축소를 고려해볼 만합니다 ({it['weight']:.0f}%→{tw:.0f}%)."
+        return (f"포트폴리오 내 다른 종목보다 종합점수가 높아(AI판단 '{tier_label}') "
+                f"비중 확대 여지가 있습니다 ({it['weight']:.0f}%→{tw:.0f}%).")
+    return (f"AI판단은 '{tier_label}'이지만 포트폴리오 내 다른 종목보다 종합점수가 낮아, "
+            f"비중을 줄이고 점수가 높은 종목 비중을 늘리는 쪽을 고려해볼 만합니다 "
+            f"({it['weight']:.0f}%→{tw:.0f}%).")
 
 
 # ---------------------------------------------------------------- 리스크 감점
