@@ -831,7 +831,14 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
                 msg = "일시적인 조회 오류 — 다음 새로고침 때 다시 시도됩니다."
             return row, None, msg
 
-    with ThreadPoolExecutor(max_workers=min(8, len(holding_rows))) as ex:
+    # ⚠️ 2026-09-22 속도 재지적 — 보유종목마다 analyze_fn()을 병렬로 부르는데, analyze_fn()
+    # 자신도 내부에서 또 8개짜리 스레드풀을 쓴다(main.py _analyze_impl). 보유종목 전부가
+    # 캐시미스면(포트폴리오는 남들이 잘 안 보는 종목 조합일 때가 많아 실제로 자주 이렇게
+    # 됨) 8종목×8하위작업=최대 64개 스레드가 동시에 뜬다 — CPU 스틸타임이 70~80%인
+    # 공유 VM에서는 이게 병렬 이득보다 스레드 경합 손해가 커서 오히려 느려진다(실측:
+    # 태블릿에서 포트폴리오 로딩 1분+). naver.py에 전역 세마포어(동시 요청 6개 상한)를
+    # 추가한 것과 별개로, 여기 바깥쪽 동시성 자체도 낮춰 중첩 폭발의 최댓값을 줄인다.
+    with ThreadPoolExecutor(max_workers=min(4, len(holding_rows))) as ex:
         futs = [ex.submit(_fetch, r) for r in holding_rows]
         for fut in as_completed(futs):
             row, d, err = fut.result()

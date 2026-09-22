@@ -4,6 +4,7 @@
 시장 자동 감지: 6자리 숫자=국내(005930), 그 외=미국 reutersCode(AAPL.O).
 """
 import re
+import threading
 import time
 from datetime import datetime, timedelta
 
@@ -11,6 +12,41 @@ import requests
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 _cache: dict = {}
+
+# ⚠️ 2026-09-22 — 태블릿에서 포트폴리오 로딩 1분+ 재지적(강한 항의). 실측 원인 둘:
+# 1) 이 _cache가 TTL을 "읽을 때만" 검사하고 지난 항목을 절대 지우지 않아 무한히 커졌다
+#    (검색 자동완성은 사용자가 입력하는 글자 조합마다 새 키가 생김·차트는 종목×기간
+#    조합마다 새 키가 생김 — 며칠 실서비스 트래픽이면 수백~수천 개 고유 키가 쌓임).
+#    실측: 배포 3일 뒤 오라클 프로세스 RSS가 87MB→480MB로 자라며 스왑까지 점유
+#    (VmSwap 186MB) — 956MB짜리 공유 VM에서 스왑이 잡히면 그 자체로 전체가 느려진다.
+# 2) 포트폴리오 조회는 보유종목마다 analyze()를 병렬로 돌리고, analyze() 자신도 내부에서
+#    또 병렬로 하위 조회를 돌린다(중첩 스레드풀). 보유종목 여러 개가 동시에 캐시미스면
+#    실제 동시 네이버 요청이 수십 개까지 치솟는데, 이미 CPU 스틸타임이 70~80%인 이
+#    공유 VM에서는 요청을 몰아서 쏘는 것보다 줄 세우는 쪽이 전체적으로 더 빠르다
+#    (스레드 컨텍스트 스위칭·GIL 경합 자체가 비용이라 무제한 동시성이 오히려 손해).
+# 두 가지 다 고친다: 캐시는 크기 상한+오래된 항목 정리, 실제 HTTP 요청은 전역
+# 세마포어로 동시 개수를 제한한다.
+_CACHE_MAX = 1500                 # 이 개수를 넘으면 가장 오래 전에 채워진 항목부터 정리
+_CACHE_TRIM_TO = 1200              # 정리할 때 이 개수까지 줄인다(매번 딱 1개씩만 지우지 않도록 여유)
+_HTTP_SEMAPHORE = threading.Semaphore(6)   # 앱 전체에서 네이버로 나가는 동시 요청 상한
+
+
+def _cache_set(key: str, value):
+    _cache[key] = (time.time(), value)
+    if len(_cache) > _CACHE_MAX:
+        # dict는 삽입 순서를 보존하므로 앞에서부터 지우면 곧 "가장 오래 전에 넣은 것부터"가
+        # 된다 — true LRU는 아니지만(마지막 접근이 아니라 마지막 삽입 기준) 추가 자료구조
+        # 없이 무한 성장만 막으면 되는 목적엔 충분하다.
+        excess = len(_cache) - _CACHE_TRIM_TO
+        for k in list(_cache.keys())[:excess]:
+            _cache.pop(k, None)
+
+
+def _http_get(url: str, **kwargs):
+    """requests.get()을 그대로 감싸되, 앱 전체 동시 네이버 요청 수를 제한한다."""
+    with _HTTP_SEMAPHORE:
+        return requests.get(url, **kwargs)
+
 
 M = "https://m.stock.naver.com/api"   # 국내
 A = "https://api.stock.naver.com"     # 해외
@@ -39,10 +75,10 @@ def _get(url: str, ttl: int = 60):
     hit = _cache.get(url)
     if hit and now - hit[0] < ttl:
         return hit[1]
-    r = requests.get(url, headers=HEADERS, timeout=10)
+    r = _http_get(url, headers=HEADERS, timeout=10)
     r.raise_for_status()
     data = r.json()
-    _cache[url] = (now, data)
+    _cache_set(url, data)
     return data
 
 
@@ -146,14 +182,14 @@ def usd_krw_rate():
     if hit and now - hit[0] < 600:
         return hit[1]
     try:
-        r = requests.get("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X",
-                          params={"interval": "1d", "range": "5d"}, headers=HEADERS, timeout=8)
+        r = _http_get("https://query1.finance.yahoo.com/v8/finance/chart/USDKRW=X",
+                       params={"interval": "1d", "range": "5d"}, headers=HEADERS, timeout=8)
         r.raise_for_status()
         rate = r.json()["chart"]["result"][0]["meta"].get("regularMarketPrice")
     except Exception:
         rate = None
     if rate is not None:
-        _cache["fx:usdkrw"] = (now, rate)
+        _cache_set("fx:usdkrw", rate)
     return rate
 
 
@@ -239,7 +275,7 @@ def candles(code: str, count: int = 260, timeframe: str = "day"):
     hit = _cache.get(key)
     if hit and now - hit[0] < 300:
         return hit[1]
-    r = requests.get(url, headers=HEADERS, timeout=10)
+    r = _http_get(url, headers=HEADERS, timeout=10)
     r.raise_for_status()
     out = []
     for m in _ITEM_RE.finditer(r.text):
@@ -255,7 +291,7 @@ def candles(code: str, count: int = 260, timeframe: str = "day"):
             })
         except ValueError:
             continue
-    _cache[key] = (now, out)
+    _cache_set(key, out)
     return out
 
 
@@ -278,7 +314,7 @@ def index_candles(symbol: str = "KOSPI", count: int = 1300):
     hit = _cache.get(key)
     if hit and now - hit[0] < 1800:
         return hit[1]
-    r = requests.get(url, headers=HEADERS, timeout=10)
+    r = _http_get(url, headers=HEADERS, timeout=10)
     r.raise_for_status()
     out = []
     for m in _ITEM_RE.finditer(r.text):
@@ -294,7 +330,7 @@ def index_candles(symbol: str = "KOSPI", count: int = 1300):
             })
         except ValueError:
             continue
-    _cache[key] = (now, out)
+    _cache_set(key, out)
     return out
 
 
@@ -308,7 +344,7 @@ def _us_candles(rc: str, count: int):
     start = end - timedelta(days=int(count * 1.6) + 40)   # 거래일→달력일 여유
     url = (f"{A}/chart/foreign/item/{rc}/day"
            f"?startDateTime={start:%Y%m%d}&endDateTime={end:%Y%m%d}")
-    r = requests.get(url, headers=HEADERS, timeout=10)
+    r = _http_get(url, headers=HEADERS, timeout=10)
     r.raise_for_status()
     out = []
     for it in r.json():
@@ -322,5 +358,5 @@ def _us_candles(rc: str, count: int):
         except (ValueError, KeyError, TypeError):
             continue
     out = out[-count:]
-    _cache[key] = (now, out)
+    _cache_set(key, out)
     return out
