@@ -546,6 +546,7 @@ small.hint { display: block; color: var(--dim); font-weight: 400; font-size: var
 .watch-btn.on { background: rgba(139,92,246,.15); border-color: var(--accent); color: var(--text); }
 .watch-msg { font-size: var(--fs-xs); color: var(--muted); margin-top: 8px; max-width: 480px; }
 .stock-overview-line { font-size: var(--fs-sm); color: var(--dim); margin-top: 4px; }
+.price-basis-note { font-size: var(--fs-xs); color: var(--muted); margin-top: 4px; }
 
 /* ---------- compare ---------- */
 .compare-tray { position: fixed; bottom: 0; left: 0; right: 0; z-index: 80; display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; padding: 12px 20px; background: var(--pop); border-top: 1px solid var(--border); backdrop-filter: blur(18px); box-shadow: 0 -8px 30px rgba(0,0,0,.3); }

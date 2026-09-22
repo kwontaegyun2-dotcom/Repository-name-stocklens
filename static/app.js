@@ -1962,6 +1962,22 @@ function render(d) {
   $("live-change").textContent = changeStr(d.change, d.rate);
   $("live-badge").textContent = marketBadgeLabel(d.market_status);
   $("source-badge").textContent = d.kis_enabled ? "한국투자증권 실시간" : "네이버 시세";
+  // 5차 진단리포트 3-1 — 위 "현재가"와 아래 상승여력·적정가·목표가의 계산 기준가가
+  // 다를 때(애프터마켓 실시간 체결가 vs 정규장 종가), 그 사실을 숨기지 않고 명시한다.
+  {
+    const pb = d.price_basis;
+    const noteEl = $("price-basis-note");
+    if (pb && pb.price != null && d.price != null && Math.round(pb.price) !== Math.round(d.price)) {
+      const m = /(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(pb.as_of || "");
+      const asOfStr = m ? `${+m[2]}/${+m[3]} ${m[4]}:${m[5]}` : "";
+      noteEl.classList.remove("hidden");
+      noteEl.textContent = `※ 아래 상승여력·적정가·목표가는 실시간 현재가가 아닌 정규장 종가 ${pw(pb.price)}`
+        + (asOfStr ? ` (${asOfStr} 기준)` : "") + `으로 계산됩니다.`;
+    } else {
+      noteEl.classList.add("hidden");
+      noteEl.textContent = "";
+    }
+  }
   updateFavBtn();
   updateWatchBtn();
   $("watch-msg").classList.add("hidden");
@@ -2099,7 +2115,15 @@ function render(d) {
       : ["<li>뚜렷한 우려 신호는 없습니다.</li>"]).join("");
     const stopZone = (tech.available && tech.entry) ? tech.entry.stop_zone : null;
     const nextParts = [];
-    if (fbBase) nextParts.push(`${pw(fbBase.price)} 도달 시 매수 검토`);
+    // 5차 진단리포트 3-2 — 현재가가 이미 기준 매수가 이하로 떨어진 상태에서도 항상
+    // "OOO원 도달 시 매수 검토"라고만 써서, 기준가가 현재가보다 높을 때 "가격이 더
+    // 올라야 산다"는 말처럼 읽혔다(renderBuyPlan()은 이미 이 already-reached 분기가
+    // 있었는데 이 4줄 요약에는 빠져 있었음). 같은 기준으로 도달 여부를 갈라 표시한다.
+    if (fbBase) {
+      nextParts.push(d.price != null && d.price <= fbBase.price
+        ? `이미 기준 매수가(${pw(fbBase.price)}) 이하 — 매수 검토 가능 구간`
+        : `${pw(fbBase.price)} 도달 시 매수 검토`);
+    }
     if (stopZone) nextParts.push(`${pwRange(stopZone.low, stopZone.high)} 위험 구간 이탈 시 리스크 관리`);
     $("qs-next").textContent = nextParts.length ? nextParts.join(" · ") : "추가로 확인할 가격 기준이 없습니다.";
   }

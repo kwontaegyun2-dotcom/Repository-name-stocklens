@@ -45,16 +45,35 @@ AI_ALLOWED = (not PUBLIC) or os.environ.get("STOCKLENS_ALLOW_AI") == "1"
 _hits: dict = {}
 
 
+def _client_ip(request) -> str:
+    """실제 방문자 IP.
+
+    ⚠️ 5차 진단리포트(2026-09-23) 3-4 — 오라클 서버는 Caddy가 127.0.0.1:8767로
+    reverse_proxy하고 uvicorn은 --proxy-headers 없이 뜬다(systemd ExecStart 확인).
+    즉 request.client.host는 항상 Caddy 자신의 루프백 주소였다 — 사이트를 방문한
+    "모든 사람"이 같은 IP 키 하나를 공유해, 다른 방문자의 트래픽만으로도 내 로그인
+    시도가 429로 막히는 상황이었다(첫 시도부터 제한 메시지가 뜬 원인). uvicorn이
+    127.0.0.1:8767에서만 리스닝하므로(공인 인터넷에서 직접 접속 불가, Caddy를 거쳐야만
+    도달) 여기 들어오는 X-Forwarded-For는 항상 Caddy가 붙인 값으로 신뢰할 수 있다."""
+    xff = request.headers.get("x-forwarded-for") if request else None
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request and request.client else "?"
+
+
 def _rate_limit(request, limit: int = 30, window: int = 60):
     if not PUBLIC or request is None:
         return
-    ip = request.client.host if request.client else "?"
+    # ⚠️ 같은 진단리포트 — 이전엔 엔드포인트 구분 없이 IP 하나당 리스트 하나(_hits[ip])를
+    # 공유해서, 예컨대 /api/analyze를 30번 쓴 방문자가 그 여파로 /api/auth/login(한도 10)
+    # 까지 막혔다. 엔드포인트 경로를 키에 포함해 한도끼리 서로 간섭하지 않게 한다.
+    key = f"{request.url.path}:{_client_ip(request)}"
     now = time.time()
-    bucket = [t for t in _hits.get(ip, []) if now - t < window]
+    bucket = [t for t in _hits.get(key, []) if now - t < window]
     if len(bucket) >= limit:
         raise HTTPException(429, "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.")
     bucket.append(now)
-    _hits[ip] = bucket
+    _hits[key] = bucket
 
 
 # ---------------------------------------------------------------- search
@@ -370,6 +389,14 @@ def _analyze_impl(code: str):
         "direction": quote["direction"],
         "market_status": quote["market_status"],
         "traded_at": quote["traded_at"],
+        # ⚠️ 5차 진단리포트(2026-09-23) 3-1 — 화면 상단 "현재가"는 애프터마켓이 열려 있으면
+        # 실시간 체결가(quote)로 바뀌지만, 상승여력·적정가·목표가 등 아래 파생 수치는 전부
+        # effective_quote() 주석대로 정규장 종가(price)를 기준으로 계산된다(의도된 설계 —
+        # 유동성 얕은 애프터마켓 체결가로 점수·목표가가 흔들리면 안 됨). 두 기준이 다른데도
+        # 화면에 그 사실이 안 보여 "현재가 345,000원인데 왜 상승여력은 337,000원 기준으로
+        # 계산됐냐"는 산술 불일치로 보였다. 프론트가 두 값이 다를 때만 "OOO원(정규장 종가)
+        # 기준 분석"이라고 명시하도록 기준가·기준시각을 별도로 내려준다.
+        "price_basis": {"price": price, "as_of": b.get("localTradedAt")},
         "total": total,
         "ai_verdict": ai_verdict,
         "combined_action": combined,
