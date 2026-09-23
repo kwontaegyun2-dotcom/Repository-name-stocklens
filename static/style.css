@@ -1205,6 +1205,12 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-sector-track { height: 10px; background: var(--surface2); border-radius: 6px; overflow: hidden; }
 .pf-sector-fill { height: 100%; background: var(--grad); }
 .pf-sector-pct { font-size: var(--fs-sm); font-weight: 700; text-align: right; }
+.pf-exposure-row { margin-bottom: 6px; }
+.pf-exposure-row summary { cursor: pointer; list-style: none; }
+.pf-exposure-row summary::-webkit-details-marker { display: none; }
+.pf-exposure-detail { margin: 6px 0 4px 0; padding-left: 14px; font-size: var(--fs-xs); color: var(--text2); }
+.pf-exposure-detail li { margin-bottom: 2px; }
+.pf-metrics-note { margin-top: 4px; }
 
 @media (max-width: 640px) {
   .pf-add-row { flex-direction: column; }

@@ -7,18 +7,34 @@ app/ranking.py가 이미 백그라운드로 전 종목(국내 182 + 미국 190)�
 """
 from app import ranking
 
-# "AI 반도체" 테마는 손으로 고른 일부 종목이 아니라 ranking.py의 "반도체" 섹터 태그를
-# 그대로 끌어와 자동 구성한다. 2026-09-18 진단 — 손으로 골랐던 목록엔 슈퍼마이크로(SMCI.O,
-# AI서버용 반도체 관련주)가 빠져 있어서, 포트폴리오 화면에서 "실질 노출(테마) 44.6%"와
-# "업종별 비중 72.6%"이 같은 화면에 동시에 표시되는 모순이 생겼다(포트폴리오 결함 리포트
-# 2026-09-18 7장). portfolio.py의 업종별 비중도 이 ranking 섹터 태그(_SECTOR_MAP)로
-# 계산하므로, 테마도 같은 소스에서 파생시키면 신규 반도체 종목이 추가돼도 다시 벌어지지
-# 않는다(손 유지보수 불필요).
+# "AI 반도체" 테마 = ranking.py의 "반도체" 섹터 태그(표준 업종 분류, 자동 파생 —
+# 신규 반도체 종목이 추가돼도 손 유지보수 불필요) + 반도체를 직접 설계·제조하진
+# 않지만 AI 반도체 수요에 실질적으로 노출된 관련 종목(수작업 편입, 사유 명시).
+#
+# ⚠️ 6차 진단리포트(2026-09-23) 4-1 — 예전엔 이 관련 종목(슈퍼마이크로)을 업종 태그
+# 자체를 "반도체"로 바꿔서 포함시켰다. 그 결과 포트폴리오 화면의 "업종별 비중"과
+# "테마 노출(실질 노출)"이 완전히 같은 숫자만 냈다 — 두 지표가 서로 다른 걸 보여줘야
+# 의미가 있는데 사실상 하나를 두 번 보여준 것(2026-09-18 진단 이전엔 반대로 이
+# 종목이 아예 빠져서 두 숫자가 안 맞는 문제가 있었음 — 두 실패 모두 "업종=테마"로
+# 취급한 게 원인). 이제 업종(ranking.py)은 표준 분류("AI서버·인프라")로 분리해 두고,
+# 테마에서만 아래처럼 명시적으로 다시 포함시킨다.
+_RELATED_CODES = [
+    ("US", "SMCI.O", "AI GPU 서버 제조 — 반도체 직접생산은 아니지만 엔비디아 GPU 수요에 연동"),
+]
+
 _SEMICONDUCTOR_CODES = [
     ("KR", code) for code, _name, sector in ranking.UNIVERSE if sector == "반도체"
 ] + [
     ("US", code) for code, _name, sector in ranking.US_UNIVERSE if sector == "반도체"
-]
+] + [(market, code) for market, code, _reason in _RELATED_CODES]
+
+# 편입 근거 — 프론트에서 "이 종목이 왜 이 테마에 포함됐는지" 보여줄 때 쓴다.
+# 순수 섹터 파생 종목은 "표준 업종 분류: 반도체", 수작업 편입 종목은 개별 사유.
+THEME_INCLUSION_REASON = {
+    code: "표준 업종 분류: 반도체"
+    for code, _name, sector in (ranking.UNIVERSE + ranking.US_UNIVERSE) if sector == "반도체"
+}
+THEME_INCLUSION_REASON.update({code: reason for _market, code, reason in _RELATED_CODES})
 
 # (market, code) — market은 ranking.get()이 쓰는 "KR"/"US" 그대로.
 THEMES = {

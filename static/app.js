@@ -3817,8 +3817,15 @@ async function renderPortfolioHistory() {
   const last = history[history.length - 1];
   const portReturn = last.total_value != null && base.total_value
     ? (last.total_value / base.total_value - 1) * 100 : null;
+  // 6차 진단리포트 4-4 — 이 등락률은 입출금(종목 추가·삭제, 현금 변경)을 보정하지
+  // 않은 "평가금액 총액"의 변화다. 기간 중 종목을 새로 담거나 현금을 바꾸면 실제
+  // 투자 수익률과 달라질 수 있는데 그 사실이 안 보이면 -6.4% 같은 숫자를 곧바로
+  // 수익률로 오인하기 쉽다. 코스피·S&P500은 각자 통화 기준 시작일=100 지수라 원화
+  // 환산 없이도 상대 비교는 유효하다는 점도 같이 밝힌다.
   note.innerHTML = `${base.date} 대비 ${history.length}일째 기록 중`
-    + (portReturn != null ? ` · 내 포트폴리오 <span class="${updownClass(portReturn)}">${sign(portReturn, 1)}%</span>` : "");
+    + (portReturn != null ? ` · 내 포트폴리오 <span class="${updownClass(portReturn)}">${sign(portReturn, 1)}%</span>` : "")
+    + ` <br><small class="hint">※ 입출금(종목 추가·현금 변경)을 보정하지 않은 평가금액 총액 변화이며, 순수 투자수익률과 다를 수 있습니다.`
+    + ` 코스피·S&amp;P500은 각자 통화 기준 시작일=100 지수로 비교한 값입니다.</small>`;
 
   cvs.width = cvs.parentElement.clientWidth - 48;
   const ctx = cvs.getContext("2d");
@@ -3942,15 +3949,24 @@ function renderRiskFlags(p) {
 
 function renderExposure(p) {
   const exp = p.theme_exposure || {};
+  const detail = p.theme_exposure_detail || {};
   const entries = Object.entries(exp);
   $("pf-exposure-card").classList.toggle("hidden", !p.available || !entries.length);
   if (!p.available || !entries.length) return;
+  // 6차 진단리포트 4-1 — "이 종목이 왜 이 테마에 포함됐는가"가 안 보여서, 업종별
+  // 비중과 우연히 숫자가 같아 보일 때도 달라 보일 때도 신뢰가 깨졌다. <details>로
+  // 펼치면 종목별 편입 근거(표준 업종 파생 vs 개별 사유)를 보여준다.
   $("pf-exposure-bars").innerHTML = entries.map(([theme, w]) => `
-    <div class="pf-sector-row">
-      <span class="pf-sector-name">${theme}${w >= 50 ? " 🔴" : ""}</span>
-      <div class="pf-sector-track"><div class="pf-sector-fill" style="width:${w}%"></div></div>
-      <span class="pf-sector-pct">${w}%</span>
-    </div>`).join("");
+    <details class="pf-exposure-row">
+      <summary class="pf-sector-row">
+        <span class="pf-sector-name">${theme}${w >= 50 ? " 🔴" : ""}</span>
+        <div class="pf-sector-track"><div class="pf-sector-fill" style="width:${w}%"></div></div>
+        <span class="pf-sector-pct">${w}%</span>
+      </summary>
+      <ul class="pf-exposure-detail">
+        ${(detail[theme] || []).map((d) => `<li>${d.name} ${d.weight}% <span class="hint">— ${d.reason}</span></li>`).join("")}
+      </ul>
+    </details>`).join("");
 }
 
 function renderCorrelation(p) {

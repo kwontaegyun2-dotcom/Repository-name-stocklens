@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=110">
+<link rel="stylesheet" href="/static/style.css?v=111">
 <!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
      defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
      기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
@@ -722,6 +722,9 @@
     <div class="pf-grade-hero" id="pf-grade-hero"></div>
     <ul id="pf-warnings" class="pf-warnings"></ul>
     <div class="pro-grid" id="pf-metrics"></div>
+    <p class="hint-p pf-metrics-note">※ 변동성·최대낙폭은 <b>현재 보유 비중을 과거 1년 가격에 그대로 적용한 가상 계산</b>입니다
+      (실제 보유 이력이 아니라 "오늘 이 조합으로 1년을 보냈다면"의 재현). 기대수익률은 각 종목의
+      컨센서스 목표가 괴리를 현재 비중으로 가중평균한 값이며, 목표주가 자체가 달성을 보장하지 않습니다.</p>
     <p id="pf-excluded" class="hint-p"></p>
   </section>
 
@@ -777,12 +780,12 @@
   </section>
 
   <section class="card hidden" id="pf-exposure-card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg> 실질 노출 <small class="hint">테마 기준 — 종목은 달라도 같은 산업에 겹쳐 노출된 비중</small></h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-layers"/></svg> 실질 노출 <small class="hint">자체 큐레이션 테마 — 아래 업종 분류와 달리 한 종목이 여러 테마에 겹쳐 들어갈 수 있습니다. 종목명을 눌러 편입 근거를 확인하세요</small></h3>
     <div id="pf-exposure-bars" class="pf-sector-bars"></div>
   </section>
 
   <section class="card hidden" id="pf-sector-card">
-    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-factory"/></svg> 업종별 비중</h3>
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-factory"/></svg> 업종별 비중 <small class="hint">표준 업종 분류 — 종목당 1개 업종만 집계(위 "실질 노출"과는 다른 기준입니다)</small></h3>
     <div id="pf-sector-bars" class="pf-sector-bars"></div>
   </section>
 
@@ -902,6 +905,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=123" defer></script>
+<script src="/static/app.js?v=124" defer></script>
 </body>
 </html>

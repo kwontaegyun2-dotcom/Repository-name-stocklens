@@ -346,14 +346,28 @@ def _correlation_and_risk(items):
 
 def _theme_exposure(items):
     """themes.py에 큐레이션된 테마(국내+미국 모두 매칭)에 보유 비중을 합산해 "실질 노출"을
-    계산한다. 신규 데이터·네트워크 호출 없음."""
+    계산한다. 신규 데이터·네트워크 호출 없음.
+
+    ⚠️ 6차 진단리포트(2026-09-23) 4-1 — "업종별 비중"(표준 분류, 종목당 1개)과
+    "테마 노출"(광의의 밸류체인, 종목이 여러 테마에 겹쳐 들어갈 수 있음)은 서로 다른
+    질문에 답하는 지표다. 어느 종목이 왜 이 테마에 포함됐는지 안 보이면 두 숫자가
+    같을 때도(=중복 표시처럼 보임) 다를 때도(=집계 오류처럼 보임) 신뢰가 깨진다.
+    편입 근거(reason)를 종목별로 같이 돌려줘 프론트에서 펼쳐볼 수 있게 한다."""
     exposure = {}
+    detail = {}
     for name, codes in themes.THEMES.items():
         theme_codes = {code for _market, code in codes}
-        w = round(sum(it["weight"] for it in items if it["code"] in theme_codes), 1)
+        matched = [it for it in items if it["code"] in theme_codes]
+        w = round(sum(it["weight"] for it in matched), 1)
         if w > 0:
             exposure[name] = w
-    return dict(sorted(exposure.items(), key=lambda kv: -kv[1]))
+            detail[name] = [
+                {"name": it["name"], "weight": it["weight"],
+                 "reason": themes.THEME_INCLUSION_REASON.get(it["code"], "테마 편입 종목")}
+                for it in sorted(matched, key=lambda x: -x["weight"])
+            ]
+    order = sorted(exposure.items(), key=lambda kv: -kv[1])
+    return dict(order), {name: detail[name] for name, _w in order}
 
 
 def _risk_flags(items, sector_weight, corr, contrib):
@@ -712,9 +726,17 @@ def _rebalance_note(it, n_holdings, capped_reason=None):
     if diff > 0:
         return (f"포트폴리오 내 다른 종목보다 종합점수가 높아(AI판단 '{tier_label}') "
                 f"비중 확대 여지가 있습니다 ({it['weight']:.0f}%→{tw:.0f}%).")
+    # ⚠️ 6차 진단리포트(2026-09-23) 4-2 — 권장비중이 0%(전량 매도)인데 근거가
+    # "포트폴리오 내 상대 점수가 낮다" 한 줄뿐이면, 종목 자체는 '매수 관심'으로 평가되는
+    # 경우에도 "왜 완전히 정리하라는 건지" 설득력이 약하다(한화오션 사례: 매수 관심인데
+    # 권장비중 0%). 세금·매매비용·보유 목적처럼 이 계산이 반영하지 못하는 요인이 있다는
+    # 걸 전량 매도 케이스에서만 명시한다 — 매번 붙이면 잡음이 되므로 가장 강한 결론
+    # (완전 정리)일 때만 덧붙인다.
+    exit_note = (" 세금·매매비용·개인 보유 목적은 이 계산에 반영되지 않았으니, "
+                 "전량 정리 전 함께 고려하세요." if tw <= 0.5 else "")
     return (f"AI판단은 '{tier_label}'이지만 포트폴리오 내 다른 종목보다 종합점수가 낮아, "
             f"비중을 줄이고 점수가 높은 종목 비중을 늘리는 쪽을 고려해볼 만합니다 "
-            f"({it['weight']:.0f}%→{tw:.0f}%).")
+            f"({it['weight']:.0f}%→{tw:.0f}%).{exit_note}")
 
 
 def _actionable_rebalance(it, total_value: float):
@@ -1043,7 +1065,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
     if contrib:
         for it in items:
             it["risk_contrib_pct"] = contrib.get(it["code"])
-    theme_exposure = _theme_exposure(items)
+    theme_exposure, theme_exposure_detail = _theme_exposure(items)
     risk_flags = _risk_flags(items, sector_weight, corr, contrib)
     today_actions = _today_actions(items)
     corr_table = {"labels": [it["name"] for it in items], "matrix": corr} if corr else None
@@ -1156,6 +1178,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
         "today_actions": today_actions,
         "risk_flags": risk_flags,
         "theme_exposure": theme_exposure,
+        "theme_exposure_detail": theme_exposure_detail,
         "correlation": corr_table,
         "rebalance_budget": rebalance_budget,
     }
