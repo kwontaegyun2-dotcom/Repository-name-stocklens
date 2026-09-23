@@ -222,7 +222,20 @@ def _crossed(prev, cur, threshold):
     return (prev < threshold) != (cur < threshold)
 
 
-def _evaluate(row: sqlite3.Row, analysis: dict, anomaly_map: dict):
+def _evaluate(row: sqlite3.Row, analysis: dict, anomaly_map: dict, held: bool = False):
+    """held=True면(=이 종목을 포트폴리오에도 보유 중이면) alert_buy·alert_verdict_change·
+    alert_anomaly는 평가하지 않는다.
+
+    ⚠️ 6차 진단리포트(2026-09-23) 7장 P1 "실제 알림 검증"에서 발견 — 관심종목(watch.py)의
+    매수신호·판단변경·이상징후 조건이 포트폴리오 감시(app/portfolio_alert.py)의
+    buy·verdict_change·anomaly 신호와 정확히 같은 사건을 각자 독립적으로 채점해서,
+    같은 종목을 관심종목에도 담고 포트폴리오에도 보유하면(흔한 상황 — alert_buy가
+    기본 켜짐) 서로 다른 태그(stocklens-{code} vs stocklens-pf-{code}-{signal})로
+    별개 취급돼 사실상 같은 알림이 두 번(때로는 체크 주기가 달라 15분·30분 간격으로
+    따로) 발송됐다. 관심종목은 "아직 안 산 종목을 발굴"하는 목적이고 포트폴리오는
+    "이미 가진 자산을 관리"하는 목적이라 역할이 다르므로, 이미 보유 중이면 더 자세한
+    포트폴리오 쪽 알림에 맡기고 여기선 건너뛴다. alert_price_target·alert_score_threshold는
+    포트폴리오 쪽에 대응 신호가 없는 사용자 지정 조건이라 보유 여부와 무관하게 그대로 둔다."""
     total = analysis.get("total") or {}
     score = total.get("total_score")
     price = analysis.get("price")
@@ -232,7 +245,7 @@ def _evaluate(row: sqlite3.Row, analysis: dict, anomaly_map: dict):
 
     reasons = []
 
-    if row["alert_buy"]:
+    if row["alert_buy"] and not held:
         ok, reason = _condition(analysis)
         if ok:
             reasons.append(reason)
@@ -245,10 +258,10 @@ def _evaluate(row: sqlite3.Row, analysis: dict, anomaly_map: dict):
     if threshold is not None and _crossed(row["last_score"], score, threshold):
         reasons.append(f"종합점수 {threshold:.0f}점 돌파/이탈 (현재 {score:.1f}점)")
 
-    if row["alert_verdict_change"] and row["last_verdict_tier"] and tier and tier != row["last_verdict_tier"]:
+    if row["alert_verdict_change"] and not held and row["last_verdict_tier"] and tier and tier != row["last_verdict_tier"]:
         reasons.append(f"판단 변경: {row['last_verdict'] or '-'} → {label or '-'}")
 
-    if row["alert_anomaly"]:
+    if row["alert_anomaly"] and not held:
         item = anomaly_map.get(row["code"])
         if item:
             from app import anomaly
@@ -294,13 +307,21 @@ def check_now() -> int:
     except Exception:
         pass
 
+    # 종목 중복알림 방지(위 _evaluate docstring 참고) — 사용자별 보유 종목 코드 집합을
+    # 한 번씩만 조회해 재사용한다(관심종목이 많아도 사용자당 쿼리 1회).
+    held_by_user: dict = {}
+
     fired = 0
     for w in rows:
         try:
             analysis = _analyze_fn(w["code"])
         except Exception:
             continue
-        reasons, snap = _evaluate(w, analysis, anomaly_map)
+        if w["user_id"] not in held_by_user:
+            from app import portfolio
+            held_by_user[w["user_id"]] = {r["code"] for r in portfolio.list_for_user(w["user_id"])}
+        held = w["code"] in held_by_user[w["user_id"]]
+        reasons, snap = _evaluate(w, analysis, anomaly_map, held=held)
 
         # 알림 발송 여부와 무관하게 매 체크마다 최신 스냅샷을 저장 — 다음 체크의
         # 돌파/이탈(크로스) 감지 기준선이 된다.

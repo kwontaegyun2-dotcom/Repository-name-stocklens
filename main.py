@@ -743,6 +743,37 @@ def api_portfolio_remove(code: str, request: Request):
     return {"ok": True}
 
 
+class PortfolioLockBody(BaseModel):
+    locked: bool
+
+
+@app.put("/api/portfolio/{code}/lock")
+def api_portfolio_lock(code: str, body: PortfolioLockBody, request: Request):
+    """6차 진단리포트 7장 P1 "개인 제약과 유지 선택" — 세금·보유 목적 때문에 AI
+    리밸런싱이 못 건드려야 하는 종목을 사용자가 직접 표시한다(portfolio.py
+    _recommend_weights() 참고)."""
+    user = _require_user(request)
+    portfolio.set_locked(user["id"], code, body.locked)
+    return {"ok": True}
+
+
+@app.post("/api/portfolio/actions/{action_key}/ack")
+def api_portfolio_ack(action_key: str, request: Request):
+    """6차 진단리포트 7장 P1 "변화 이력·확인/보류" — "오늘의 Action" 카드를 확인
+    처리한다(portfolio.py _action_key/_today_actions 참고). 내용이 그대로면 다음
+    새로고침에도 접혀 있고, 실제로 바뀌면(해시가 달라지면) 자동으로 다시 뜬다."""
+    user = _require_user(request)
+    portfolio.ack_action(user["id"], action_key)
+    return {"ok": True}
+
+
+@app.delete("/api/portfolio/actions/{action_key}/ack")
+def api_portfolio_unack(action_key: str, request: Request):
+    user = _require_user(request)
+    portfolio.unack_action(user["id"], action_key)
+    return {"ok": True}
+
+
 @app.get("/sw.js")
 def service_worker():
     return FileResponse(BASE / "static" / "sw.js", media_type="application/javascript",

@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=111">
+<link rel="stylesheet" href="/static/style.css?v=113">
 <!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
      defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
      기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
@@ -772,6 +772,10 @@
       <h4>오늘 할 일</h4>
       <ul id="pf-todo-list" class="pf-todo-list"></ul>
     </div>
+    <details id="pf-actions-acked-wrap" class="pf-actions-acked-wrap hidden">
+      <summary>확인 완료한 항목 보기</summary>
+      <div id="pf-actions-acked-list" class="pf-actions-list"></div>
+    </details>
   </section>
 
   <section class="card hidden" id="pf-risk-card">
@@ -799,6 +803,21 @@
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bot"/></svg> AI 리밸런싱 <small class="hint">AI판단(매수~매도) 신뢰도 기준 권장 비중 · 종목당 상한 적용</small></h3>
     <p id="pf-rebal-budget" class="pf-rebal-budget hidden"></p>
     <div id="pf-rebalance-list" class="pf-rebalance-list"></div>
+  </section>
+
+  <!-- 6차 진단리포트(2026-09-23) 6-2 — "핵심 유료 후보"로 꼽힌 기능. 실제 매매를
+       하기 전에 "현재 유지 / 추가금만 배분 / 최소 거래 / 전체 조정" 4개 대안의
+       결과(쏠림 완화 정도·필요 비용·잔여 현금)를 미리 비교할 수 있게 한다. 새
+       네트워크 호출 없이 이미 로드된 p.items(권장비중 포함)로 프론트에서 계산한다. -->
+  <section class="card hidden" id="pf-scenario-card">
+    <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-target"/></svg> 조정 시나리오 비교 <small class="hint">실제 매매 전 대안 비교 — 위 AI 리밸런싱과 같은 권장비중을 기준으로 계산</small></h3>
+    <div class="pf-scenario-input">
+      <label for="pf-scenario-extra">추가 투자금</label>
+      <input type="number" min="0" step="10000" id="pf-scenario-extra" placeholder="0" value="0">
+      <span class="hint">원 (매도 없이 배분할 신규 자금 — 0이면 기존 자산 안에서만 비교)</span>
+    </div>
+    <div class="table-wrap"><table class="pf-scenario-table" id="pf-scenario-table"></table></div>
+    <p class="hint-p">※ 실제 증권사 수수료·세금이 아닌 가정치(왕복 0.3%)이며, 참고용 비교입니다.</p>
   </section>
 </main>
 
@@ -905,6 +924,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=124" defer></script>
+<script src="/static/app.js?v=126" defer></script>
 </body>
 </html>

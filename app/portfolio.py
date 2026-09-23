@@ -11,6 +11,7 @@
 환율 조회가 실패하면(네트워크 문제 등) 그 미국 종목만 이번 계산에서 제외하고
 사유를 명시한다(다음 새로고침 때 재시도되므로 일시적 문제일 뿐).
 """
+import hashlib
 import sqlite3
 import statistics
 import time
@@ -61,6 +62,12 @@ def init(data_dir: Path):
             c.execute("ALTER TABLE portfolio ADD COLUMN snapshot_verdict_tier TEXT")
         if "avg_fx_rate" not in cols:
             c.execute("ALTER TABLE portfolio ADD COLUMN avg_fx_rate REAL")
+        if "locked" not in cols:
+            # 6차 진단리포트(2026-09-23) 7장 P1 "개인 제약과 유지 선택" — AI 리밸런싱이
+            # 세금·보유 목적을 몰라 전량매도 같은 결론을 내도(4-2), 사용자가 "이 종목은
+            # 손대지 말라"고 직접 표시할 방법이 없었다. locked=1이면 _recommend_weights()가
+            # 그 종목의 목표비중을 현재 비중 그대로 고정하고 리밸런싱 대상에서 제외한다.
+            c.execute("ALTER TABLE portfolio ADD COLUMN locked INTEGER NOT NULL DEFAULT 0")
         # 현금 — 결함 리포트 2026-09-18 10장: 현금 항목이 없어 보유종목 비중이 실제보다
         # 부풀려지고("100% 다 주식") "얼마를 더 사라"는 리밸런싱 제안의 재원 근거가 없었다.
         # 종목 테이블과 분리한 별도 테이블(주당수량·평균단가 개념이 없는 단순 금액이라
@@ -83,6 +90,18 @@ def init(data_dir: Path):
             kospi REAL,
             spy REAL,
             PRIMARY KEY (user_id, date)
+        )""")
+        # 6차 진단리포트(2026-09-23) 7장 P1 "변화 이력·확인/보류" — "오늘의 Action" 카드가
+        # 매번 새로고침할 때마다 지난번에 이미 읽은 경고까지 그대로 다시 떠서, 뭐가
+        # 새로 생긴 건지 구분이 안 됐다. action_key(카드 내용의 해시 — 종목·제목·세부
+        # 내용이 하나라도 바뀌면 값이 달라짐)를 확인 표시해두면, 똑같은 상태가 계속되는
+        # 한 "확인함"으로 접혀 있다가 내용이 실제로 달라지면(=키가 달라지면) 자동으로
+        # 다시 "새 변화"로 뜬다 — 별도 변경감지 로직 없이 해시 자체가 그 역할을 한다.
+        c.execute("""CREATE TABLE IF NOT EXISTS portfolio_action_ack (
+            user_id INTEGER NOT NULL,
+            action_key TEXT NOT NULL,
+            acked_at REAL NOT NULL,
+            PRIMARY KEY (user_id, action_key)
         )""")
 
 
@@ -167,6 +186,30 @@ def remove(user_id: int, code: str):
         c.execute("DELETE FROM portfolio WHERE user_id=? AND code=?", (user_id, code))
 
 
+def set_locked(user_id: int, code: str, locked: bool):
+    with _conn() as c:
+        c.execute("UPDATE portfolio SET locked=? WHERE user_id=? AND code=?",
+                   (1 if locked else 0, user_id, code))
+
+
+# ---------------------------------------------------------------- 확인/보류
+def _get_acks(user_id: int) -> set:
+    with _conn() as c:
+        rows = c.execute("SELECT action_key FROM portfolio_action_ack WHERE user_id=?", (user_id,)).fetchall()
+    return {r["action_key"] for r in rows}
+
+
+def ack_action(user_id: int, action_key: str):
+    with _conn() as c:
+        c.execute("INSERT OR IGNORE INTO portfolio_action_ack (user_id, action_key, acked_at) VALUES (?,?,?)",
+                   (user_id, action_key, time.time()))
+
+
+def unack_action(user_id: int, action_key: str):
+    with _conn() as c:
+        c.execute("DELETE FROM portfolio_action_ack WHERE user_id=? AND action_key=?", (user_id, action_key))
+
+
 # ---------------------------------------------------------------- 평가금액 추이
 def _bench_prices():
     """코스피·SPY 현재가. app/backtest.py의 _bench_price()와 같은 목적, 같은 방식 —
@@ -236,7 +279,7 @@ def list_for_user(user_id: int) -> list[dict]:
     with _conn() as c:
         rows = c.execute(
             "SELECT code, name, shares, avg_price, avg_fx_rate, snapshot_score, snapshot_date, "
-            "snapshot_verdict_tier FROM portfolio WHERE user_id=? ORDER BY created_at",
+            "snapshot_verdict_tier, locked FROM portfolio WHERE user_id=? ORDER BY created_at",
             (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -422,14 +465,26 @@ def _risk_flags(items, sector_weight, corr, contrib):
     return flags
 
 
-def _today_actions(items):
+def _action_key(card: dict) -> str:
+    """카드 내용(종목·제목·세부내용) 해시 — 하나라도 바뀌면 다른 키가 돼서, 확인해둔
+    카드라도 실제 상황이 달라지면 자동으로 다시 "새 변화"로 뜬다(_today_actions 참고)."""
+    raw = f"{card['code']}|{card['title']}|{card['detail']}"
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _today_actions(items, acked: set = None):
     """"그래서 오늘 뭘 하지?"에 답하는 카드 목록.
 
     ⚠️ 목표 비중은 반드시 AI 리밸런싱 섹션(_recommend_weights)의 target_weight와
     같은 숫자를 써야 한다. 예전엔 여기서만 "균등분산 기준"(100%/종목수)을 따로 계산해
     같은 페이지 안에서 목표 비중이 두 가지로 제시되는 모순이 있었다(2차 진단리포트
     3-4: "삼성전자 38%p 축소 검토" vs "88%→44%" AI 리밸런싱이 한 화면에 동시 표시).
-    compute()에서 이 함수는 target_weight가 이미 채워진 뒤 호출된다."""
+    compute()에서 이 함수는 target_weight가 이미 채워진 뒤 호출된다.
+
+    ⚠️ 6차 진단리포트(2026-09-23) 7장 P1 "변화 이력·확인/보류" — acked(사용자가
+    "확인" 누른 action_key 집합)가 주어지면 각 카드에 action_key·acked를 달아준다.
+    카드를 지우지는 않는다 — 프론트가 "확인한 항목"으로 접어서 보여주므로, 나중에
+    실제로 상황이 바뀌면(내용이 달라져 키가 바뀌면) 다시 눈에 띄는 목록에 나타난다."""
     n = len(items)
     if not n:
         return []
@@ -443,10 +498,19 @@ def _today_actions(items):
         above_target = (weight_gap is not None and weight_gap > 0
                         and _meaningfully_different(it["weight"], tw))
         if overweight:
+            # ⚠️ 6차 진단리포트(2026-09-23) 7장 P1 "Action과 리밸런싱 통합" — 여기서는
+            # "27%p 비중 축소 검토"라고만 말하고, 정작 몇 주를 팔아야 하는지는 화면
+            # 아래 "AI 리밸런싱" 섹션까지 내려가야 나왔다. 같은 종목의 구체적 실행
+            # 계획(rebalance_action, 이미 위에서 계산됨)이 있으면 그 문구를 그대로
+            # 가져와 "같은 계획"임을 보여준다 — 새 계산 없이 연결만 한다.
+            action_text = f"{it['name']} {it['weight'] - tw:.0f}%p 비중 축소 검토"
+            ra = it.get("rebalance_action")
+            if ra and ra["direction"] == "매도":
+                action_text = ra["text"]
             cards.append({
                 "level": "red", "code": it["code"], "name": it["name"], "title": "비중 과다",
                 "detail": f"AI 권장 비중 {tw:.0f}% → 현재 {it['weight']:.0f}%",
-                "action": f"{it['name']} {it['weight'] - tw:.0f}%p 비중 축소 검토",
+                "action": action_text,
             })
         if it.get("score_diff") is not None and it["score_diff"] <= -8:
             cards.append({
@@ -462,19 +526,31 @@ def _today_actions(items):
         # (3~15%p) 구간에서 "줄여라"·"더 사라"가 같은 화면에 동시에 뜨지 않는다
         # (가격은 매력적이어도 지금은 분산이 우선이라는 판단).
         if not above_target and it.get("buy_discount_pct") is not None and it["buy_discount_pct"] <= -5:
+            buy_action = f"{it['name']} 추가매수 검토"
+            ra = it.get("rebalance_action")
+            if ra and ra["direction"] == "매수":
+                buy_action = ra["text"]
             cards.append({
                 "level": "green", "code": it["code"], "name": it["name"], "title": "추가매수 기회",
                 "detail": f"매수 적정가 대비 {it['buy_discount_pct']:.0f}%",
-                "action": f"{it['name']} 추가매수 검토",
+                "action": buy_action,
             })
         if it.get("sell_reasons"):
+            sell_action = f"{it['name']} 일부 차익실현 고려"
+            ra = it.get("rebalance_action")
+            if ra and ra["direction"] == "매도":
+                sell_action = ra["text"]
             cards.append({
                 "level": "red", "code": it["code"], "name": it["name"], "title": "매도 신호",
                 "detail": " · ".join(it["sell_reasons"]),
-                "action": f"{it['name']} 일부 차익실현 고려",
+                "action": sell_action,
             })
+    for card in cards:
+        key = _action_key(card)
+        card["action_key"] = key
+        card["acked"] = bool(acked and key in acked)
     order = {"red": 0, "yellow": 1, "green": 2}
-    cards.sort(key=lambda c: order[c["level"]])
+    cards.sort(key=lambda c: (c["acked"], order[c["level"]]))
     return cards
 
 
@@ -683,6 +759,29 @@ def _recommend_weights(items, corr=None):
 
     capped_reason = {c: "sector" for c in sector_capped}
     capped_reason.update({c: "cluster" for c in cluster_capped})   # 상관관계 쪽이 더 구체적인 사유라 우선
+
+    # ⚠️ 6차 진단리포트(2026-09-23) 7장 P1 "개인 제약과 유지 선택" — 사용자가 "보유
+    # 유지"로 표시한 종목은 위 점수·업종·상관관계 계산과 무관하게 현재 비중 그대로
+    # 고정한다. 나머지(자유) 종목은 고정분을 뺀 나머지 비중(100%-고정 비중) 안에서
+    # 서로의 상대 비율(위에서 이미 계산된 target)만 유지한 채 다시 정규화한다 —
+    # sector/cluster 상한 로직 자체는 건드리지 않고 마지막에 한 번만 스케일링하므로
+    # 계산 안전성에 영향이 없다(스케일은 항상 1.0 이하 — 더 작은 예산에 맞추는
+    # 축소라 기존 상한을 다시 넘길 일이 없다).
+    locked_codes = {it["code"] for it in items if it.get("locked")}
+    if locked_codes:
+        fixed_total = sum(it["weight"] for it in items if it["code"] in locked_codes)
+        free_codes = [c for c in target if c not in locked_codes]
+        free_target_total = sum(target[c] for c in free_codes)
+        desired_free_total = max(0.0, 100.0 - fixed_total)
+        if free_target_total > 0:
+            scale = desired_free_total / free_target_total
+            for c in free_codes:
+                target[c] *= scale
+        for it in items:
+            if it["code"] in locked_codes:
+                target[it["code"]] = it["weight"]
+                capped_reason.pop(it["code"], None)
+
     return {c: round(w, 1) for c, w in target.items()}, capped_reason
 
 
@@ -698,6 +797,8 @@ def _rebalance_note(it, n_holdings, capped_reason=None):
     tw = it.get("target_weight")
     if tw is None:
         return None
+    if it.get("locked"):
+        return "🔒 보유 유지로 설정한 종목이라 리밸런싱 대상에서 제외했습니다."
     if n_holdings <= 2:
         return "보유 종목이 적어 AI 리밸런싱은 종목 간 비중 배분만 제안합니다 — 분산이 부족한지는 위 리스크 감점·경고를 참고하세요."
     diff = round(tw - it["weight"], 1)
@@ -750,7 +851,7 @@ def _actionable_rebalance(it, total_value: float):
     거래비용은 홈 백테스트(app/backtest.py)가 쓰는 것과 같은 왕복 가정치를 그대로
     재사용해 일관성을 맞춘다(새 가정을 또 만들지 않음)."""
     tw = it.get("target_weight")
-    if tw is None or total_value <= 0:
+    if tw is None or total_value <= 0 or it.get("locked"):
         return None
     diff_pct = tw - it["weight"]
     if abs(diff_pct) < 0.5:   # 반올림 오차 수준이면 "0주" 같은 무의미한 액션을 보여주지 않는다
@@ -1007,6 +1108,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
             "upside_flagged": (d.get("consensus") or {}).get("upside_flagged", False),
             "upside_weight": (d.get("consensus") or {}).get("upside_weight", 1.0),
             "sector": _SECTOR_MAP.get(row["code"], "미분류"),
+            "locked": bool(row.get("locked")),
             "price_by_date": {c["date"]: c["close"] * fx_mult for c in (d.get("candles") or [])},
         })
 
@@ -1067,7 +1169,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
             it["risk_contrib_pct"] = contrib.get(it["code"])
     theme_exposure, theme_exposure_detail = _theme_exposure(items)
     risk_flags = _risk_flags(items, sector_weight, corr, contrib)
-    today_actions = _today_actions(items)
+    today_actions = _today_actions(items, acked=_get_acks(user_id))
     corr_table = {"labels": [it["name"] for it in items], "matrix": corr} if corr else None
 
     _update_snapshots(user_id, snapshot_updates)

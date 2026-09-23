@@ -3916,21 +3916,45 @@ async function loadPortfolio() {
 
 const RISK_LEVEL_ICON = { red: "🔴", yellow: "🟡", green: "🟢" };
 
+// 6차 진단리포트(2026-09-23) 6-1/7장 P1 "변화 이력·확인/보류" — 예전엔 새로고침할
+// 때마다 지난번에 이미 읽은 경고까지 매번 똑같이 다시 떴다("오늘 할 일"이 사실 "지난
+// 번부터 계속 있던 일"과 구분이 안 됨). 각 카드에 [확인] 버튼을 달아 확인한 건 접어
+// 두고, 상단에 "새 변화 N건 · 확인 완료 M건"으로 구분해 보여준다. 확인해도 카드 자체가
+// 사라지진 않는다 — 실제 상황이 바뀌면(action_key가 달라지면, portfolio.py _action_key
+// 참고) 자동으로 다시 "새 변화"에 나타난다.
 function renderTodayActions(p) {
   const actions = p.today_actions || [];
   $("pf-actions-card").classList.toggle("hidden", !p.available || !actions.length);
   if (!p.available || !actions.length) return;
 
-  const n = actions.length;
-  $("pf-actions-summary").textContent = `현재 ${p.items.length}개 종목 중 조치가 필요한 항목이 ${n}건 있습니다.`;
+  const pending = actions.filter((a) => !a.acked);
+  const acked = actions.filter((a) => a.acked);
+  $("pf-actions-summary").textContent = `새 변화 ${pending.length}건 · 확인 완료 ${acked.length}건`
+    + ` (전체 ${p.items.length}개 종목 중)`;
 
-  $("pf-actions-list").innerHTML = actions.map((a) => `
-    <div class="pf-action-card pf-action-${a.level}">
-      <div class="pf-action-head">${RISK_LEVEL_ICON[a.level]} <b>${a.name}</b> ${a.title}</div>
+  const cardHTML = (a, ackedState) => `
+    <div class="pf-action-card pf-action-${a.level}${ackedState ? " pf-action-acked" : ""}">
+      <div class="pf-action-head">${RISK_LEVEL_ICON[a.level]} <b>${a.name}</b> ${a.title}
+        <button class="ghost-btn small pf-ack-btn" data-ack-key="${a.action_key}" data-ack-to="${ackedState ? "0" : "1"}">
+          ${ackedState ? "확인 취소" : "✓ 확인"}
+        </button>
+      </div>
       <div class="pf-action-detail">${a.detail}</div>
-    </div>`).join("");
+    </div>`;
+  $("pf-actions-list").innerHTML = pending.map((a) => cardHTML(a, false)).join("")
+    || `<p class="hint-p">새로 확인할 변화가 없습니다.</p>`;
+  $("pf-actions-acked-wrap").classList.toggle("hidden", !acked.length);
+  $("pf-actions-acked-list").innerHTML = acked.map((a) => cardHTML(a, true)).join("");
 
-  const todos = actions.map((a) => a.action);
+  document.querySelectorAll(".pf-ack-btn").forEach((b) => {
+    b.onclick = async () => {
+      const toAcked = b.dataset.ackTo === "1";
+      await api(`/api/portfolio/actions/${b.dataset.ackKey}/ack`, { method: toAcked ? "POST" : "DELETE" });
+      loadPortfolio();
+    };
+  });
+
+  const todos = pending.map((a) => a.action);
   $("pf-todo-wrap").classList.toggle("hidden", !todos.length);
   $("pf-todo-list").innerHTML = todos.map((t) => `<li>→ ${t}</li>`).join("");
 }
@@ -4056,6 +4080,128 @@ function renderRebalance(p) {
     </div>`).join("");
 }
 
+// ---------------- 조정 시나리오 비교 (6차 진단리포트 6-2, "핵심 유료 후보") ----------------
+// 왕복 거래비용 가정치 — app/backtest.py ROUNDTRIP_COST_PCT와 반드시 같은 값으로 유지.
+const PF_ROUNDTRIP_COST_PCT = 0.3;
+
+function pfConcentration(weights) {
+  // weights: [{code, weight}] — 종목 비중(%, 0~100)의 집중도. HHI는 위험감점(portfolio.py
+  // _risk_penalty)과 같은 정의(비중을 0~1로 바꿔 제곱합)를 그대로 써서 다른 화면과
+  // 기준이 어긋나지 않게 한다.
+  const sorted = [...weights].sort((a, b) => b.weight - a.weight);
+  const hhi = sorted.reduce((s, w) => s + (w.weight / 100) ** 2, 0);
+  const top1 = sorted[0] ? sorted[0].weight : 0;
+  const top3 = sorted.slice(0, 3).reduce((s, w) => s + w.weight, 0);
+  return { hhi, top1, top3 };
+}
+
+function computeScenarios(p, extraCash) {
+  const items = (p.items || []).filter((it) => it.target_weight != null);
+  if (!items.length) return null;
+  const totalStockValue = items.reduce((s, it) => s + it.value, 0);
+  const cash = p.cash || 0;
+  const baseWeights = items.map((it) => ({ code: it.code, weight: it.weight }));
+
+  // A. 현재 유지 — 아무 것도 안 함.
+  const scenarioA = {
+    label: "현재 유지", ...pfConcentration(baseWeights),
+    cost: 0, residualCash: cash + extraCash, feasible: true,
+    note: "지금 상태를 그대로 둡니다.",
+  };
+
+  // B. 매도 없이 추가금만 배분 — 목표비중보다 낮은(underweight) 종목에만, 파는 것
+  // 없이 extraCash를 채워 넣는다. "새 총자산(현재 주식가치+추가금) 기준 목표금액"과
+  // "현재 평가금액"의 차이(양수만)를 갭으로 보고, 갭 합계가 추가금보다 크면 비례
+  // 축소해서 배분한다 — 없는 돈을 쓸 수는 없으므로.
+  const newTotalIfFullyInvested = totalStockValue + extraCash;
+  const gaps = items.map((it) => ({
+    code: it.code,
+    gap: Math.max(0, (it.target_weight / 100) * newTotalIfFullyInvested - it.value),
+  }));
+  const gapSum = gaps.reduce((s, g) => s + g.gap, 0);
+  const investRatio = gapSum > extraCash && gapSum > 0 ? extraCash / gapSum : 1;
+  const buys = new Map(gaps.map((g) => [g.code, g.gap * investRatio]));
+  const totalBuyB = [...buys.values()].reduce((s, v) => s + v, 0);
+  const weightsB = items.map((it) => ({ code: it.code, weight: it.value + (buys.get(it.code) || 0) }));
+  const newTotalB = weightsB.reduce((s, w) => s + w.weight, 0);
+  weightsB.forEach((w) => { w.weight = newTotalB > 0 ? w.weight / newTotalB * 100 : 0; });
+  const costB = Math.round(totalBuyB * PF_ROUNDTRIP_COST_PCT / 100);
+  const scenarioB = {
+    label: "매도 없이 추가금만 배분", ...pfConcentration(weightsB),
+    cost: costB, residualCash: Math.round(cash + extraCash - totalBuyB - costB), feasible: true,
+    note: gapSum > extraCash
+      ? `추가금으로는 목표비중까지 부분적으로만(약 ${Math.round(investRatio * 100)}%) 채울 수 있습니다.`
+      : (totalBuyB > 0 ? "추가금 안에서 목표비중 갭을 모두 채웁니다." : "이미 모든 종목이 목표비중 이상이라 추가 매수가 필요 없습니다."),
+  };
+
+  // C. 최소 거래로 조정 — 목표비중과 가장 많이 벌어진(=위 AI 리밸런싱에서 이미 계산된
+  // rebalance_action이 있는) 종목 딱 1개만 실행하고 나머지는 그대로 둔다.
+  const actionable = items.filter((it) => it.rebalance_action && !it.locked);
+  let scenarioC;
+  if (!actionable.length) {
+    scenarioC = { label: "최소 거래로 조정", ...pfConcentration(baseWeights), cost: 0,
+      residualCash: cash + extraCash, feasible: true, note: "이미 목표비중에 부합해 추가 거래가 필요 없습니다." };
+  } else {
+    const top = actionable.reduce((a, b) =>
+      Math.abs(b.target_weight - b.weight) > Math.abs(a.target_weight - a.weight) ? b : a);
+    const action = top.rebalance_action;
+    const signedDelta = action.direction === "매수" ? action.value_krw : -action.value_krw;
+    const weightsC = items.map((it) => ({
+      code: it.code, weight: it.code === top.code ? it.value + signedDelta : it.value,
+    }));
+    const newTotalC = weightsC.reduce((s, w) => s + w.weight, 0);
+    weightsC.forEach((w) => { w.weight = newTotalC > 0 ? w.weight / newTotalC * 100 : 0; });
+    const residualC = Math.round(cash + extraCash - signedDelta - action.cost_est);
+    scenarioC = {
+      label: "최소 거래로 조정", ...pfConcentration(weightsC), cost: action.cost_est,
+      residualCash: residualC, feasible: residualC >= 0,
+      note: `${top.name} 1종목만 조정: ${action.text}`,
+    };
+  }
+
+  // D. 목표비중 전체 조정 — 위 AI 리밸런싱(items[].rebalance_action) 전부 실행.
+  const budget = p.rebalance_budget;
+  const scenarioD = {
+    label: "목표비중 전체 조정",
+    ...pfConcentration(items.map((it) => ({ code: it.code, weight: it.target_weight }))),
+    cost: items.reduce((s, it) => s + (it.rebalance_action ? it.rebalance_action.cost_est : 0), 0),
+    residualCash: budget ? Math.round(cash + extraCash + budget.sell_total - budget.buy_total) : cash + extraCash,
+    feasible: !budget || budget.shortfall <= 0,
+    note: budget && budget.shortfall > 0
+      ? `추가금을 합쳐도 약 ${Math.max(0, Math.round(budget.shortfall - extraCash)).toLocaleString()}원 부족합니다.`
+      : "위 AI 리밸런싱 제안을 모두 실행한 결과입니다.",
+  };
+
+  return [scenarioA, scenarioB, scenarioC, scenarioD];
+}
+
+function renderScenarios(p) {
+  const items = (p.items || []).filter((it) => it.target_weight != null);
+  $("pf-scenario-card").classList.toggle("hidden", !p.available || items.length < 2);
+  if (!p.available || items.length < 2) return;
+
+  const input = $("pf-scenario-extra");
+  const extraCash = Math.max(0, Number(input.value) || 0);
+  const scenarios = computeScenarios(p, extraCash);
+  const rows = scenarios.map((s) => `
+    <tr class="${!s.feasible ? "pf-scenario-infeasible" : ""}">
+      <td>${s.label}</td>
+      <td>${s.top1.toFixed(0)}%</td>
+      <td>${s.top3.toFixed(0)}%</td>
+      <td>${s.hhi.toFixed(2)}</td>
+      <td>${s.cost > 0 ? `약 ${s.cost.toLocaleString()}원` : "-"}</td>
+      <td class="${s.residualCash < 0 ? "down" : ""}">${s.residualCash.toLocaleString()}원${s.residualCash < 0 ? " 부족" : ""}</td>
+      <td class="hint">${s.note}</td>
+    </tr>`).join("");
+  $("pf-scenario-table").innerHTML = `
+    <thead><tr><th>대안</th><th>최대 종목 비중</th><th>상위3종목</th><th>집중도(HHI)</th><th>예상 비용</th><th>잔여 현금</th><th></th></tr></thead>
+    <tbody>${rows}</tbody>`;
+  if (!input.dataset.wired) {
+    input.dataset.wired = "1";
+    input.addEventListener("input", () => renderScenarios(lastPortfolioData));
+  }
+}
+
 // 현금 — 결함 리포트 2026-09-18 10장: 현금이 없으면 "종목 비중이 100%인 척"하게 되고
 // 매수 제안의 재원 근거도 안 보인다. 종목 weight%·리밸런싱 계산에는 안 섞고(portfolio.py
 // compute() 주석 참고) 총자산·현금 규모만 별도로 보여준다.
@@ -4140,6 +4286,7 @@ function renderPortfolio(p) {
   renderExposure(p);
   renderCorrelation(p);
   renderRebalance(p);
+  renderScenarios(p);
 
   if (!p.available) {
     if (hasHoldings) {
@@ -4254,7 +4401,7 @@ function renderPortfolio(p) {
           ];
         }
         return [
-          flag + it.name,
+          (it.locked ? "🔒 " : "") + flag + it.name,
           fmt(it.shares) + "주",
           it.avg_price != null ? pw(it.avg_price, it.currency) : "-",
           isUS ? pw(it.price_native, "USD") : won(it.price),
@@ -4266,6 +4413,8 @@ function renderPortfolio(p) {
           it.target_weight != null ? `${it.target_weight}%` : "-",
           `<span style="color:${verdictColor(v.tier)}">${v.emoji || ""} ${v.label || "-"}</span>`,
           `<button class="ghost-btn small" data-pf-edit="${it.code}">수정</button>
+           <button class="ghost-btn small" data-pf-lock="${it.code}" data-pf-locked="${it.locked ? 1 : 0}"
+             title="AI 리밸런싱이 이 종목의 비중을 건드리지 않게 고정합니다">${it.locked ? "🔓 해제" : "🔒 보유유지"}</button>
            <button class="ghost-btn small" data-pf-rm="${it.code}" data-pf-name="${it.name}">삭제</button>`,
         ];
       }));
@@ -4278,6 +4427,15 @@ function renderPortfolio(p) {
     });
     $("pf-holdings-table").querySelectorAll("[data-pf-edit]").forEach((b) => {
       b.onclick = () => { pfEditingCode = b.dataset.pfEdit; renderPortfolio(lastPortfolioData); };
+    });
+    $("pf-holdings-table").querySelectorAll("[data-pf-lock]").forEach((b) => {
+      b.onclick = async () => {
+        const locked = b.dataset.pfLocked !== "1";
+        await api(`/api/portfolio/${b.dataset.pfLock}/lock`, {
+          method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locked }),
+        });
+        loadPortfolio();
+      };
     });
     $("pf-holdings-table").querySelectorAll("[data-pf-cancel]").forEach((b) => {
       b.onclick = () => { pfEditingCode = null; renderPortfolio(lastPortfolioData); };
