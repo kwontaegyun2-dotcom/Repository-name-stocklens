@@ -745,14 +745,23 @@ def _actionable_rebalance(it, total_value: float):
     shares = round(diff_value_native / price_native)
     if shares == 0:
         return None
-    cost_est = round(abs(diff_value_krw) * backtest.ROUNDTRIP_COST_PCT / 100)
+    # ⚠️ 5차 진단리포트(2026-09-23) 3-2 — 여기서 표시하던 금액(diff_value_krw)은 정수
+    # 주수로 반올림하기 "전" 목표 조정금액이었다. 정수 주수로 반올림하면 특히 고가
+    # 종목(SK하이닉스처럼 1주=190만원)은 목표금액과 반올림된 실제 체결금액이 최대
+    # 반 주(50%) 가격만큼 벌어진다(실측: 1,326,606원 목표 → 1주=1,900,000원 체결,
+    # 차이 57만원). "1주 매수, 약 132만원"처럼 주수×가격과 안 맞는 금액을 보여주면
+    # 사용자가 그 계획을 그대로 쓸 수 없다 — 반드시 반올림 "후" 실제 주수×가격(×환율)
+    # 으로 재계산해서 보여준다.
+    fx = it.get("fx_rate") if it["currency"] == "USD" else 1
+    actual_value_krw = round(abs(shares) * price_native * (fx or 1))
+    cost_est = round(actual_value_krw * backtest.ROUNDTRIP_COST_PCT / 100)
     unit_price = f"${price_native:,.2f}" if it["currency"] == "USD" else f"{price_native:,.0f}원"
     action = "매수" if shares > 0 else "매도"
     return {
         "shares": abs(shares), "direction": action,
-        "value_krw": round(abs(diff_value_krw)),
+        "value_krw": actual_value_krw,
         "cost_est": cost_est,
-        "text": f"{it['name']} {abs(shares)}주 {action} (주당 {unit_price} 기준, 약 {won(abs(diff_value_krw))}원, "
+        "text": f"{it['name']} {abs(shares)}주 {action} (주당 {unit_price} 기준, 약 {won(actual_value_krw)}원, "
                 f"거래비용 약 {won(cost_est)}원 가정)",
     }
 
@@ -1093,6 +1102,28 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
     total_assets = total_value + cash
     cash_weight = round(cash / total_assets * 100, 1) if total_assets > 0 else None
 
+    # ⚠️ 5차 진단리포트(2026-09-23) 3-3 — 종목별 리밸런싱 액션(_actionable_rebalance)은
+    # 서로 독립적으로 정수 주수 반올림을 하기 때문에, 목표비중 상으로는 매도 대금과
+    # 매수 대금이 정확히 상쇄되도록 설계돼 있어도(비중 총합 100%) 반올림 오차가 한쪽
+    # 방향으로 누적되면 실제 매수 총액이 "매도 대금 + 보유 현금"을 넘어설 수 있다
+    # (실측: 7종목 포트폴리오 매수 1,886만원 vs 매도+현금 1,774만원, 약 112만원 부족 —
+    # 특히 SK하이닉스처럼 1주=190만원대인 고가 종목이 0.5주 근처에서 반올림되면 오차가
+    # 커진다). 조용히 넘어가면 사용자는 결제 단계에서야 자금 부족을 알게 된다. 여기서
+    # 먼저 계산해 부족액을 명시한다 — 어떤 종목의 수량을 줄일지는 사용자 우선순위의
+    # 영역이라 자동으로 깎지는 않는다.
+    buy_total = sum(it["rebalance_action"]["value_krw"] for it in items
+                    if it.get("rebalance_action") and it["rebalance_action"]["direction"] == "매수")
+    sell_total = sum(it["rebalance_action"]["value_krw"] for it in items
+                     if it.get("rebalance_action") and it["rebalance_action"]["direction"] == "매도")
+    rebalance_budget = None
+    if buy_total > 0 or sell_total > 0:
+        available_funds = cash + sell_total
+        rebalance_budget = {
+            "buy_total": round(buy_total), "sell_total": round(sell_total),
+            "cash": round(cash), "available_funds": round(available_funds),
+            "shortfall": round(max(0.0, buy_total - available_funds)),
+        }
+
     _record_snapshot(user_id, total_assets, cash)
 
     return {
@@ -1126,4 +1157,5 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
         "risk_flags": risk_flags,
         "theme_exposure": theme_exposure,
         "correlation": corr_table,
+        "rebalance_budget": rebalance_budget,
     }

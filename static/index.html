@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=109">
+<link rel="stylesheet" href="/static/style.css?v=110">
 <!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
      defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
      기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
@@ -794,6 +794,7 @@
 
   <section class="card hidden" id="pf-rebalance-card">
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-bot"/></svg> AI 리밸런싱 <small class="hint">AI판단(매수~매도) 신뢰도 기준 권장 비중 · 종목당 상한 적용</small></h3>
+    <p id="pf-rebal-budget" class="pf-rebal-budget hidden"></p>
     <div id="pf-rebalance-list" class="pf-rebalance-list"></div>
   </section>
 </main>
@@ -901,6 +902,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=122" defer></script>
+<script src="/static/app.js?v=123" defer></script>
 </body>
 </html>

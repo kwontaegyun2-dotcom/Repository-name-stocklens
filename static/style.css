@@ -1194,6 +1194,8 @@ td.pos { color: var(--up); } td.neg { color: var(--down); }
 .pf-rebal-pct { font-size: var(--fs-xs); font-weight: 700; text-align: right; }
 .pf-rebal-note { font-size: var(--fs-xs); color: var(--muted); margin-top: 8px; }
 .pf-rebal-action { font-size: var(--fs-sm); color: var(--text); font-weight: 700; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.pf-rebal-budget { font-size: var(--fs-sm); color: var(--green); background: rgba(46,230,166,.1); border: 1px solid rgba(46,230,166,.3); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; }
+.pf-rebal-budget.warn { color: var(--amber); background: rgba(255,176,32,.1); border-color: rgba(255,176,32,.35); }
 .pf-warnings { list-style: none; display: flex; flex-direction: column; gap: 6px; margin-top: 14px; }
 .pf-warnings li { font-size: var(--fs-sm); padding: 9px 13px; border-radius: 10px; background: rgba(255,166,77,.1); border: 1px solid rgba(255,166,77,.3); }
 .pf-warnings li.pos { background: rgba(46,230,166,.08); border-color: rgba(46,230,166,.3); }

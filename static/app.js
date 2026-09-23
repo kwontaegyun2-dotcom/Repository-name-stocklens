@@ -3981,6 +3981,27 @@ function renderRebalance(p) {
   const items = p.available ? (p.items || []).filter((it) => it.target_weight != null) : [];
   $("pf-rebalance-card").classList.toggle("hidden", !items.length);
   if (!items.length) return;
+  // 5차 진단리포트 3-3 — 종목별 매수/매도 액션은 서로 독립적으로 정수 주수 반올림을
+  // 해서, 목표비중상으론 상쇄되는데도 실제 매수 총액이 "매도대금+보유현금"을 넘을 수
+  // 있다. 조용히 넘어가면 사용자가 결제 단계에서야 자금 부족을 안다 — 여기서 먼저
+  // 계산해 보여준다(자동으로 수량을 줄이지는 않음 — 어떤 종목을 줄일지는 사용자 몫).
+  const budgetEl = $("pf-rebal-budget");
+  const b = p.rebalance_budget;
+  if (b && b.shortfall > 0) {
+    budgetEl.classList.remove("hidden");
+    budgetEl.classList.add("warn");
+    budgetEl.textContent = `⚠️ 제안된 매수 총액 약 ${b.buy_total.toLocaleString()}원이 매도대금+보유현금(약 `
+      + `${b.available_funds.toLocaleString()}원)보다 약 ${b.shortfall.toLocaleString()}원 부족합니다. `
+      + `추가 입금하거나 일부 종목의 매수 수량을 줄이세요.`;
+  } else if (b) {
+    budgetEl.classList.remove("hidden");
+    budgetEl.classList.remove("warn");
+    budgetEl.textContent = `매수 총액 약 ${b.buy_total.toLocaleString()}원은 매도대금+보유현금(약 `
+      + `${b.available_funds.toLocaleString()}원) 안에서 실행 가능합니다.`;
+  } else {
+    budgetEl.classList.add("hidden");
+    budgetEl.textContent = "";
+  }
   // 진단리포트(2026-08-24) 4-15 — 보유종목이 1~2개면 재배분할 다른 종목이 없어 target_weight가
   // 그 종목에 몰릴 수밖에 없는데(예: 2종목 중 셀트리온 55.7%), 위에서 "집중도가 높습니다"라고
   // 경고해 놓고 바로 아래서 특정 종목에 더 몰아 담으라는 숫자(권장 막대바)를 함께 보여주면
