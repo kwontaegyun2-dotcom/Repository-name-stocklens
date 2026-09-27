@@ -114,13 +114,6 @@ def api_screener(
     return screener.run(conditions)
 
 
-# ---------------------------------------------------------------- 점수 백테스트
-@app.get("/api/backtest")
-def api_backtest(request: Request = None):
-    _rate_limit(request, limit=30, window=60)
-    return backtest.dashboard()
-
-
 # ---------------------------------------------------------------- 테마·산업
 @app.get("/api/themes")
 def api_themes():

@@ -739,97 +739,6 @@ function syncHomeForUser() {
   if (label) label.classList.toggle("hidden", !currentUser);
 }
 
-/* ---------------- 점수 백테스트 ---------------- */
-// 진단리포트 9장: "점수의 과거 성과를 상시 공개하는 것이 유료화의 결정적 근거".
-// 과거 시점 데이터를 재구성할 방법이 없어(재무·컨센서스·기술지표 모두 "현재값"만 제공)
-// 진짜 과거 백테스트는 불가능 — 대신 오늘부터 매일 스냅샷을 쌓아 실제 결과만 보여준다.
-async function loadBacktest() {
-  try {
-    const d = await api("/api/backtest");
-    if (!d.available) {
-      document.getElementById("bt-body").innerHTML =
-        `<div class="bt-empty">📅 오늘부터 점수 추적을 시작했습니다. 매일 자동으로 종가를 기록하고,
-         1주일 뒤부터 이 자리에 실제 수익률이 표시됩니다. 과거 데이터를 흉내 내지 않고
-         정직하게 실현되는 대로만 보여드립니다.</div>`;
-      setSectionCollapsed("bt-body-wrap", true);
-      const note0 = document.getElementById("bt-toggle-note");
-      if (note0) note0.textContent = "추적 시작 단계 — 아직 결과 없음";
-      return;
-    }
-    document.getElementById("bt-sub").textContent =
-      `추적 시작 ${d.start_date} · ${d.days_collected}일째 매일 실제 종가로 기록 중 · 마지막 기록 ${d.latest_date}`;
-    /* 아직 어느 기간도 결과가 없으면 "🔒 데이터 부족" 카드 다섯 개가 401px를 그대로
-       차지한다(진단보고서 3-1). 그럴 땐 접어 두고 제목줄에 진행 상황만 한 줄로 남긴다. */
-    const anyReady = d.periods.some((p) => p.available);
-    setSectionCollapsed("bt-body-wrap", !anyReady);
-    const note = document.getElementById("bt-toggle-note");
-    if (note) note.textContent = anyReady ? "" : `추적 ${d.days_collected}일째 — 1주일 뒤부터 결과 표시`;
-    // 진단리포트(2026-08-31) 7번 — "13일·표본 2종목으로 성과를 판단하기엔 이르다"는
-    // 지적. 어떤 기간이든 최소기준(등급당 100종목·6개월 추적) 미달이면 결론을 내리기
-    // 이르다는 경고를 강하게, 항상 보이게 띄운다(접혀도 이 배너는 남는다).
-    const allReliable = d.periods.every((p) => !p.available || p.reliable);
-    const warnHtml = allReliable ? "" : `<div class="bt-early-warning">
-      ⚠️ <b>성과 검증 중 — 아직 결론을 내리기 이른 단계입니다.</b>
-      등급별 표본이 ${d.methodology.min_reliable_sample}종목 이상, 추적 기간이
-      ${d.methodology.min_reliable_days}일(6개월) 이상 쌓이기 전까지는 통계적으로
-      의미 있는 결과로 보지 마세요. 아래 수치는 참고용입니다.
-    </div>`;
-    // 종목명이 안 보인다는 지적 — 예전엔 등급별 평균 수익률만 보여주고 정작 "그래서
-    // S등급이 어떤 종목들인데"가 안 보였다. app/backtest.py가 이제 등급당 수익률
-    // 상위 최대 10종목을 함께 내려주므로 칩 목록으로 붙인다.
-    const periodsHtml = `<div class="bt-grid">${d.periods.map((p) => {
-      if (!p.available) {
-        return `<div class="bt-period bt-period-locked">
-          <div class="bt-period-label">${p.label}</div>
-          <div class="bt-period-locked-msg">🔒 아직 데이터 부족<br><small>추적 ${d.days_collected}/${p.days}일째</small></div>
-        </div>`;
-      }
-      const rows = p.buckets.filter((b) => b.count > 0).map((b) => {
-        // MDD·변동성·샤프·순수익(거래비용 반영)·제외종목 — 표본이 극히 작을 때(예: 2~3
-        // 종목)는 일별 시계열이 3영업일 미만일 수 있어 null일 수 있다(정직하게 "-").
-        const detailParts = [
-          `순수익(비용반영) ${sign(b.net_avg_return, 1)}%`,
-          b.mdd != null ? `MDD ${b.mdd}%` : null,
-          b.volatility != null ? `변동성(연) ${b.volatility}%` : null,
-          b.sharpe != null ? `샤프 ${b.sharpe}` : null,
-          b.excluded_count > 0 ? `⚠️ 매칭 실패 ${b.excluded_count}종목 제외` : null,
-        ].filter(Boolean);
-        return `
-        <div class="bt-row">
-          <span class="bt-grade">${b.grade}</span>
-          <span class="bt-n">${b.count}종목</span>
-          <span class="bt-ret ${b.avg_return >= 0 ? "up" : "down"}">${sign(b.avg_return, 1)}%</span>
-          <span class="bt-win">승률 ${b.win_rate}%</span>
-          ${b.excess_vs_bench != null ? `<span class="bt-excess ${b.excess_vs_bench >= 0 ? "up" : "down"}">지수대비 ${sign(b.excess_vs_bench, 1)}%p</span>` : ""}
-        </div>
-        <div class="bt-detail">${detailParts.join(" · ")}</div>
-        <div class="bt-stocks">
-          ${(b.stocks || []).map((s) =>
-            `<span class="bt-stock ${s.return >= 0 ? "up" : "down"}">${s.name} ${sign(s.return, 1)}%</span>`).join("")}
-          ${b.more_count > 0 ? `<span class="bt-stock-more">+${b.more_count}종목 더</span>` : ""}
-        </div>`;
-      }).join("");
-      return `<div class="bt-period">
-        <div class="bt-period-label">${p.label} <small>(${p.base_date} 기준 ${p.sample_size}종목${p.reliable ? "" : " · 표본/기간 기준 미달"})</small></div>
-        ${rows || `<p class="hint-p">표본 부족</p>`}
-      </div>`;
-    }).join("")}</div>`;
-    const methodHtml = `<details class="bt-methodology">
-      <summary>계산 방식·한계 공개 ▾</summary>
-      <ul>
-        <li>${d.methodology.weighting}</li>
-        <li>${d.methodology.grade_reassignment}</li>
-        <li>${d.methodology.cost_assumption}</li>
-        <li>${d.methodology.survivorship}</li>
-        <li>${d.methodology.no_hindsight}</li>
-      </ul>
-    </details>`;
-    document.getElementById("bt-body").innerHTML = warnHtml + periodsHtml + methodHtml;
-  } catch {
-    document.getElementById("bt-body").innerHTML = `<p class="hint-p">불러오지 못했습니다.</p>`;
-  }
-}
-
 /* ---------------- 스크리너 ---------------- */
 // 진단리포트 P1 지적사항: "현재 랭킹 필터는 섹터 선택뿐입니다. PER 10배 이하 + ROE 15%
 // 이상 + 외국인 5일 연속 순매수 같은 조건 조합이 유료 전환의 1순위 사유입니다."
@@ -4666,7 +4575,6 @@ loadRanking();
 const _meReady = loadMe();
 loadThemeChips();
 loadAnomalies();
-loadBacktest();
 if ("serviceWorker" in navigator && window.isSecureContext) {
   navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
 }
