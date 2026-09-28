@@ -689,7 +689,7 @@ def api_portfolio(request: Request):
 @app.get("/api/portfolio/history")
 def api_portfolio_history(request: Request):
     user = _require_user(request)
-    return {"history": portfolio.get_history(user["id"])}
+    return {"history": portfolio.get_history(user["id"]), "holdings": portfolio.get_holding_history(user["id"])}
 
 
 class PortfolioCashBody(BaseModel):

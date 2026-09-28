@@ -91,6 +91,21 @@ def init(data_dir: Path):
             spy REAL,
             PRIMARY KEY (user_id, date)
         )""")
+        # 종목별 일별 평가금액 스냅샷 — "등록 시점부터 종목별·총자산이 어떻게 바뀌었는지
+        # 매일 보여줬으면" 요청(2026-09-29). 위 portfolio_snapshot(총자산)과 같은
+        # idempotent-per-day 패턴을 종목 단위로 추가한다. 종목을 삭제해도 과거 기록은
+        # 남겨둔다(그날은 실제로 보유했었다는 사실이라 지우면 이력이 왜곡된다) — 그래서
+        # portfolio 테이블처럼 code에 FK를 걸지 않는다.
+        c.execute("""CREATE TABLE IF NOT EXISTS portfolio_holding_snapshot (
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            code TEXT NOT NULL,
+            name TEXT NOT NULL,
+            value REAL NOT NULL,
+            shares REAL NOT NULL,
+            price REAL,
+            PRIMARY KEY (user_id, date, code)
+        )""")
         # 6차 진단리포트(2026-09-23) 7장 P1 "변화 이력·확인/보류" — "오늘의 Action" 카드가
         # 매번 새로고침할 때마다 지난번에 이미 읽은 경고까지 그대로 다시 떠서, 뭐가
         # 새로 생긴 건지 구분이 안 됐다. action_key(카드 내용의 해시 — 종목·제목·세부
@@ -228,9 +243,13 @@ def _bench_prices():
     return kospi, spy
 
 
-def _record_snapshot(user_id: int, total_value: float, cash: float):
+def _record_snapshot(user_id: int, total_value: float, cash: float, items: list[dict] | None = None):
     """하루 한 번만 실제로 기록(idempotent, PRIMARY KEY(user_id,date)로 강제) —
-    compute()가 매 요청마다 호출해도 상관없다(app/backtest.py의 snapshot()과 동일 패턴)."""
+    compute()가 매 요청마다 호출해도 상관없다(app/backtest.py의 snapshot()과 동일 패턴).
+    items가 주어지면(2026-09-29 — 종목별 추이 요청) 같은 날짜에 종목별 평가금액도 함께
+    남긴다. 총자산 기록 여부로만 "오늘 이미 기록했는지"를 판단하므로, 그날 첫 호출 때
+    보유 종목이 일시적으로 덜 불러와졌으면(네트워크 실패 등) 그 종목만 그날 기록이
+    비고 다음날부터 다시 채워진다 — 총자산 자체가 틀리지는 않으므로 감수할 만하다."""
     today_str = datetime.now(_KST).date().isoformat()
     with _conn() as c:
         row = c.execute(
@@ -245,6 +264,13 @@ def _record_snapshot(user_id: int, total_value: float, cash: float):
             "VALUES (?,?,?,?,?,?)",
             (user_id, today_str, total_value, cash, kospi, spy),
         )
+        if items:
+            c.executemany(
+                "INSERT OR IGNORE INTO portfolio_holding_snapshot "
+                "(user_id, date, code, name, value, shares, price) VALUES (?,?,?,?,?,?,?)",
+                [(user_id, today_str, it["code"], it["name"], it["value"], it["shares"], it["price"])
+                 for it in items],
+            )
 
 
 def get_history(user_id: int) -> list[dict]:
@@ -256,6 +282,25 @@ def get_history(user_id: int) -> list[dict]:
             "WHERE user_id=? ORDER BY date", (user_id,),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_holding_history(user_id: int) -> dict:
+    """종목별 일별 평가금액 추이 — {code: {"name", "series": [{"date","value","shares","price"}, ...]}}.
+    현재는 보유하지 않지만 과거에 보유했던 종목도(스냅샷이 남아있으면) 그대로 포함된다
+    — "전량 매도 전까지의 추이"를 보여줄 때 쓸 수 있다(프론트에서 현재 보유 종목만
+    걸러 보여줄지는 화면 쪽 선택)."""
+    with _conn() as c:
+        rows = c.execute(
+            "SELECT date, code, name, value, shares, price FROM portfolio_holding_snapshot "
+            "WHERE user_id=? ORDER BY date", (user_id,),
+        ).fetchall()
+    out: dict = {}
+    for r in rows:
+        d = dict(r)
+        entry = out.setdefault(d["code"], {"name": d["name"], "series": []})
+        entry["name"] = d["name"]   # 이름이 바뀌었을 수 있으니(거래소 표기 변경 등) 최신값으로 갱신
+        entry["series"].append({"date": d["date"], "value": d["value"], "shares": d["shares"], "price": d["price"]})
+    return out
 
 
 def get_cash(user_id: int) -> float:
@@ -1248,7 +1293,7 @@ def compute(user_id: int, holding_rows: list[dict], analyze_fn, cash: float = 0.
             "shortfall": round(max(0.0, buy_total - available_funds)),
         }
 
-    _record_snapshot(user_id, total_assets, cash)
+    _record_snapshot(user_id, total_assets, cash, items)
 
     return {
         "available": True,

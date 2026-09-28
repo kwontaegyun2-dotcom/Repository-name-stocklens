@@ -3697,13 +3697,14 @@ let lastPortfolioData = null;
 // 않는다. 시작일=100 지수로 정규화해 포트폴리오·코스피·S&P500을 같은 축에서 비교한다.
 async function renderPortfolioHistory() {
   const card = $("pf-history-card"), note = $("pf-history-note"), cvs = $("pf-history-chart");
-  let history;
+  let history, holdings;
   try {
-    ({ history } = await api("/api/portfolio/history"));
+    ({ history, holdings } = await api("/api/portfolio/history"));
   } catch {
     card.classList.add("hidden");
     return;
   }
+  renderHoldingTrends(holdings);
   if (!history || history.length < 2) {
     card.classList.remove("hidden");
     note.textContent = history && history.length === 1
@@ -3783,6 +3784,62 @@ async function renderPortfolioHistory() {
     ctx.fillText(l.label, lx + 14, padT - 1);
     lx += 14 + w + 16;
   });
+}
+
+// 종목별 평가금액 추이(2026-09-29 요청 — "등록 시점부터 종목별·총자산이 어떻게
+// 바뀌었는지 매일"). portfolio_holding_snapshot(app/portfolio.py)에 이미 종목마다
+// 하루 한 번씩 쌓인 값을 그대로 쓴다 — 새 네트워크 호출·재계산 없음. 현재 보유
+// 종목만 보여준다(판 종목까지 섞으면 "지금 내 자산"을 보러 온 화면의 목적과
+// 어긋난다 — 매도 종목 추이가 필요하면 별도 요청 시 추가).
+function renderHoldingTrends(holdings) {
+  const wrap = $("pf-holding-trends");
+  if (!wrap) return;
+  const items = (lastPortfolioData && lastPortfolioData.items) || [];
+  if (!holdings || !items.length) { wrap.innerHTML = ""; return; }
+
+  wrap.innerHTML = `<h4 class="pf-holding-trends-title">종목별 등록 후 추이</h4>
+    <div class="pf-holding-trend-list" id="pf-holding-trend-list"></div>`;
+  const list = $("pf-holding-trend-list");
+
+  items.forEach((it) => {
+    const h = holdings[it.code];
+    const row = document.createElement("div");
+    row.className = "pf-holding-trend-row";
+    if (!h || h.series.length < 2) {
+      row.innerHTML = `<div class="pf-ht-name">${it.name}</div>
+        <div class="pf-ht-empty hint">오늘 추적을 시작했습니다 — 내일부터 추이가 쌓입니다.</div>`;
+      list.appendChild(row);
+      return;
+    }
+    const series = h.series;
+    const first = series[0], last = series[series.length - 1];
+    const changePct = first.value ? (last.value / first.value - 1) * 100 : null;
+    row.innerHTML = `
+      <div class="pf-ht-name">${it.name}<small class="hint"> · ${first.date} 등록</small></div>
+      <canvas class="pf-ht-spark" width="140" height="36"></canvas>
+      <div class="pf-ht-nums">
+        <span>${pw(first.value, "KRW")} → ${pw(last.value, "KRW")}</span>
+        ${changePct != null ? `<b class="${updownClass(changePct)}">${sign(changePct, 1)}%</b>` : ""}
+      </div>`;
+    list.appendChild(row);
+    drawSparkline(row.querySelector(".pf-ht-spark"), series.map((s) => s.value));
+  });
+}
+
+function drawSparkline(cvs, values) {
+  const ctx = cvs.getContext("2d");
+  const W = cvs.width, H = cvs.height, pad = 3;
+  ctx.clearRect(0, 0, W, H);
+  const max = Math.max(...values), min = Math.min(...values);
+  const range = (max - min) || 1;
+  const x = (i) => pad + (i / (values.length - 1)) * (W - pad * 2);
+  const y = (v) => pad + (1 - (v - min) / range) * (H - pad * 2);
+  const up = values[values.length - 1] >= values[0];
+  ctx.strokeStyle = cssVar(up ? "--up" : "--down");
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  values.forEach((v, i) => (i === 0 ? ctx.moveTo(x(i), y(v)) : ctx.lineTo(x(i), y(v))));
+  ctx.stroke();
 }
 
 async function showPortfolio() {

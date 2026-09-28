@@ -18,7 +18,7 @@
 <script type="application/ld+json">
 {"@context":"https://schema.org","@type":"WebSite","name":"StockLens","url":"https://stocklens.161-33-201-126.nip.io/","description":"국내·미국 주식을 재무·기술적 추세·수급·뉴스까지 한 번에 채점해 종합 분석하는 서비스","inLanguage":"ko"}
 </script>
-<link rel="stylesheet" href="/static/style.css?v=113">
+<link rel="stylesheet" href="/static/style.css?v=114">
 <!-- 진단(2026-09-01, 모바일 체감속도 문의) — 외부 CDN(unpkg.com) 스크립트가 <head>에서
      defer 없이 동기 로드되고 있었다. HTML 파싱이 이 스크립트의 다운로드+실행을 전부
      기다린 뒤에야 재개되는데, 모바일 네트워크는 왕복지연(RTT)이 커서 이 지연이 데스크톱
@@ -723,6 +723,7 @@
     <h3><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chart"/></svg> 평가금액 추이 <small class="hint">매일 실제 값으로 기록 · 코스피·S&amp;P500과 비교</small></h3>
     <p id="pf-history-note" class="hint-p"></p>
     <canvas id="pf-history-chart" height="220"></canvas>
+    <div id="pf-holding-trends" class="pf-holding-trends"></div>
   </section>
 
   <!-- 종목 추가를 보유종목 바로 아래 같은 카드에 둔다 — 예전엔 '오늘의 Action' 카드
@@ -912,6 +913,6 @@
   <p class="footer-links">StockLens © 2026 · <a href="/terms">이용약관</a> · <a href="/privacy">개인정보처리방침</a></p>
 </footer>
 
-<script src="/static/app.js?v=127" defer></script>
+<script src="/static/app.js?v=128" defer></script>
 </body>
 </html>
